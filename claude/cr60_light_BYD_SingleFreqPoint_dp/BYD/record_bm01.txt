@@ -1,0 +1,1084 @@
+╭─── Claude Code v2.1.161 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│               Welcome back PeterZhu!               │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ `OTEL_RESOURCE_ATTRIBU… │
+│ Opus 4.8 · Claude Pro · peterzhu0312@gmail.com's   │ `claude agents` rows n… │
+│ Organization                                       │ `/mcp` now collapses c… │
+│ D:\Weifu\Project\CR\pl\cr60_light_BYD_SingleFreqP… │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+> 我这么改_c_int00_sbl然后然后现在发现电流能起来了，电流也在跳动，但是程序运行  
+  感觉有问题，没有can输出，然后我连接调试器看发现r5                             
+  ⎿  Interrupted · What should Claude do instead?
+
+> 我这么改_c_int00_sbl然后然后现在发现电流能起来了，电流也在跳动，但是程序运行  
+  感觉有问题，没有can输出，然后我连接调试器看发现r5卡在了prvIdleTask->vApplicat 
+  ionIdleHook里面                                                               
+
+● R5 卡在 idle 任务说明调度器其实是正常跑起来的（能切到 idle，说明 SysTick/tick
+  中断在工作、上下文切换在工作）。问题在于真正干活的任务（比如 CAN 
+  任务）要么没被创建、要么一直阻塞拿不到事件，所以系统永远只剩 idle 可调度。
+
+  在我盲猜之前，先看一下你的工程，定位 _c_int00_sbl 和 CAN/FreeRTOS
+  的初始化代码。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 这是 TI AWR2944/AWR2x44P 毫米波雷达工程，你的实际工程是
+  cr60_light_BYD_SingleFreqPoint_dp。先看一下启动流程和任务创建。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 这是一个 AUTOSAR + FreeRTOS 工程（CanIf/CanSM/CanNm/CanTp/BswM 全套 BSW 跑在
+  TI mmWave SDK 的 FreeRTOS 上）。所以"CAN 输出"是靠 AUTOSAR Com 栈的周期性
+  MainFunction 推动的，而这些 MainFunction 是被某个 FreeRTOS 周期任务调用的。
+
+  先确认一下关键事实：停在 idle 不等于崩溃。能切进 prvIdleTask，说明调度器、tick
+  中断、上下文切换都是好的。问题是 除了 idle/timer 
+  之外该干活的任务要么没被创建，要么一直阻塞。
+
+  我先看一下 SBL 启动汇编里 _c_int00_sbl 原本该做什么，再对照你的改动。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 找到启动文件了，看一下你改的 _c_int00_sbl 和应用入口 main.c。
+
+  Read 2 files (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+> 我这么改_c_int00_sbl然后然后现在发现电流能起来了，电流也在跳动，但是程序运行  
+  感觉有问题，没有can输出，然后我连接调试器看发现r5卡在了prvIdleTask->vApplicat 
+  ionIdleHook里面，我说明下是mmwave_mcuplus_sdk_04_07_00_01工程，我改了_c_int00 
+  _sbl这个，把这个添加到了入口地址                                              
+
+● 工程是 mmwave_mcuplus_sdk_04_07_00_01，你把入口地址改成了
+  _c_int00_sbl。我需要看一下 SDK 里 _c_int00_sbl
+  这个入口本身的汇编实现，确认它和 _c_int00 的区别。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● _c_int00_sbl 在预编译库里（不是源码）。这是 TI MCU+ SDK 的 boot 汇编。我找一下
+  SDK 的 boot 源文件，确认这个入口的语义。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● _c_int00_sbl 来自预编译的 boot 模块。我从 .map 里确认一下它属于哪个
+  object/库，以及它和 bypass_auto_init 的关系——这决定了它的语义。
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 我基本定位到问题了。_c_int00_sbl 来自
+  boot_armv7r_asm.obj（nortos.awr2x44p.r5f.ti-arm-clang 库）。从 map
+  的符号布局可以确认它的语义：
+
+  10206b8c  _c_int00_sbl      ← 你设的入口（精简入口）
+  10206ba4  _sblLoopForever
+  10206bac  _c_int00_addr     (.word _c_int00)
+  10206bb0  _c_int00          ← 完整入口
+  10206c60  bypass_auto_init  ← 在 _c_int00 内部，靠近末尾
+
+  核心结论：_c_int00_sbl 会跳过 C 运行时初始化（auto-init）
+
+  这两个入口的区别就在 bypass_auto_init 这个标号：
+
+  - _c_int00（完整入口）：建栈 → MPU/Cache → 执行 __TI_auto_init：处理 .cinit 
+  记录，把 .data 从 load 地址拷到 run 地址、把 .bss 清零 → 跳 main。
+  - _c_int00_sbl（SBL 精简入口）：直接跳到 bypass_auto_init，跳过 .data 拷贝和 
+  .bss 清零。它的前提是"加载器（SBL）已经替我把这些段初始化好了"。
+
+  你的 map 里明确有这些 cinit 记录，是要在运行时被处理的：
+
+  .cinit..data.load                          ← .data 需要从 load 拷到 run
+  .cinit..bss.load  compression = zero_init  ← .bss 需要运行时清零
+
+  如果你直接从 _c_int00_sbl 进，而加载器又没替你做这两件事，那么所有 
+  .bss/零初始化全局变量都是上电随机值，.data 也是未初始化的垃圾。
+
+  为什么现象正好是"卡在 idle、没有 CAN"
+
+  .bss 没清零的直接后果：
+  - FreeRTOS 的堆 ucHeap、uxCurrentNumberOfTasks、各任务/队列句柄全在 .bss →
+  xTaskCreate/xQueueCreate 创建应用任务时拿到垃圾指针/计数，创建失败或行为异常 →
+  只剩 idle（和 Tmr Svc）能跑 → R5 永远在 prvIdleTask。
+  - AUTOSAR 的状态机（EcuM/BswM/CanSM 的 state、"已初始化"标志位）是垃圾 → CAN
+  通道永远进不到 RUN 态，Com 周期 MainFunction 推不动 → 没有 CAN 输出。
+  - 电流能上来且跳动：因为早期 CPU/时钟/RF 前端那部分（SBL
+  已做或精简入口仍走到）跑到了，但上层逻辑全废了。
+
+  也就是说，换 _c_int00_sbl
+  只是"骗过了"之前卡住的那一段，并没有真正修好——它把启动初始化整段跳过了。
+
+  怎么验证（连着调试器就能确认）
+
+  1. 看任务列表：uxCurrentNumberOfTasks 是不是只有 2（IDLE + Tmr
+  Svc）？应用任务根本没建起来。
+  2. 在 main（或 EcuM_Init）下断点，看一个已知初值的 .data 全局（比如
+  CanConfigSet_ETAS_CAN / gMcuClkSetSrcMap），值对不对——大概率是垃圾。
+  3. 看一段 .bss（比如 ucHeap 起始）是不是非零随机值。
+  只要这三条命中任意一条，就实锤是 auto-init 被跳过。
+
+  修法
+
+  优先：把入口改回 _c_int00（让应用自己跑 auto-init 清 .bss、拷 .data）。
+
+  但这里有个关键问题要你回答，否则会反复：
+
+  1. 你当初为什么从 _c_int00 改成 _c_int00_sbl？ 用 _c_int00
+  时具体卡/崩在哪里（哪一行/哪个地址）？——你是在用跳过初始化来掩盖那个真正的
+  bug，必须先知道原来的故障点。
+  2. 这个 image 是怎么跑起来的？ 是被你工程里的
+  BootManager（SBL）加载的，还是调试器/烧录直接独立运行的？
+    - 如果是独立运行 / 调试器加载 → 必须用 _c_int00（没有 SBL 帮你做段初始化）。
+    - 如果是被 BootManager 加载 → 要么用 _c_int00 让 app 自己初始化；要么坚持
+  _c_int00_sbl，但必须确认 BM 在加载时真的拷了 .data、清了 .bss（标准 TI SBL
+  一般不替 app 执行 cinit，所以通常仍应让 app 走 _c_int00）。
+
+  你把这两点告诉我（尤其是原来 _c_int00
+  卡在哪），我帮你定位真正的根因——很可能原始问题是时钟/PLL、MPU、或 SBL 与 app
+  的加载地址/段布局对不上。
+
+✻ Sautéed for 4m 52s
+
+> 是这样的，之前-e_vectors因为我想要通过BM来启动，然后你给我改成了--entry_point 
+  =_c_int00_sbl  /* BM/SBL should jump to the SDK boot entry from the           
+  appimage/RPRC header. */                                                      
+  --undef_sym=_vectors                                                          
+  --retain="*(.vectors)"，这个之前是通过TI的官方SBL来启动的，这个时候linker里面 
+  是-e_vectors，然后想要用BM来启动加载，你给我改成了后面的，总之我的目的是BM能  
+  正确的加载，你可以看下cr60中是怎么启动的，来确定下我用_c_int00_sbl是否可以行  
+
+● 现在清楚了。你的目标：从"TI 官方 SBL 启动"切换到"用 cr60 的 BM 启动"。之前
+  -e_vectors，现在为了让 BM 加载改成了 _c_int00_sbl。关键要看 BM 
+  到底是怎么把控制权交给 app 的——它是读 appimage 头里的 entry
+  跳转，还是跳固定地址？它有没有替 app 做段初始化和设 VBAR。我去看 cr60 的 BM
+  启动代码。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/Project/CR/pl/cr60_light_BYD_SingleFreqPoint_dp" && find .
+      -iname "*bootm*" -o -iname "*imagem*" -o -iname "*secboot*" 2>/dev/null |
+      head -50)
+  ⎿  ./bswpf/framework/pf_Sec/rbSecBoot
+     ./bswpf/framework/pf_Sec/rbSecBoot/api/rbSecBoot.h
+     ./bswpf/framework/pf_Sec/rbSecBoot/src/rbSecBoot.c
+     … +12 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● BM 是预编译的（BootManager_v4.1），它通过 RPRC/appimage 加载你的
+  app。关键就在于 app 的 ELF entry（-e/--entry_point）会被 elf2rprc 写进 RPRC 
+  头，BM 加载完段后直接跳到这个 entry。我确认一下 linker 脚本、vectors、以及
+  elf2rprc 怎么取 entry。
+  Read 4 files (ctrl+o to expand)
+
+● 关键证据找齐了，结论很明确。
+
+  elf2rprc.js 揭示了 BM 的加载契约
+
+  看 elf2rprc.js 里 elf2rprc_sections 的核心几行：
+
+  let h = readElfSectionHeader(r, a);
+  h = h.filter(t => !(8 & t.sh_type));   // 排除 SHT_NOBITS（type=8，就是 .bss）
+  h = h.filter(t => 2 & t.sh_flags);     // 只保留 SHF_ALLOC 段
+  ...
+  o(c, a.e_entry, 4, s);                 // RPRC 头里的入口 = ELF 的 e_entry
+
+  这说明两件致命的事：
+
+  1. BM 跳转的地址 = 你 ELF 的 entry（即 --entry_point）。你把 entry 设成
+  _c_int00_sbl，BM 加载完段后就直接跳进 _c_int00_sbl——绕过 vectors、绕过
+  auto-init。
+  2. .bss 被显式过滤掉，根本不进 RPRC 镜像（!(8 & sh_type)）。也就是说 BM 
+  不会、也没法替你清 .bss。
+
+  再看你自己的 linker map：.data 0 10216000 00000fb0 UNINITIALIZED —— 你用的是
+  --rom_model / -c（ROM 自动初始化模型），.data 运行段是 UNINITIALIZED，初值放在
+  .cinit 里，必须靠 app 自己的 auto-init 在运行时把 .cinit 拷进 .data、把 .bss 
+  清零。
+
+  所以 _c_int00_sbl 在 BM 启动下是错的
+
+  链条对上了：
+  - BM 不清 .bss、不展开 .cinit → .data/.bss 全是上电垃圾；
+  - _c_int00_sbl 又故意跳过 auto-init（跳到 bypass_auto_init）；
+  - 结果 FreeRTOS 堆/AUTOSAR 状态机全是垃圾 → 应用任务建不起来、CAN 栈进不了 RUN
+  → 只剩 idle、没有 CAN。
+
+  _c_int00_sbl 只有在"加载器已经替 app 把 .data/.bss 初始化好"时才能用。TI
+  的某些 SBL 场景是这样，但你这个 BM 不是（.bss 直接被 elf2rprc 扔了）。
+
+  正确做法：入口要指向"会跑 auto-init 的启动代码"
+
+  你工程里其实已经为此准备好了入口——bswpf/ld/TPR12_MCU_LS.lds 第 11 行就是：
+
+  --entry_point=InitAdjustingEntry
+
+  而 InitAdjustingEntry（在 bswpf/mcal/integration/ResetHandler.s）做的正是 BM
+  启动需要的全套：
+
+  InitAdjustingEntry:
+    ... 使能 VFP/NEON ...
+    ... 切到 SYSTEM 模式 ...
+    ... 初始化 system 栈 ...
+    bl  _c_int00 + 40     ; 跳过 _c_int00 头40字节(VFP+切user模式)，但仍执行完整
+  auto-init
+
+  _c_int00 + 40 会执行 完整的 cinit 处理（拷 .data + 清 .bss），然后进 main →
+  EcuM_Init。这条路不依赖向量表取指，无论被 TI SBL 还是 BM
+  跳进来都能自洽，而且它特意停在 SYSTEM 特权模式（RTA-OS/AUTOSAR
+  需要），这就是工程不用裸 _c_int00（裸 _c_int00 头40字节会切到 user
+  模式）的原因。
+
+  改法：把 entry 从 _c_int00_sbl 改回 --entry_point=InitAdjustingEntry。 保留
+  -u=_c_int00（lds 第9行已有，确保 _c_int00 被拉入）。--undef_sym=_vectors 
+  --retain="*(.vectors)" 这两条对 BM 没用，可以去掉（你的异常表是 RTA-OS 的
+  .Os_ExceptionVectorTable，不是 .vectors）。
+
+  顺带解释你看到的现象：
+  - -e_vectors 在 BM 下大概率"电流都起不来"——因为 BM 直接跳到向量表地址，而这里
+  0x4 处是 RTA-OS 的异常表、首条不是合法的"跳启动代码"指令，立刻跑飞；
+  - 换 _c_int00_sbl 是真代码，能往下跑（电流起来、RF 在动），但跳过了
+  auto-init，上层全废 → 卡 idle。两个现象都和这个模型一致。
+
+  我需要确认一件事，好告诉你确切改哪个文件：你现在 --entry_point=_c_int00_sbl
+  这串是写在哪里的？是直接改了 bswpf/ld/TPR12_MCU_LS.lds，还是在 scons / 某个
+  build 配置里追加的？如果方便，把你当前实际生效的那段链接选项贴一下，或者让我搜
+  一下构建脚本里 entry 的来源。
+
+✻ Crunched for 3m 12s
+
+> 我描述下我的需求，现在pl目录下不是有两个工程么，一个是cr60，这个是能通过BM启  
+  动加载的正常的app，然后里面的启动看着是BM跳转到InitAdjustingEntry，然后执行后 
+  面的，然后我现在想要的是让BM能够正确的加载启动mmwave_mcuplus_sdk_04_07_00_01  
+  这个工程的ａｐｐ，然后就是刚才描述的了                                        
+
+● 需求清楚了：cr60 是已经能被 BM 正常加载的参考 app，你要让同一个 BM 
+  也能正确加载启动 mmwave SDK 那个工程的 app。
+
+  那这就不是"改个 entry"那么简单了——要让 BM 能加载，mmwave app
+  必须在三个层面都和 cr60
+  对齐。我先把两边的关键差异摸清楚，再给你具体改哪儿。先看 mmwave app 的
+  linker（内存布局/入口）和 BM 的容器/镜像生成流程。
+
+● Bash(cd "D:/Weifu/Project/CR/pl" && echo "===== cr60 container_input 结构
+      =====" && find cr60_light_BYD_SingleFreqPoint_dp/coem -maxdepth 4 -iname
+      "*container*" -o -ma…)
+  ⎿  ===== cr60 container_input 结构 =====
+     cr60_light_BYD_SingleFreqPoint_dp/coem/BYD_UKE/tools/container_input
+     cr60_light_BYD_SingleFreqPoint_dp/coem/BYD_UKE/tools/container_input/0
+     … +28 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/Project/CR/pl" && echo "===== 04_CustApp 内容 =====" && ls
+      -la cr60_light_BYD_SingleFreqPoint_dp/coem/BYD_UKE/tools/container_input/0
+      4_CustApp/ 2>/de…)
+  ⎿  ===== 04_CustApp 内容 =====
+     total 4
+     drwxr-xr-x 1 Administrator 197121 0 Mar 26 11:14 .
+     … +26 lines (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/Project/CR/pl" && echo "===== ContainerGen 配置/输入清单
+      =====" && find cr60_light_BYD_SingleFreqPoint_dp/tools/ContainerGen
+      -maxdepth 2 -type f 2>/dev/n…)
+  ⎿  ===== ContainerGen 配置/输入清单 =====
+     cr60_light_BYD_SingleFreqPoint_dp/tools/ContainerGen/BlockHelper.py
+     cr60_light_BYD_SingleFreqPoint_dp/tools/ContainerGen/BlockProcessor.py
+     … +17 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 完全清楚了。看了 mmwave app 的 r5f_linker.cmd，内存布局其实已经为 BM 
+  适配好了，唯一错的就是入口。
+
+  现状对比（mmwave app vs cr60）
+
+  mmwave 的 ti/platform/awr2x44P/r5f_linker.cmd 里：
+
+  ┌───────┬───────────────────────┬───────────────────────────────┬────────┐
+  │  项   │      mmwave app       │       cr60(可被BM加载)        │ 是否对 │
+  │       │                       │                               │   齐   │
+  ├───────┼───────────────────────┼───────────────────────────────┼────────┤
+  │ BM    │ SBL_RESERVED_L2_RAM   │ MSS_L2_BOOT_RESERVE           │        │
+  │ 预留  │ 0x10200000 len        │ 0x10200000 128K               │ ✅     │
+  │       │ 0x20000(128K)         │                               │        │
+  ├───────┼───────────────────────┼───────────────────────────────┼────────┤
+  │ app   │ MSS_L2                │ app 从 0x10220000             │ ✅     │
+  │ 起始  │ origin=0x10220000     │                               │        │
+  ├───────┼───────────────────────┼───────────────────────────────┼────────┤
+  │ 与 BM │ MSS_L2_SHARED_RAM     │                               │        │
+  │  共享 │ 0x102dff00 len 256    │ 0x102dff00 256                │ ✅     │
+  │ 区    │                       │                               │        │
+  ├───────┼───────────────────────┼───────────────────────────────┼────────┤
+  │ 入口  │ --entry_point=_c_int0 │ --entry_point=InitAdjustingEn │ ❌     │
+  │       │ 0_sbl                 │ try(跑 auto-init)             │        │
+  └───────┴───────────────────────┴───────────────────────────────┴────────┘
+
+  内存图、共享区、128K 预留都已经对上了——这也解释了为什么 BM
+  能把它加载进去、能跳进去跑（电流起来、到了 idle）。就差入口这一刀。
+
+  结论：_c_int00_sbl 不行，要用 _c_int00
+
+  cr60 的 InitAdjustingEntry 本质是 bl _c_int00 + 40——跑完整 auto-init（拷
+  .data、清 .bss）再进 main。mmwave 这个 SDK（FreeRTOS）对应的完整初始化入口就是
+  _c_int00：建各模式栈 → MPU/Cache → auto-init → main。而 _c_int00_sbl
+  是"假设加载器已经替我初始化好"的精简变体，直接跳 bypass_auto_init、跳过 
+  auto-init。你的 BM 不会做这件事（elf2rprc 把 .bss 过滤掉、.data 是 ROM-model
+  的 UNINITIALIZED），所以必须让 app 自己做 → 入口必须是 _c_int00。
+
+  我帮你改一下：
+
+● Update(D:\Weifu\Project\CR\pl\mmwave_mcuplus_sdk_04_07_00_01\ti\platform\awr2x
+        44P\r5f_linker.cmd)
+  ⎿  Added 7 lines, removed 1 line
+      17   * This is also the heap used by pvPortMalloc in FreeRTOS
+      18   */
+      19  --heap_size=34816
+      20 ---entry_point=_c_int00_sbl  /* BM/SBL should jump to the SDK bo
+         -ot entry from the appimage/RPRC header. */                     
+      20 +--entry_point=_c_int00      /* BM jumps here from RPRC header. 
+         +MUST be the FULL boot entry: it sets up                        
+      21 +                               mode stacks, MPU/cache, and runs
+         + C auto-init (copy .data, zero .bss) before                    
+      22 +                               main(). Do NOT use _c_int00_sbl:
+         + that variant bypasses auto-init and assumes                   
+      23 +                               the loader pre-initialized .data
+         +/.bss, but BM does neither (elf2rprc drops                     
+      24 +                               .bss; .data is ROM-model UNINITI
+         +ALIZED), so globals would be garbage and the                   
+      25 +                               app hangs in the FreeRTOS idle t
+         +ask with no CAN output. */                                     
+      26 +-u=_c_int00                 /* force-reference the boot entry s
+         +o it is pulled in and not dropped */                           
+      27  --undef_sym=_vectors
+      28  --retain="*(.vectors)"
+      29  
+
+● 改完了。r5f_linker.cmd 第 20 行现在是 --entry_point=_c_int00，并加了
+  -u=_c_int00 确保它被链接进来。--undef_sym=_vectors / --retain="*(.vectors)"
+  保留（运行期 IRQ/异常需要 .vectors 表，留着无害）。
+
+  接下来做什么
+
+  1. 重新编译 mmwave app，确认 map 里 ELF entry 变成了 _c_int00（不再是
+  _c_int00_sbl）。
+  2. 重新过 BM 的打包流程（elf2rprc → ContainerGen 放进 04_CustApp 槽 → KMS 签名
+  → 烧录），跟 cr60 一样。注意：要走这套 BM 容器流程，不要再用 TI 的
+  multicoreImageGen/appimage（那是给 TI 官方 SBL 的）。不过你之前 BM
+  已经能加载并跳进去了，说明这套打包基本是通的，重打包即可。
+  3. 烧录后验证：连调试器看
+    - uxCurrentNumberOfTasks 不再只有 2（应用任务建起来了）；
+    - 一段 .bss（比如 __BSS_START 附近 / ucHeap 起始）确实被清零了；
+    - 一个有初值的 .data 全局值正确；
+    - CAN 开始有输出、R5 不再死在 prvIdleTask。
+
+  还要留意一点
+
+  _c_int00 头部会做 CPU 模式/栈切换，它假定从 reset 状态进来。BM
+  跳转时如果已经使能了 MPU/Cache 或处于某个特定模式，理论上 _c_int00
+  会自己重设，一般没问题（这是 TI mmWave SDK 的标准启动路径，TI 官方 SBL 也是跳
+  _c_int00）。如果改完后早期就跑飞（而不是到 idle），那才需要像 cr60 那样加一个
+  InitAdjustingEntry 风格的薄 shim（先 VFP、切 SYSTEM 模式、建栈，再 bl _c_int00
+  + 40）来精确控制进入状态。但先按 _c_int00 试，大概率直接好。
+
+  要我顺便帮你确认下 mmwave app 当前是怎么调用打包流程的（哪个 build 脚本/bat
+  把它送进 04_CustApp），保证第 2 步也跟 cr60 对齐吗？
+
+✻ Crunched for 3m 24s
+
+> /export record_bm１.txt                                                       
+  ⎿  Conversation exported to: D:\Weifu\Project\CR\pl\record_bm１.txt
+
+> _c_int00_sbl       _sblLoopForever  _c_int00_addr   _c_int00                  
+  bypass_auto_init                                                              
+  和InitAdjustingEntry有啥区别 我应该用哪个和他一样呢                           
+
+● 好问题——这几个符号其实分属两套不同的 boot 代码，别混了。
+
+  这 5 个符号：全部来自 mmwave SDK 的 boot（boot_armv7r_asm.obj）
+
+  它们是同一段启动汇编里的标号，从 map 的地址顺序能看出结构：
+
+  _c_int00_sbl      ← SBL 精简入口：自己建栈后直接跳 bypass_auto_init，【跳过
+  auto-init】
+  _sblLoopForever   ← 死循环陷阱(出错就在这转圈)，不是入口
+  _c_int00_addr     ← 一个数据字 .word _c_int00（存放 _c_int00 的地址供 PC
+  相对加载），不是代码
+  _c_int00          ← 完整入口：建各模式栈 → MPU/Cache → 【auto-init:
+  拷.data/清.bss】→ main
+  bypass_auto_init  ← _c_int00 内部的一个标号，位于
+  auto-init【之后】；_c_int00_sbl 就是跳到这里来跳过 auto-init 的
+
+  逐个判断能不能当入口：
+
+  ┌──────────────────┬────────────┬────────────────────────────────────────┐
+  │       符号       │ 能当入口吗 │                  原因                  │
+  ├──────────────────┼────────────┼────────────────────────────────────────┤
+  │ _c_int00         │ ✅ 就用它  │ 唯一会跑完整 auto-init 的正经入口      │
+  ├──────────────────┼────────────┼────────────────────────────────────────┤
+  │ _c_int00_sbl     │ ❌         │ 跳过 auto-init（你现在的 bug）         │
+  ├──────────────────┼────────────┼────────────────────────────────────────┤
+  │ bypass_auto_init │ ❌         │ 函数中段标号，跳进去同样跳过 auto-init │
+  ├──────────────────┼────────────┼────────────────────────────────────────┤
+  │ _sblLoopForever  │ ❌         │ 是出错死循环                           │
+  ├──────────────────┼────────────┼────────────────────────────────────────┤
+  │ _c_int00_addr    │ ❌         │ 是数据（地址常量），不是可执行代码     │
+  └──────────────────┴────────────┴────────────────────────────────────────┘
+
+  InitAdjustingEntry 是 cr60 那套，别照搬
+
+  InitAdjustingEntry 不在这 5 个里——它是 cr60 工程自己写的
+  shim（bswpf/mcal/integration/ResetHandler.s），而且它包的是 TI 通用 RTS 库的 
+  _c_int00（不是 mmwave SDK 的那个）。它干的事是：
+
+  InitAdjustingEntry:
+      使能 VFP/NEON
+      切到 SYSTEM(特权) 模式
+      建 system 栈
+      bl  _c_int00 + 40     ;
+  跳过通用RTS的_c_int00头40字节(VFP+切USER模式)，但仍执行完整 auto-init
+
+  它"+40 跳过切 user 模式"是因为 cr60 用的是 RTA-OS，必须停在 SYSTEM 
+  特权模式。这是 cr60 特有的需求，和它用的那套 RTS boot 绑定的。
+
+  所以"和 cr60 一样"应该用哪个？
+
+  用 _c_int00。
+
+  要抓住"一样"的本质：cr60 真正要保证的是 在进 main 之前跑完整 
+  auto-init。InitAdjustingEntry 只是它在自己那套 RTS boot
+  上达成这一点的方式。你这边的 mmwave SDK 有自己的 boot，达成同一目的的入口就是
+  _c_int00——它本身就会建栈、MPU/Cache、跑 auto-init，而且这是 TI mmWave SDK +
+  FreeRTOS 的标准启动路径（官方 SBL 也是跳 _c_int00），模式问题它自己处理好。
+
+  对照一下两条链路，目的完全一致：
+
+  cr60   : BM → InitAdjustingEntry →(VFP/SYS模式/栈)→ bl _c_int00+40 →[通用RTS]
+  auto-init → main
+  mmwave : BM → _c_int00 →[SDK boot] 模式/栈/MPU/Cache + auto-init → main
+
+  所以不要去照抄 InitAdjustingEntry（它绑定的是另一套 RTS、还有 RTA-OS
+  的特权模式特殊要求，照搬反而会冲突）。你刚才改成的 --entry_point=_c_int00
+  就是对的。
+
+  唯一的兜底情况：如果改成 _c_int00 后早期就跑飞（而不是到 idle），说明 BM
+  交接时的模式/MPU 状态和 SDK _c_int00 的假设有冲突，那时才需要给 mmwave
+  也写一个类似 shim（切好模式+建栈后 bl _c_int00 + 
+  <SDK里切模式那段的字节数>）。但先按 _c_int00 试，大概率直接通。
+
+✻ Cogitated for 1m 1s
+
+> 那我目的是想要通过cr60的BM也就是boot来启动我的sdk                             
+  app，我不应该把这个抄过来么InitAdjustingEntry                                 
+
+● 不用抄。这里有个关键误解我帮你点破：
+
+  BM 不认识 InitAdjustingEntry 这个名字
+
+  BM 是通用的，它启动 app 的逻辑只有一句：读这个 app 自己 RPRC 头里的 entry 
+  字段（= ELF 的 e_entry），加载完段后跳过去。 它根本不在乎那个入口叫什么名字。
+
+  - cr60 的 e_entry 恰好是 InitAdjustingEntry → BM 跳 InitAdjustingEntry；
+  - 你的 app 的 e_entry 是 _c_int00 → BM 跳 _c_int00。
+
+  同一个 BM、同一套机制，对两个 app 一视同仁。 让 BM 能启动你的 app
+  的，不是"共用同一个入口符号"，而是"你的 e_entry
+  指向一段合格的完整初始化启动代码"。你已经把 --entry_point=_c_int00
+  设好了，这件事就成了。
+
+  （回顾证据：elf2rprc.js 里 o(c, a.e_entry, 4, s) 就是把 ELF 的 e_entry 写进
+  RPRC 头——BM 跳的就是这个值。）
+
+  而且照抄 InitAdjustingEntry 会直接跑飞
+
+  InitAdjustingEntry 的最后一句是：
+
+  bl  _c_int00 + 40
+
+  这个 +40 是按 cr60 用的那套【通用 RTS 库】的 _c_int00 内存布局算死的——通用 RTS
+  的 _c_int00 前 40 字节正好是"VFP 初始化 + 切 USER 模式"，所以跳过 40 字节。
+
+  但你 mmwave SDK 的 _c_int00 是完全不同的另一段代码（MCU+ SDK 的
+  boot_armv7r），前 40 字节是别的指令。你把这个 shim 抄过来，_c_int00 + 40
+  会跳进 SDK boot 代码的中间，直接崩。
+
+  InitAdjustingEntry 之所以存在，是因为 cr60 用 RTA-OS，必须停在 SYSTEM 
+  特权模式、还要自己提前建栈/开 VFP——这是 cr60+RTA-OS 的特殊需求。你的 FreeRTOS
+  SDK 没这要求，SDK 的 _c_int00 自己会把模式/栈/MPU/Cache/auto-init 全做好。
+
+  一句话总结
+
+  ┌────────────────┬─────────────────────────┬──────────────────────────────┐
+  │                │          cr60           │         你的 SDK app         │
+  ├────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ BM 怎么启动    │ 跳 app 自己的 e_entry   │ 跳 app 自己的                │
+  │                │                         │ e_entry（完全一样）          │
+  ├────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ e_entry 该填谁 │ InitAdjustingEntry      │ _c_int00                     │
+  ├────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 这个入口要保证 │ 跑完整 auto-init 再进   │ 同左（_c_int00 已满足）      │
+  │                │ main                    │                              │
+  └────────────────┴─────────────────────────┴──────────────────────────────┘
+
+  "和 cr60 一样"指的是行为一样（都跑完整 auto-init、被 BM 
+  用同样方式跳入），不是符号名一样。你现在的 _c_int00 就是对的，不要去抄
+  InitAdjustingEntry。
+
+  剩下要保证的只有打包：用 cr60 那套 elf2rprc + ContainerGen 把你的 ELF 打进
+  04_CustApp 槽（别用 TI 的 multicoreImageGen）。需要我帮你核对 mmwave app
+  的打包脚本有没有跟 cr60 对齐吗？
+
+✻ Baked for 50s
+
+> 非常好，我现在已经看到启动到了app，但是呢 有一个问题，我能看到电流是在挑动了  
+  ，也就是说射频起来了，但是我没有看到任何can输出 这个可能是什么问题呢，因为sdk 
+  app我正常通过ti sbl                                                           
+  boot去启动是ok的，我换成BM启动就报错了，然后calibration系数我没有填写哈       
+
+● 进展很好——auto-init 修好后 app 起来了。现在的现象很关键：RF 
+  起来了（电流跳动）但 CAN 完全没输出，而且 BM 
+  启动会"报错"。这几乎可以肯定是启动路径差异导致的——TI SBL 在交接前帮 app
+  做了某些事，BM 没做。对 mmWave
+  来说最常见的就是：时钟/PLL、RadarSS(BSS)固件、以及flash 
+  里的标定(calibration)数据。
+
+  你自己提到"calibration 系数没填"——这很可能正是"报错"的直接原因。我去看一下这个
+  SDK app 的初始化链路：标定数据是怎么读的、CAN 输出被什么 gate
+  住、报错点在哪。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/mmwave_mcuplus_sdk_04_07_00_01" && echo "=====
+      标定/calibration 相关 =====" && grep -rniE
+      "calibrat|factoryCal|CalibData|rlRfCalibData|ph…)
+  ⎿  Interrupted · What should Claude do instead?
+  Searched for 1 pattern (ctrl+o to expand)
+
+> 非常好，我现在已经看到启动到了app，但是呢 有一个问题，我能看到电流是在挑动了  
+  ，也就是说射频起来了，但是我没有看到任何can输出 这个可能是什么问题呢，因为sdk 
+  app我正常通过ti sbl boot去启动是ok的有can输出的，我换成BM启动就没有can输出了  
+
+● 同一个 app，TI SBL 启动有 CAN、BM 启动没 CAN——app 代码没变，那问题一定出在两个
+  bootloader 交接给 app 时的硬件状态差异。RF
+  用的是独立时钟（APLL/RadarSS），所以 RF 不受影响；而 CAN 没输出，最典型的就是
+  MCAN 的功能时钟（时钟源/分频）是 TI SBL 配的、BM 没配，导致 MCAN
+  要么没时钟、要么输入时钟频率不对 → 位定时算错 → 总线上发不出有效帧。
+
+  我查一下这个 app 的 MCAN 时钟到底是 app 自己配的，还是依赖 bootloader 预配的。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/mmwave_mcuplus_sdk_04_07_00_01" && echo "=====
+      MCAN 时钟源/频率配置点 =====" && grep -rniE
+      "MCAN.*[Cc]lock|RcmPeripheralId_MCAN|MCAN.*Freq|SO…)
+  ⎿  ===== MCAN 时钟源/频率配置点 =====
+     Binary file ti/datapath/dpedma/lib/libdpedma_hwa_awr2943.ae66 matches
+     Binary file ti/datapath/dpedma/lib/libdpedma_hwa_awr2944.ae66 matches
+     … +54 lines (ctrl+o to expand)
+
+● 找到关键点了。看 mss/mssgenerated/ti_power_clock_config.c：
+
+  { SOC_RcmPeripheralId_MSS_MCANA,
+  SOC_RcmPeripheralClockSource_DPLL_CORE_HSDIV0_CLKOUT2, 80000000 },
+  { SOC_RcmPeripheralId_MSS_MCANB,
+  SOC_RcmPeripheralClockSource_DPLL_CORE_HSDIV0_CLKOUT2, 80000000 },
+
+  MCAN 的功能时钟取自 DPLL_CORE_HSDIV0_CLKOUT2，期望 80 MHz。 这里有个分工：app
+  的 power_clock 配置只是"选时钟源 + 分频"，而 DPLL_CORE 本身的锁定和 
+  HSDIV0_CLKOUT2 这路输出的频率，是 bootloader 配的（TI SBL 里的
+  SOC_rcmCoreDpllConfig/core clock init，只配一次）。
+
+  我确认一下 app 到底是自己配 DPLL_CORE 还是假定 bootloader 已配好，以及 CAN
+  位定时是按多少输入时钟算的。
+
+  Read 1 file (ctrl+o to expand)
+
+● 关键证据拿到了。ti_power_clock_config.c 里 app 确实是自己调
+  SOC_moduleSetClockFrequency(MCANA, DPLL_CORE_HSDIV0_CLKOUT2, 80000000) 去把
+  MCAN 时钟设成 80MHz。但它只是"选源 + 分频"，分频是基于源 
+  DPLL_CORE_HSDIV0_CLKOUT2 的实际频率算的，而这条 DPLL/HSDIV 时钟树是 bootloader
+  配的，不是 app 配的。
+
+  最可能的原因：MCAN 时钟树 BM 和 TI SBL 配得不一样
+
+  分工是这样的：
+  - 核心 DPLL（DPLL_CORE）和它的 HSDIV0_CLKOUT2 这路输出 → bootloader 配一次（TI
+  SBL 里的 SOC_rcmCoreDpllConfig/core clock init）。
+  - app 的 PowerClock_init() → 只是把外设时钟 mux 到这个源、再分频。
+
+  所以：
+  - TI SBL 启动：把 DPLL_CORE/HSDIV0_CLKOUT2 配成 SDK 期望的频率 → app 分出
+  80MHz 给 MCAN → CAN 位定时正确 → 有输出 ✅
+  - BM 启动：BM 是给 cr60/AUTOSAR 配的时钟树。如果它没使能 CLKOUT2
+  这一路、或把它配成了别的频率 → app 仍按"源是 SDK 期望值"去算分频 → MCAN 
+  实际输入时钟错了 → 波特率错 → 总线上发不出有效帧（拿不到 ACK，错误计数涨，最后
+  bus-off）。RF 走独立的 APLL/RadarSS 时钟，所以不受影响——这就解释了"RF
+  正常、CAN 没输出"。
+
+  注意 Module_clockSetFrequency() 里用的是 DebugP_assertNoLog，release 版里这个 
+  assert 是空的——也就是说就算 SOC_moduleSetClockFrequency 对 MCAN
+  返回失败，也会被静默吞掉，继续跑，CAN 就这么哑了。
+
+  先确认（BM 启动下，连调试器）
+
+  按可能性从高到低：
+
+  1. 量 MCAN 实际时钟：在 Drivers_open()/PowerClock_init() 之后，调
+  SOC_rcmGetModuleClkFrequency(SOC_RcmPeripheralId_MSS_MCANA, ...)（或读
+  RCM/DPLL 寄存器）看实际是不是 80MHz，并和 TI SBL
+  启动时的值对比。不一致基本就实锤了。
+  2. 看 SOC_moduleSetClockFrequency 对 MCANA 的返回值：在那行下断点，看是不是
+  SUCCESS。非 SUCCESS = 直接实锤。
+  3. 读 MCAN 协议状态：MCAN 的 PSR/ECR，看是不是 error-passive / bus-off、TX
+  错误计数在涨——这说明在发但波特率/ACK 不对（典型时钟问题）。
+  4. 示波器量 CAN_TX 引脚：有波形但位宽/波特率不对 → 时钟问题；完全平 →
+  可能是收发器使能或 pinmux。
+
+  修法（看上面确认结果）
+
+  - 若 BM 给的 CLKOUT2 是个已知的其它频率：最省事的是让 app 按真实频率走——确认
+  SOC_moduleSetClockFrequency
+  是"读寄存器算实际源频"还是"用写死的假定源频"。前者一般能自适应；后者就要把
+  MCAN 的源频/位定时改成匹配 BM 实际值。
+  - 若 BM 根本没使能 CLKOUT2：让 mmwave app 在早期初始化里自己把这条 DPLL/HSDIV 
+  时钟树配好（把 TI SBL 里 core clock init 的相应部分搬进 app 的
+  System_init），不要依赖 BM。注意别动到 R5 自己在用的 SYS_CLK。
+  - 若 cr60 和 mmwave 能统一时钟树：在 BM 侧把 DPLL_CORE_HSDIV0_CLKOUT2 配成
+  80MHz（但 BM 是和 cr60 共用的，改它要确认不影响 cr60）。
+
+  帮我确认两点，好缩小范围
+
+  1. 是一帧 CAN 都没有（示波器上 TX 脚完全没动静），还是 MCAN 
+  像在发但总线上没有有效帧 / 进了 
+  bus-off？这能区分"时钟/收发器"还是"波特率不匹配"。
+  2. 你的 app 里 CAN 
+  是周期心跳帧也没有，还是只有目标检测结果帧没有？如果连固定心跳都没有 →
+  偏时钟/收发器；如果只是检测结果没出 → 可能是 DSS
+  数据通路没产出（那又是另一条线）。
+
+  另外提一句：QSPI(flash) 也用同一条 DPLL_CORE_HSDIV0_CLKOUT2 
+  @80MHz（配置表第一行）。如果确实是这路时钟坏了，flash 
+  读写大概率也会出问题——这可能正好对上你之前提到的
+  calibration/报错。可以顺手验证一下 BM 下 QSPI
+  还正不正常，能帮你交叉确认是不是这条时钟树的问题。
+
+✻ Worked for 3m 10s
+
+> 你可以参考cr60的，他这个是有休眠唤醒后是有can输出的，可以确定下是在哪里配置的 
+  ，我现在的现象是一帧can都没有看到，但是是否是Mcan发了还是怎么样这个不确定     
+
+● 好——这条信息很关键。cr60 是 AUTOSAR，它的 CAN 时钟是在 Mcu 模块里配的（map
+  里见过 Mcu.o (.data.gMcuClkSetSrcMap)）。如果 cr60 自己的 Mcu_Init 配了 
+  DPLL，那就说明 BM 并不负责配完整时钟树、是 app 自己配的——那你的 mmwave app
+  也必须自己配，不能指望 BM。我去 cr60 里把 CAN/DPLL 时钟的配置点找出来。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/cr60_light_BYD_SingleFreqPoint_dp" && echo
+      "===== Mcu 配置文件 =====" && find . -path ./build -prune -o \( -iname
+      "Mcu_*.c" -o -iname "Mc…)
+  ⎿  ===== Mcu 配置文件 =====
+     ./bswpf/mcal/integration/memmap/Mcu_MemMap.h
+     ./bswpf/mcal/Mcu/src/Mcu.c
+     … +59 lines (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/Project/CR/pl/cr60_light_BYD_SingleFreqPoint_dp" && echo
+      "===== Mcu 模块里时钟/DPLL/CAN 相关 =====" && grep -rniE
+      "DPLL|HSDIV|CLKOUT|Dpll|RcmCore|McanClk|…)
+  ⎿  ===== Mcu 模块里时钟/DPLL/CAN 相关 =====
+     bswpf/mcal/Mcu/include/Mcu.h:264:    uint32 CLKSRCSEL0;
+     bswpf/mcal/Mcu/src/Mcu.c:114:    Mcu_ClkSourceIdType clkSrcId,
+     … +86 lines (ctrl+o to expand)
+
+● cr60 的 Mcu_Platform.c 里有 pllCoreHSDivClkGating、hsDivClkSet、core ADPLL
+  配置、以及 Mcu_ClockSetSourceMCANA/MCANB——cr60 是在自己的 Mcu_Init 里配置 core
+  DPLL + HSDIV 输出 + MCAN 时钟源的，并不依赖 BM。
+
+  这就把问题彻底定性了：BM 只配它自己运行所需的最低限度时钟，app 期望的 
+  DPLL_CORE_HSDIV0_CLKOUT2（给 MCAN/QSPI 的 80MHz 那路）是 app 自己负责配的。
+  你的 mmwave app 在 TI SBL 下能工作，是因为 TI SBL 帮它配了这条时钟树；换 BM
+  后没人配，PowerClock_init() 里 SOC_moduleSetClockFrequency
+  只做"选源+分频"、假定源已就绪，结果 MCAN 拿到错时钟 → 一帧都发不出。
+
+  我去 mmwave SDK 里找 TI SBL 配 core DPLL/HSDIV
+  的那段代码，这样能告诉你具体要把什么搬进 app。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/mmwave_mcuplus_sdk_04_07_00_01" && echo "=====
+      SDK 里 core DPLL / HSDIV / CLKOUT2 配置 (源码) =====" && grep -rniE
+      "SOC_rcmCoreDpll|CoreHs…)
+  ⎿  ===== SDK 里 core DPLL / HSDIV / CLKOUT2 配置 (源码) =====
+     ti/demo/awr2x44P/mmw_ddm/mss/mssgenerated/ti_power_clock_config.c:66:
+        { SOC_RcmPeripheralId_MSS_QSPI, SOC_RcmPeripheralClockSource_DPLL_C
+     … +13 lines (ctrl+o to expand)
+
+● mmwdemo_board.h 里有 PLL_CORE_HSDIVIDER_CLKOUT2_PD_MASK——这正是 HSDIV CLKOUT2
+  这一路的"上电/使能"控制位。看一下它在哪被用到（谁负责把 CLKOUT2 这路打开）。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/mmwave_mcuplus_sdk_04_07_00_01" && echo "=====
+      CLKOUT2_PD / HSDIVIDER 使能代码位置 =====" && grep -rniE
+      "HSDIVIDER_CLKOUT2_PD|HSDIVIDER_CLK…)
+  ⎿  ===== CLKOUT2_PD / HSDIVIDER 使能代码位置 =====
+     ti/demo/awr2x44P/mmw_ddm/mss/mssgenerated/ti_power_clock_config.c:66:
+        { SOC_RcmPeripheralId_MSS_QSPI, SOC_RcmPeripheralClockSource_DPLL_C
+     … +41 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 存在一个 mmwDemo_HSDIVPowerDownFunction(..., PLL_CORE_HSD) 来打开 CORE HSDIV
+  的 CLKOUT2。看一下它被谁调用——是 app 自己调，还是只在 SBL 里调。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/mmwave_mcuplus_sdk_04_07_00_01" && echo "=====
+      谁调用 HSDIV/clockGating 使能 =====" && grep -rniE
+      "mmwDemo_HSDIVPowerDownFunction|mmwDemo_…)
+  ⎿  ===== 谁调用 HSDIV/clockGating 使能 =====
+
+     ===== app 里是否有 DPLL/CoreClock 配置调用 =====
+     … +11 lines (ctrl+o to expand)
+
+● 关键证据找到了。mss_main.c 的注释直接点明了：
+
+  - 第 601 行："Refer to SDK User Guide section 3.8 Default SBL Clock 
+  configuration"
+  - 第 605 行："BSS Dynamic clocking ... This feature is enabled in the SBL 
+  before unhalting BSS."
+
+  而且 mmwDemo_HSDIVPowerDownFunction / mmwDemo_clockGatingDisable（打开 CORE
+  HSDIV CLKOUT2 的函数）在整个 app demo 里没有任何调用者——也就是说 app 
+  自己根本不配 DPLL/HSDIV 时钟树，完全靠 SBL。我把这段注释读出来确认。
+
+  Read 1 file (ctrl+o to expand)
+
+● 证据链完整了。mss_main.c 注释和 SDK 设计都明确：mmwave app 依赖 SBL 
+  做时钟配置（"Default SBL Clock configuration"，参考 soc_rcm.c 的 SOC_rcm*
+  API），app 自己只做外设 mux。而 cr60 是在自己的 Mcu_Init（Mcu_Platform.c 的
+  pllCoreHSDivClkGating/hsDivClkSet/ADPLL）里配 DPLL。BM 配的是 cr60 
+  那套时钟树，不是 TI "默认 SBL 时钟配置"那套 → 你的 app 期望的
+  DPLL_CORE_HSDIV0_CLKOUT2 没人给配好 → MCAN 没有/错误时钟 → 一帧都发不出。
+
+  我确认下这个仓库里有没有 SBL 时钟配置源码可参考。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/mmwave_mcuplus_sdk_04_07_00_01" && echo "=====
+      soc_rcm.c / SBL 时钟配置源码是否在仓库 =====" && find . -iname
+      "soc_rcm.c" -o -iname "sbl*.c" -o…)  ⎿  ===== soc_rcm.c / SBL 时钟配置源码是否在仓库 =====
+
+     ===== tools/sbl_enet 内容 =====
+     … +8 lines (ctrl+o to expand)
+
+● 全部确认完毕。这里给你完整结论。
+
+  根因（已确认）
+
+  ┌───────┬───────────────┬─────────────────────────────────────────────────┐
+  │       │ 谁配 DPLL_COR │                                                 │
+  │       │   E/HSDIV     │                    配置位置                     │
+  │       │    时钟树     │                                                 │
+  ├───────┼───────────────┼─────────────────────────────────────────────────┤
+  │ mmwav │ 靠 SBL，app   │ TI SBL → MCU+ SDK 的 source/drivers/soc/awr2x44 │
+  │ e app │ 自己只做外设  │ p/soc_rcm.c（SOC_rcm*）。app 侧只有             │
+  │       │ mux           │ ti_power_clock_config.c 做 mux                  │
+  ├───────┼───────────────┼─────────────────────────────────────────────────┤
+  │       │               │ bswpf/mcal/Mcu/src/Mcu_Platform.c：pllCoreHSDiv │
+  │ cr60  │ app 自己（Mcu │ ClkGating / hsDivClkSet / core                  │
+  │       │ _Init）       │ ADPLL；Mcu_ClockSetSourceMCANA/B；参数在        │
+  │       │               │ coem/BYD_UKE/gen_mcal/src/Mcu_PBcfg_awr2e44p.c  │
+  └───────┴───────────────┴─────────────────────────────────────────────────┘
+
+  证据：
+  - mss_main.c:601 明写 "Default SBL Clock configuration"，:605 "enabled in the 
+  SBL"；
+  - 打开 CORE HSDIV CLKOUT2 的函数
+  mmwDemo_HSDIVPowerDownFunction(...PLL_CORE_HSD) 在 app 里没有任何调用者——app
+  压根不配这条时钟树。
+
+  所以：BM 配的是 cr60 那套时钟树（cr60 还会在 Mcu_Init 里再配一遍），唯独没有 
+  TI app 期望的 DPLL_CORE_HSDIV0_CLKOUT2（喂 MCAN/QSPI 的那路）。 MCAN
+  没有功能时钟 → 连 INIT 
+  都退不出来，一帧都发不出（正好对上你"一帧都没看到"）。RF 走 RadarSS/APLL
+  独立时钟，所以不受影响。
+
+  先确认 MCAN 到底有没有时钟（回答你"不确定 MCAN 是否在发"）
+
+  BM 启动下，在 Drivers_open() 之后用调试器：
+  1. 读 MCAN 
+  实际时钟：SOC_rcmGetModuleClkFrequency(SOC_RcmPeripheralId_MSS_MCANA, 
+  &f)，看是不是 80MHz。
+  2. 读 CORE HSDIV CLKOUT2 上电寄存器
+  0x0214042C（PLL_CORE_HSDIVIDER_CLKOUT_PD_REG_START_ADDRESS1，CLKOUT2 位 =
+  bit2/0x4），对比 TI SBL 启动时的值——大概率 BM 下这路是关的/不同。
+  3. 读 MCAN CCCR：如果一直停在 INIT（退不出初始化），基本就是没时钟。无时钟时
+  MCAN 寄存器读写也会异常。
+  这三条任意一条命中即实锤。
+
+  修法：让 mmwave app 自己配时钟树（像 cr60 一样）
+
+  BM 是和 cr60 共用的、改不动，所以正解是把"TI 默认 SBL 时钟配置"中关于 
+  DPLL_CORE/HSDIV0_CLKOUT2 + MCAN 时钟源的那部分，搬进 mmwave app 
+  的早期初始化（在 System_init 里、PowerClock_init()/MCAN open 之前调用），让
+  app 不再依赖 bootloader。来源就是你那份 TI SBL 用的 soc_rcm.c 里的 core
+  DPLL/HSDIV 配置 +
+  mmwDemo_HSDIVPowerDownFunction(PLL_CORE_HSDIVIDER_CLKOUT2_PD_MASK, 
+  PLL_CORE_HSD)。
+
+  ⚠️ 一个要小心的点：如果 R5 的 SYS_CLK(200MHz) 和 CLKOUT2 共用 DPLL_CORE 的
+  VCO，不要在运行时重锁 VCO（会把正在跑的 R5 时钟搞乱）。先对比 BM vs TI-SBL 下
+  DPLL_CORE 的 VCO/主分频：
+  - 若 VCO 一致 → 你只需"使能并配置 HSDIV0_CLKOUT2 这一路输出 + 把 MCAN mux
+  过去"，最轻量、最安全；
+  - 若 VCO 也不同 → 才需要更完整地配 DPLL（参考 cr60 Mcu_Platform.c
+  的做法分步切换）。
+
+  我能帮你做的下一步
+
+  cr60 在同一个 BM 下 CAN 是好的——它的 Mcu_Platform.c + Mcu_PBcfg_awr2e44p.c
+  里就有一套被 BM 验证过能工作的 MCAN 时钟参数（源/分频/最终频率 + 
+  位定时）。我可以去把 cr60 的这套数值扒出来（CORE DPLL VCO、HSDIV0_CLKOUT2
+  分频与频率、MCAN 时钟源与最终 Hz、CAN
+  波特率/位定时），这样你直接照它的目标值在 mmwave app 里配，就能保证和 BM
+  给的时钟兼容。要我现在去提取吗？
+
+✻ Worked for 4m 22s
+
+> 我想一下，你说我最好是扒一下CR60这块的配置还是把ti sbl的拿过来 哪个更靠谱呢   
+
+● 先给结论：以 TI SBL 的配置为"目标值"来抄，cr60 只作为"怎么在 BM 
+  交接后安全切换"的参考。
+  而最靠谱的落地方法不是盲抄任何一边，而是寄存器对拍（register diff）。
+
+  为什么主抄 TI SBL 而不是 cr60
+
+  两者解决的是不同的问题，可靠性的关键点也不同：
+
+  TI SBL 的配置 = 你这个 app 的"完整且自洽"的时钟需求。
+  - 你的 mmwave app 的所有外设——不只是 CAN，还有 QSPI、HWA、DSS、ADC、RTI
+  tick(FreeRTOS 心跳)、SPI/SCI、BSS 动态时钟——全部是按 TI SBL
+  那套时钟树设计和验证的。
+  - 你已经有一个"已知全好"的参照：TI SBL 启动时整个 app 是 OK 
+  的。所以目标可以定得很干脆——"让 BM 交接后的时钟状态 = TI SBL
+  交接后的时钟状态"，然后 app 行为就和那个好的情况完全一致。
+  - 风险不在"CAN 的 80MHz 对不对"，而在"我有没有漏掉 app
+  偷偷依赖的别的时钟"。只有 TI SBL 的配置能保证对你这个 app 是完整的；cr60
+  的配置是对 cr60 完整的，是另一个 app。
+
+  cr60 的配置不要直接抄数值：cr60 的核心频率、CLKOUT2 用途、MCAN
+  设置都是按它自己需求来的，它根本不管雷达要的 HWA/DSS/RTI/QSPI。照抄数值可能
+  CAN 通了，雷达通路却时钟错了。
+
+  但 cr60 有一个不可替代的价值：它在同一个 BM 之后、从"R5 
+  已经在跑"的状态成功重配了时钟树。这正是抄 TI SBL 最大的坑——TI SBL
+  是从冷复位开始配的，会做完整的 DPLL 重锁；而 BM 交接时芯片不是冷复位状态、R5
+  已经在某个时钟上跑了，你照搬 SBL 的"重锁 VCO"会把正在运行的核搞死。cr60 的
+  Mcu_Platform.c 证明了哪些能在运行中安全切、用什么顺序切。
+
+  最靠谱的做法：寄存器对拍
+
+  别凭空抄，用经验法把两个状态拍出来对比：
+
+  1. 抓"金标准"：TI SBL 启动（工作正常）下，dump 相关时钟寄存器——DPLL_CORE
+  配置、HSDIV0 各分频、CLKOUT2 上电寄存器 0x0214042C、MCAN
+  时钟源/分频寄存器等。这就是目标。
+  2. 抓"BM 交接态"：BM 启动下 dump 同一组寄存器。
+  3. 两者的 diff = 你唯一要补的东西。 大概率很小——多半就是 CLKOUT2 这一路被 BM 
+  关了 / 分频不同 / MCAN 源没 mux 过去。
+  4. 在 app 早期初始化里只补这个 delta：
+    - 若 DPLL_CORE VCO 两边一致（BM 很可能也把核跑在标准频率）→ 你只需"使能+配置
+  HSDIV0_CLKOUT2 + 把 MCAN mux 过去"，完全不碰 VCO，最小改动、最安全；
+    - 若 VCO 也不同 → 才需要参考 cr60 Mcu_Platform.c
+  那套"运行中分步切换"的做法去动 DPLL。
+
+  这样既拿了 TI SBL 的正确目标值，又用 cr60 的经验避开了"运行中重配"的坑，而且每
+  改一项都能在寄存器上验证，是这几条路里最稳的。
+
+  一句话
+
+  - 目标值：抄 TI SBL（soc_rcm.c + SBL 时钟序列）——保证对你这个 app 完整。
+  - 怎么安全地在 BM 之后施加：看 cr60 Mcu_Platform.c。
+  - 怎么确保没抄错/没抄漏：TI-SBL 态 vs BM 态寄存器对拍，只补 diff。
+
+  要不要我先把 cr60 Mcu_Platform.c 里 core DPLL / HSDIV0_CLKOUT2 / MCAN
+  那段的操作序列和它碰了哪些寄存器提取出来？这样你做寄存器对拍时，就知道哪些寄存
+  器是关键、以及运行中切换的安全姿势。
+
+✻ Sautéed for 1m 20s
+
+> 提取一下cr60 Mcu_Platform.c的时钟操作序列，然后帮我看下怎么在sdk              
+  app里面实现，需要仔细对比啊 给个完美可解决问题的答案                          
+
+● 这是个硬核任务，需要把 cr60 的寄存器级时钟序列完整读出来再映射到 SDK
+  app。我把相关文件都读一遍。
+
+  Read 1 file (ctrl+o to expand)
+
+● 继续读 Mcu_Platform.c 剩余部分（hsDivClkSet 等）和 cr60 实际用的时钟参数值。
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/Project/CR/pl/cr60_light_BYD_SingleFreqPoint_dp" && echo
+      "===== PBcfg 里 PLL/HSDIV/CLKOUT 数值 =====" && grep -rniE
+      "MCU_PLL_CLKOUT|MCU_PLL_HSDIV|\.N…)
+  ⎿  ===== PBcfg 里 PLL/HSDIV/CLKOUT 数值 =====
+     85:        .Mcu_ClockModuleId = MCU_CLKSRC_MODULE_ID_CR5,
+     86:        .Mcu_ClockSourceId = MCU_CLKSRC_2,
+     … +78 lines (ctrl+o to expand)
+
+● cr60 的完整序列和参数都拿到了。关键提取：MCAN 源 = MCU_CLKSRC_4(就是 
+  DPLL_CORE_HSDIV0_CLKOUT2)，div=4；QSPI 同源同 
+  div。我再补齐几个决定性数值（CORE DPLL 出多少、HSDIV2 分频、CLKSRC_4
+  映射、getMultibitValue、寄存器基址、XTAL），这样 SDK 侧实现才能给准。
+
+● Bash(cd "D:/Weifu/Project/CR/pl/cr60_light_BYD_SingleFreqPoint_dp" && echo
+      "===== DPLL CORE 频率与 HSDIV 值 (McuConf) =====" && grep -rniE
+      "McuConf_McuDPLLClkout1 |McuCo…)
+  ⎿  ===== DPLL CORE 频率与 HSDIV 值 (McuConf) =====
+     coem/BYD_UKE/gen_mcal/include/Mcu_Cfg.h:169:#define XTAL_CLKINP
+                       (0x02625A00U)    /* XTALCLK - 40 MHz */
+     … +18 lines (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/Project/CR/pl/cr60_light_BYD_SingleFreqPoint_dp" && echo
+      "===== getMultibitValue 定义 =====" && grep -rniE "getMultibitValue"
+      --include=*.c --include…)
+  ⎿  ===== getMultibitValue 定义 =====
+     bswpf/mcal/Mcu/src/Mcu_Platform.c:190:    clkSrcVal = getMultibitValue
+     ((uint32)clk_srcId, M_TWELVE);
+     … +52 lines (ctrl+o to expand)
+
+● 全部数值拿到了，可以给你一个有据可依的方案了。先看提取结果。
+
+  一、cr60 的时钟操作序列（从 Mcu_Platform.c + Mcu_PBcfg + Mcu_Cfg.h 提取）
+
+  DPLL_CORE 参数（Mcu_Cfg.h）：
+
+  ┌──────────────────────────────────┬──────────────────────────────────────┐
+  │               参数               │                  值                  │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ XTAL_CLKINP                      │ 40 MHz (0x02625A00)                  │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ DPLL_CORE VCO/CLKOUT             │ 800 MHz (N=19, M2=1, FracM=0,        │
+  │ (McuDPLLClkout1)                 │ sdDiv=4)                             │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ HSDIV0→CLKOUT0                   │ 160 MHz                              │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ HSDIV1→CLKOUT1                   │ 200 MHz                              │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ HSDIV2→CLKOUT2                   │ 400 MHz ← 就是                       │
+  │                                  │ DPLL_CORE_HSDIV0_CLKOUT2             │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ HSDIV3→CLKOUT3                   │ 200 MHz                              │
+  └──────────────────────────────────┴──────────────────────────────────────┘
+
+  MCAN/QSPI 时钟（Mcu_PBcfg_awr2e44p.c）：
+  - MCANA / MCANB / QSPI：源 = MCU_CLKSRC_4（即 CLKOUT2=400MHz），ClockDiv = 4
+  - 分频寄存器写的是 getMultibitValue(4)，而 RCM 的 DIV 字段是 (N+1) 语义 → 400 
+  MHz / 5 = 80 MHz
+
+  🔑 决定性结论：cr60 把 MCAN 配成了 80 MHz（400/5），这正好等于你 SDK app 
+  ti_power_clock_config.c 里期望的 80 MHz。 也就是说——只要让 SDK app 里
+  DPLL_CORE_HSDIV0_CLKOUT2 = 400 MHz，app 现有的那行
+  SOC_moduleSetClockFrequency(MCANA, DPLL_CORE_HSDIV0_CLKOUT2, 80000000)
+  就会自动分出正确的 80 MHz，CAN 立刻能发。
+
+  cr60 配置 DPLL_CORE 
+  的安全序列（configPLLCoreClk，关键是它怎么"运行中重配不死机"）：
+  1. 写 PLL_CORE_M2NDIV / MN2DIV / FRACDIV (N=19,M2=1,M算出来,frac=0)   // 设
+  800MHz
+  2. 写 PLL_CORE_CLKCTRL (LDO/SELFREQDCO 等)
+  3. ★ 把 CR5 和 SYS_CLK 时钟源切到 XTAL：
+        Mcu_ClockSetSourceCR5(MCU_CLKSRC_0,0); Mcu_ClockSetSourceSYSCLK(0);   //
+  核心先离开DPLL
+  4. soft-reset PLL → TENABLE 脉冲 → 等 PLL_CORE_STATUS[10] 锁定
+  5. hsDivClkSet 设 CLKOUT0/1/2/3 分频(D=CLKOUT/目标-1，CLKOUT2: 800/400-1=1)
+     pllCoreHSDivClkGating: 触发 latch(HSDIVIDER[2] 翻转) + 各 CLKOUTx_GATE[8]=1
+  6. ★ 把 SYS_CLK / CR5 源切回 DPLL：
+        Mcu_ClockSetSourceSYSCLK(1); Mcu_ClockSetSourceCR5(MCU_CLKSRC_2,0);
+  7. 再等一次锁定；PLLC_CLK2_SRC_SEL = DPLL_CORE_HSDIV0_CLKOUT2_PreMux(0)
+  第 3/6 步就是答案里最有价值的部分：重配 DPLL 前先把核切到 
+  XTAL，配完再切回——这是 cr60 在 BM 之后"运行态重配时钟"不崩的关键。
+
+  寄存器基址（AWR2E44/AWR2x44P 同硅片，SDK
+  侧同样适用）：toprcmREG=0x02140000，mssrcmREG=0x02100000，CLKOUT2 上电寄存器
+  0x0214042C。
+
+  ---
+  二、在 SDK app 里怎么实现（含对比与取舍）
+
+  先做一个关键判断，它决定你要做"最小改动"还是"完整重配"：
+
+  ▎ CR5 用的是 CLKSRC_2（≠CLKOUT2），MCAN/QSPI 才用 CLKSRC_4=CLKOUT2。 
+  ▎ 所以单独动 CLKOUT2 这一路不会影响正在跑的 R5——这给了你一个低风险路径。
+
+  第 0 步（必做）：寄存器对拍，确认 BM 留下的 VCO
+
+  BM 启动、Drivers_open() 之后，用调试器读这几个，和 TI-SBL 启动时对比：
+  - PLL_CORE_STATUS(0x21400xx) bit10 是否锁定、PLL_CORE_M2NDIV/MN2DIV → 反推 VCO
+  是不是 800MHz；
+  - PLL_CORE_HSDIVIDER_CLKOUT2(分频值) 和 PD 寄存器 0x0214042C bit2 → CLKOUT2
+  是否使能、分频几;
+  - 顺手 SOC_rcmGetModuleClkFrequency(MSS_MCANA)。
+
+  判断：
+  - 若 VCO 已是 800MHz（R5 跑在 200MHz 说明大概率是）→ 走 A（最小、最安全）；
+  - 若 VCO 不是 800MHz → 走 B（完整重配）。
+
+  路径 A（推荐，低风险）：只把 CLKOUT2 拉到 400MHz，不碰 VCO/CR5
+
+  最优雅是直接调 SDK 自带的 API（BM 的 map 里就有 SOC_rcmCoreDpllHSDivOutEnable
+  这个符号，说明你 SDK 的 soc_rcm.c 里有现成的）。在 app 早期、PowerClock_init()
+  之前加：
+
+  /* 放在 System_init() 里、Module_clockSetFrequency()/Drivers_open() 之前 */
+  /* 目标：DPLL_CORE_HSDIV0_CLKOUT2 = 400MHz，喂给 MCAN/QSPI */
+  SOC_rcmCoreDpllHSDivOutEnable(RCM_CORE_HSDIV_OUT_2 /*CLKOUT2*/, 400U /*MHz*/);
+  /* 之后保持 app 原有的：SOC_moduleSetClockFrequency(MCANA/B, 
+  DPLL_CORE_HSDIV0_CLKOUT2, 80000000) */
+
+  ▎ 具体函数名/参数以你 
+  ▎ mcu_plus_sdk_awr2x44p_<ver>\source\drivers\soc\awr2x44p\soc_rcm.c 为准——照搬
+  ▎ SBL 里对 CORE HSDIV CLKOUT2 的那几行调用即可（SBL 怎么配的，你 app 
+  ▎ 就怎么配）。
+
+  如果你不想依赖 SDK API、要寄存器级（等价于 cr60 的
+  hsDivClkSet+pllCoreHSDivClkGating 只做 CLKOUT2 那段）：
+  #define TOPRCM 0x02140000U
+  /* 1) 设 CLKOUT2 分频 D=1 → 800/(1+1)=400MHz；偏移以你SDK的CSL寄存器定义为准 
+  */
+  /* 2) latch: PLL_CORE_HSDIVIDER[2] 1→0 翻转 */
+  /* 3) CLKOUT2_GATE[8]=1 使能输出 */
+  /* 4) 清 0x0214042C 的 CLKOUT2 PD 位(bit2) 上电 */
+  /* 5) PLLC_CLK2_SRC_SEL[11:0]=premux(0) */
+  ⚠️ 寄存器偏移我不凭空给你（怕错），用你 SDK CSL 里 CSL_mss_toprcm* 的
+  PLL_CORE_HSDIVIDER_CLKOUT2 等定义；步骤和位域完全照 cr60 上面那段。
+
+  路径 B（兜底，完整）：把 cr60 的 configPLLCoreClk 整段移植
+
+  即在 app 里完整复刻"切 XTAL → 设 DPLL_CORE=800 → 设 HSDIV0~3 → 切回 DPLL"。用
+  SDK API 就是 SOC_rcmCoreDpllConfig(...800MHz...) + 各
+  HSDivOutEnable。这条能保证不管 BM 留什么状态都对，但它会动到
+  CR5/SYS_CLK，必须确认 SDK app 期望的 R5/SYS_CLK 频率（你的表里 
+  SYS_CLK=200MHz）和 cr60 一致（cr60 CLKOUT1=200、SYS_CLK 也是
+  200，两边一致✅），否则会改了 R5 主频。
+
+  ---
+  三、落地顺序
+
+  1. 寄存器对拍（第 0 步）→ 确定 A 还是 B；
+  2. 在 mss_main.c 的 System_init() 开头、Drivers_open()/PowerClock_init()
+  之前插入 CLKOUT2 配置（A 或 B）；
+  3. 编译烧录，BM 启动后验证：SOC_rcmGetModuleClkFrequency(MSS_MCANA) ==
+  80MHz、MCAN 退出 INIT、示波器有 CAN 波形、QSPI 也正常；
+  4. CAN 通了再回头确认 QSPI/flash（同源，一并好）。
+
+  四、一句话总方案
+
+  目标值照 cr60：DPLL_CORE=800MHz、CLKOUT2=400MHz → MCAN/QSPI 80MHz（= SDK app 
+  期望值）。安全姿势照 cr60：动 VCO 必先切 XTAL 再切回；只动 CLKOUT2 则不影响 
+  R5（CR5 走的是 CLKSRC_2 不是 CLKOUT2），优先走这条。实现优先调 SDK 自带 
+  SOC_rcmCoreDpllHSDivOutEnable（和 SBL 同一套），拿不准就按 cr60 
+  寄存器序列等价复刻。每步用寄存器对拍验证。
+
+  ——
+
+  ⚠️ 诚实提示：这是安全相关的时钟代码，上面的频率/分频/序列我都从 cr60
+  源码和你的配置实打实推出来了（MCAN=400/5=80MHz 和 app
+  期望值自洽，可交叉验证），但具体寄存器偏移和 SDK 的 API 签名要以你本机 MCU+ 
+  SDK 的 soc_rcm.c/CSL 为准，别盲贴偏移。要不要我帮你把 mmwave SDK 侧
+  System_init 的调用点和 Drivers_open
+  顺序精确定位出来，告诉你这段代码具体插在哪一行？
+
+✻ Baked for 5m 31s
