@@ -1,0 +1,92 @@
+/*@!Encoding:936*/
+/* ============================================================================
+ * TimeSync 娴嬭瘯鍙戯拷?(LP/涔濊瘑瑙掗浄锟�? 鈥旓拷?鏂板崗锟�?锟�?DBC 涓€锟�?
+ * 锟�?CANID 0x040 CANFD 鏍囧噯锟�? 鎬婚暱锟�?64 瀛楄妭 DLC:15, 鍛ㄦ湡 396ms
+ * Byte0~1  CRC (CRC16-CCITT-FALSE, 瑕嗙洊 Byte2..Byte15, 灏忕瀛樻斁)
+ * Byte2~5  GT_Nanoseconds(LE) | Byte6~9 GT_Seconds(LE)
+ * Byte10   message type | Byte11 SequenceCounter
+ * Byte12~14 Reserved | Byte15 Status | Byte16~63 濉厖
+ * 锟�?'s' 寮€锟�? 't' 鍋滄 (锟�?1.2s 鍙祴闆疯揪 SYNC_LOST/DTC)
+ * 鎬荤嚎: 锟�?mcana(MCAN0) 閭ｆ潯 CAN-FD, 浠茶 1Mbps / 鏁版嵁 5Mbps
+ * ============================================================================ */
+variables
+{
+  msTimer tmrSync;
+  byte    g_msgType = 0x20;
+  byte    g_status  = 0x00;
+  byte    g_seq     = 0;
+  dword   g_gt_s    = 100;            /* 璧峰 GlobalTime 锟�?*/
+  dword   g_gt_ns   = 0;              /* 璧峰 GlobalTime 绾崇 */
+  const dword PERIOD_MS = 396;
+  const dword PERIOD_NS = 396000000;  /* 396ms = 3.96e8 ns */
+}
+
+/* CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, 鏃犲弽锟�? xorout 0 */
+word crc16_ccitt(byte d[], dword len)
+{
+  word  crc;
+  dword i;
+  int   j;
+  crc = 0xFFFF;   /* 蹇呴』鍦ㄥ嚱鏁颁綋閲屾瘡娆¤皟鐢ㄩ兘鏄惧紡澶嶄綅: CAPL 澹版槑澶勭殑鍒濆€间笉淇濊瘉姣忔璋冪敤閮介噸鏂版墽琛� */
+  for (i = 0; i < len; i++)
+  {
+    crc = (word)(crc ^ (word)(d[i] << 8));
+    for (j = 0; j < 8; j++)
+    {
+      if (crc & 0x8000) crc = (word)((crc << 1) ^ 0x1021);
+      else              crc = (word)(crc << 1);
+    }
+  }
+  return crc;
+}
+
+void sendTimeSync()
+{
+  message 0x40 m;
+  byte  buf[64];
+  byte  cb[14];
+  word  crc;
+  int   i;
+
+  /* 1) 鍏堝湪鏈湴鏁扮粍鎷煎畬锟�?payload(64瀛楄妭, 鍏堝叏娓呴浂鍋氬～锟�? */
+  for (i = 0; i < 64; i++) buf[i] = 0;
+
+  /* Byte2..5  GT_Nanoseconds (灏忕) */
+  buf[2] =  g_gt_ns        & 0xFF;
+  buf[3] = (g_gt_ns >> 8)  & 0xFF;
+  buf[4] = (g_gt_ns >> 16) & 0xFF;
+  buf[5] = (g_gt_ns >> 24) & 0xFF;
+  /* Byte6..9  GT_Seconds (灏忕) */
+  buf[6] =  g_gt_s         & 0xFF;
+  buf[7] = (g_gt_s >> 8)   & 0xFF;
+  buf[8] = (g_gt_s >> 16)  & 0xFF;
+  buf[9] = (g_gt_s >> 24)  & 0xFF;
+  /* Byte10 娑堟伅绫诲瀷 | Byte11 甯у簭锟�?| Byte12..14 淇濈暀(0) | Byte15 璁惧鐘讹拷?*/
+  buf[10] = g_msgType;
+  buf[11] = g_seq;
+  buf[15] = g_status;
+
+  /* 2) CRC 瑕嗙洊 Byte2..Byte15 杩炵画 14 瀛楄妭 */
+  for (i = 0; i < 14; i++) cb[i] = buf[2 + i];
+  crc = crc16_ccitt(cb, 14);
+  buf[0] =  crc        & 0xFF;   /* 灏忕浣庡瓧锟�?*/
+  buf[1] = (crc >> 8)  & 0xFF;   /* 灏忕楂樺瓧锟�?*/
+
+  /* 3) 閰嶇疆 FD + 闀垮害(DLC=15 -> 64瀛楄妭), 鍐嶆妸锟�?64 瀛楄妭鍐欒繘 m */
+  m.FDF = 1;
+  m.BRS = 1;
+  m.dlc = 15;
+  for (i = 0; i < 64; i++) m.byte(i) = buf[i];
+
+  write("CANoe TX seq=%d crc=0x%04X  buf0=%02X buf1=%02X", g_seq, crc, buf[0], buf[1]);
+  output(m);
+
+  g_seq = (g_seq + 1) & 0xFF;
+  g_gt_ns += PERIOD_NS;
+  while (g_gt_ns >= 1000000000) { g_gt_ns -= 1000000000; g_gt_s += 1; }
+}
+
+on start         { setTimer(tmrSync, PERIOD_MS); }   /* 娴嬮噺寮€濮嬪嵆鍛ㄦ湡锟�?*/
+on key 's'       { setTimer(tmrSync, PERIOD_MS); write("TimeSync: start"); }
+on key 't'       { cancelTimer(tmrSync);          write("TimeSync: stop (>1.2s 鍙Е锟�?SYNC_LOST)"); }
+on timer tmrSync { sendTimeSync(); setTimer(tmrSync, PERIOD_MS); }

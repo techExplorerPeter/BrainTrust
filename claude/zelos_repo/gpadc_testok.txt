@@ -1,0 +1,1513 @@
+ ▐▛███▜▌   Claude Code v2.1.185
+▝▜█████▛▘  Opus 4.8 · Claude Pro
+  ▘▘ ▝▝    D:\Weifu\git\compare\zelos_repo
+
+
+> 是这样的哈，我现在有个需求，就是当前文件夹下zelos_repo工程是缺少了一块雷达pin 
+  脚识别的功能的，然后这个功能在cr60_light_BYD_SingleFreqPoint_dp里面是有的，通 
+  过rbMPR_Judge这个来做，读取mr1和mr2的adc电压值，是通过gpadc来做的，然后我想要 
+  把这块功能根据我当前zelos_repo工程的方式来添加进来，硬件连接是一模一样的，mr1 
+  也是通过adc5 然后mr2是通过adc6通道接上的                                      
+
+● 我先了解一下当前文件夹的结构，找到两个工程的位置和相关代码。
+
+● PowerShell(Get-ChildItem "D:\Weifu\git\compare" -Directory | Select-Object
+            Name)
+  ⎿  Name
+     ----
+     .vscode
+     … +4 lines (ctrl+o to expand)
+
+  Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+● 理解了rbMPR的逻辑。现在我需要看一下它依赖的GPADC读取函数 read_mr1_adc5() /
+  read_mr2_adc6()，以及它在哪里被调用的。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 现在看一下ADC读取的实现 AdcApp.c/.h，这是GPADC的核心。
+
+  Read 2 files (ctrl+o to expand)
+
+● 这是一个比较完整的功能。先了解zelos_repo工程的结构和它现有的ADC相关代码。
+
+● PowerShell(Get-ChildItem "D:\Weifu\git\compare\zelos_repo" -Directory |
+            Select-Object Name)
+  ⎿  Name
+     ----
+     .claude
+     … +6 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● zelos_repo是TI mmWave SDK工程，它用的是TI MCU Plus
+  SDK的GPADC驱动（不是参考工程的AUTOSAR
+  Adc模块）。我需要看zelos_repo的demo怎么用GPADC，以及GPADC驱动的API。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+  ⎿  Loaded zelos_repo\CLAUDE.md
+
+● zelos_repo的mss_main.c里似乎已经有一段GPADC
+  pin检测的代码（3638-3711）。让我仔细看这块和它的上下文。
+
+  Read 1 file (ctrl+o to expand)
+
+● 原来zelos_repo里已经有一段GPADC读取的代码框架了（调用了GPADC_startSingleChanne
+  lConversion读channel 5/6），但是第3676-3677行直接用编译期宏RADAR_POS1/RADAR_PO
+  S2把真实ADC读数覆盖掉了。我需要搞清楚这些宏和相关定义。
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● 现在我清楚了zelos的现状：GPADC读取代码在，但第3676-3677行用编译期宏RADAR_POS1/
+  POS2把真实读数覆盖了，所以pin识别其实没生效（位置是编译期写死的）。我需要确认G
+  PADC返回值的量纲和通道配置。
+
+  让我看GPADC驱动的返回值含义、通道配置，以及cr60参考工程里两者位置映射的差异。
+
+  Searched for 4 patterns, read 2 files (ctrl+o to expand)
+
+● 关键发现：生成的GPADC配置里只配了3个通道（channelConfig[0]/[1]/[2]，channelID=
+  0/1/2），但mss_main.c却访问channelConfig[5]和[6]——这两个根本没配置。所以现在的
+  pin识别其实是读不到adc5/adc6的。
+
+  我需要确认几件事：GPADC的通道ID与adc5/adc6的对应关系、返回值量纲、以及syscfg配
+  置。
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● GPADC当前是readMode = "TEMPERATURE"模式，3个温度通道。需要看GPADC的外部通道枚
+  举定义和readMode的含义，确认adc5/adc6怎么配。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+● 外部通道枚举确认：GPADC_MEAS_EXT_CH5 = 4（adc5），GPADC_MEAS_EXT_CH6 = 
+  5（adc6）。现在看驱动里GPADC_startSingleChannelConversion返回的是原始码值还是m
+  V，以及temperature模式下能否做单通道外部转换。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● 现在我已经把现状摸清楚了。让我再确认一个关键点：GPADC当前是TEMPERATURE模式，看
+  一下init里readMode和外部通道是怎么交互的，以及现有demo是否在别处切换模式。
+
+  Read 1 file (ctrl+o to expand)
+
+● 关键发现：GPADC_open里，外部通道（adc5/adc6）必须useLuTable=TRUE且channelID=4/
+  5，走GPADC_ConfigParamLuTab[channelNumber]查表；而温度通道走另一条路（channelI
+  ndex>=3就break）。当前配置全是useLuTable=FALSE的温度通道。
+
+  让我看读取外部单通道的示例工程是怎么配syscfg的，以及LuTable的实际大小。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● 现在机制清楚了：外部通道走GPADC_ConfigParamLuTab查表（实际定义大小是MAX_GPADC_
+  MEAS_SOURCES，含CH5/CH6），可以和温度通道混合配置。让我确认syscfg里外部通道/re
+  adMode的配置选项，以及LuTab对CH5/CH6的内容。
+
+  Read 3 files (ctrl+o to expand)
+
+● syscfg模板的关键点：TEMPERATURE模式下channelID被写死成循环下标0/1/2，无法生成c
+  hannelID 4/5；只有SINGLE模式才能按ChannelIndex-1生成外部通道。但demo同时用了温
+  度读取(GPADC_readTemperature)。我得确认温度读取是否依赖channelConfig，还是用自
+  己的温度参数表。
+
+  Searched for 3 patterns, read 1 file (ctrl+o to expand)
+
+● 我已经把两个工程的机制都摸清楚了。先把关键发现讲清楚，然后有两个真正影响实现的
+  决策点需要你拍板。
+
+  现状分析
+
+  zelos_repo 其实已经有一段 pin 识别的“骨架”（mss_main.c 的
+  MmwDemo_initTask，3671–3735 行），但它没真正生效，原因有两个：
+
+  1. 真实读数被编译期宏覆盖：3671–3672 行确实调了
+  GPADC_startSingleChannelConversion 读 channel 5/6，但紧接着 3676–3677 行
+  gpadc_result[0]=RADAR_POS1; gpadc_result[1]=RADAR_POS2;
+  把读数冲掉了——位置实际是编译时由 DEV_POS 写死的（sys_conf.h）。
+  2. adc5/adc6 通道根本没配置：生成的 GPADC 配置（ti_drivers_open_close.c +
+  mss.syscfg）是 readMode=TEMPERATURE，只配了 3 个温度通道（channelID
+  0/1/2）。而 adc5/adc6 对应 GPADC_MEAS_EXT_CH5=4、GPADC_MEAS_EXT_CH6=5，需要
+  useLuTable=TRUE 的外部通道配置，现在没有。所以即使去掉宏覆盖，GPADC_startSingl
+  eChannelConversion 也会返回 CHANNEL_CONFIG_MISSING、值为 0。而且代码里
+  channelConfig[5]/[6]（数组下标）和实际只配到 [0..2] 也对不上。
+
+  cr60 的 rbMPR_Judge 逻辑：读 mr1/mr2 的 mV 电压 → 按窗口分类（GND: 0–900mV /
+  OPEN: 1300–1600mV，中间为异常 UNKNOWN）→ (GND/OPEN 组合)
+  映射到角雷达位置，并上电锁存一次 + 周期监控 + 异常上报 Dem。
+
+  一个我必须提醒的差异：cr60 和 zelos 现有代码对 MR1/MR2 的语义是相反的：
+  - cr60(rbMPR)：MR1 决定 左/右，MR2 决定 前/后
+  - zelos 现有：MR1 决定 前/后，MR2 决定 左/右
+
+  硬件接线相同的话，这两套只有一套是对的。下面两个问题需要你定一下：
+
+● User answered Claude's questions:
+  ⎿  · 这次 pin 识别功能要移植到什么程度？ → 最小改动接入真实读数
+     · MR1/MR2 与 前后/左右 
+     的对应关系用哪一套？（两套相反，硬件相同只能一套正确） → 按cr60(rbMPR)
+
+● 明白。最终方案确定：
+  - 最小改动：保留 zelos 现有判定树结构和 RAISE_EDGE 单阈值，只接入真实
+  adc5/adc6 读数 + 正确配置通道。
+  - 按 cr60 映射：MR1(adc5) 决定 左/右（高电平/OPEN=左），MR2(adc6) 决定
+  前/后（高电平/OPEN=前）。这与 zelos
+  现有判定树的内外层正好相反，需要把判定树调成 MR2 在外层(前/后)、MR1
+  在内层(左/右)。
+
+  先确认几个配置细节：LuTab 对 CH5/CH6 的条目、config 头里的通道数量宏、以及
+  GPADC_ConfigType.channelConfig 数组大小。
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● 配置细节全部确认：
+  - LuTab 里 CH5(#4)、CH6(#5) 都有有效条目（buffered/unbuffered config
+  值齐全）。
+  - channelConfig[MAX_GPADC_MEAS_SOURCES]（9）数组够大，加 index 3/4 没问题。
+  - GPADC_open 对 useLuTable=TRUE 的通道走外部路径、用 channelID 索引
+  driverChannelConfig，与温度通道（[0]/[1]/[2]）不冲突，可以混合配置。
+
+  现在开始改。改动 1：在生成的 GPADC 配置里补上 adc5/adc6 两个外部通道。
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mssgenerate
+        d\ti_drivers_open_close.c)
+  ⎿  Added 19 lines
+      212                  .isBufferedMode       = TRUE,
+      213                  .useLuTable           = FALSE,
+      214               },
+      215 +            /* 雷达安装位置 PIN 脚识别用的外部 GPADC 通道（手 
+          +动追加，SysConfig 的                                          
+      216 +             * TEMPERATURE 模式模板无法生成非顺序 channelID， 
+          +重新 make syscfg 会覆盖此处）：                               
+      217 +             *   MR1 -> ADC5 = GPADC_MEAS_EXT_CH5 (channelID 4
+          +)                                                             
+      218 +             *   MR2 -> ADC6 = GPADC_MEAS_EXT_CH6 (channelID 5
+          +)                                                             
+      219 +             * useLuTable=TRUE 让 GPADC_open() 走外部源查表路 
+          +径(GPADC_ConfigParamLuTab)。*/                                
+      220 +            .channelConfig[3] =                               
+      221 +             {                                                
+      222 +                .channelID            = GPADC_MEAS_EXT_CH5,   
+      223 +                .isConfigured         = TRUE,                 
+      224 +                .isBufferedMode       = TRUE,                 
+      225 +                .useLuTable           = TRUE,                 
+      226 +             },                                               
+      227 +            .channelConfig[4] =                               
+      228 +             {                                                
+      229 +                .channelID            = GPADC_MEAS_EXT_CH6,   
+      230 +                .isConfigured         = TRUE,                 
+      231 +                .isBufferedMode       = TRUE,                 
+      232 +                .useLuTable           = TRUE,                 
+      233 +             },                                               
+      234      },
+      235  };
+      236  
+
+● Now bump the channel count macro in the generated header for consistency:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mssgenerate
+        d\ti_drivers_config.h)
+  ⎿  Added 3 lines, removed 1 line
+      114  #define CONFIG_GPADC0_BASE_ADDR (CSL_MSS_GPADC_REG_U_BASE)
+      115  #define CONFIG_GPADC0_CHANNEL_BITMAP (1)
+      116  #define CONFIG_GPADC_NUM_INSTANCES (1U)
+      117 -#define CONFIG_GPADC_CHANNEL_NUM_INSTANCES (3)                
+      117 +/* 3 个温度通道 + 2 个外部通道(adc5/adc6)用于雷达安装位置 PIN 
+          +识别。                                                        
+      118 + * 注意：重新 make syscfg 会把此处改回 (3)，需同步手动恢复为 (
+          +5)。 */                                                       
+      119 +#define CONFIG_GPADC_CHANNEL_NUM_INSTANCES (5)                
+      120  
+      121  /*
+      122   * GPIO
+
+● 改动 2：修复 mss_main.c 里的读取和判定。把真实读数接入，去掉无条件的宏覆盖（改
+  为转换失败时的回退），并按 cr60 映射把
+  MR2(adc6)→result[0](前后)、MR1(adc5)→result[1](左右)，判定树保持不变。
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Error editing file
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)  ⎿  Added 13 lines, removed 8 lines
+      3666      memset(&sMountingPosition, 0, sizeof(sMountingPosition));
+      3667      /* Debug Message: */
+      3668      DebugP_log("Debug: Launched the Initialization Task\n");
+      3669 -    GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[
+           -5].channelID, &gpadc_result[0]);                             
+      3670 -    GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[
+           -6].channelID, &gpadc_result[1]);                             
+      3669 +    /* 雷达安装位置 PIN 脚识别（通过 GPADC 读取 MR1/MR2 真实 
+           +电压）：                                                     
+      3670 +     *   MR1 接 ADC5 (GPADC_MEAS_EXT_CH5)，决定 左/右：OPEN( 
+           +高电平)=左, GND(低电平)=右                                   
+      3671 +     *   MR2 接 ADC6 (GPADC_MEAS_EXT_CH6)，决定 前/后：OPEN( 
+           +高电平)=前, GND(低电平)=后                                   
+      3672 +     * 沿用本工程判定树约定：gpadc_result[0]=前后、gpadc_resu
+           +lt[1]=左右，                                                 
+      3673 +     * 故把 MR2(adc6) 读入 [0]、MR1(adc5) 读入 [1]（与 cr60 r
+           +bMPR 的脚位语义一致）。*/                                    
+      3674 +    GPADC_ConvResultType mr2Conv = GPADC_startSingleChannelCo
+           +nversion(GPADC_MEAS_EXT_CH6, &gpadc_result[0]); /* MR2 / adc6
+           + -> 前后 */                                                  
+      3675 +    GPADC_ConvResultType mr1Conv = GPADC_startSingleChannelCo
+           +nversion(GPADC_MEAS_EXT_CH5, &gpadc_result[1]); /* MR1 / adc5
+           + -> 左右 */                                                  
+      3676  
+      3672 -// #ifdef RADAR_POS1                                         
+      3673 -// #ifdef RADAR_POS2                                         
+      3674 -    gpadc_result[0] = RADAR_POS1;  /* 前后 FR : F 200 R 0 */ 
+      3675 -    gpadc_result[1] = RADAR_POS2;  /* 左右 LR : L 200 R 0 */ 
+      3676 -// #endif                                                    
+      3677 -// #endif                                                    
+      3677 +    /* 任一通道转换失败时回退到编译期 DEV_POS 配置，避免位置 
+           +识别失效 */                                                  
+      3678 +    if((GPADC_CONV_DONE != mr1Conv) || (GPADC_CONV_DONE != mr
+           +2Conv))                                                      
+      3679 +    {                                                        
+      3680 +        gpadc_result[0] = RADAR_POS1;  /* 前后 FR : F 200 R 0
+           + */                                                          
+      3681 +        gpadc_result[1] = RADAR_POS2;  /* 左右 LR : L 200 R 0
+           + */                                                          
+      3682 +    }                                                        
+      3683      if(gpadc_result[0] >= RAISE_EDGE)
+      3684      {
+      3685          /*F*/
+
+● 判定树保持不变即可（现在 result[0]=MR2=前后 作外层、result[1]=MR1=左右
+  作内层，与 cr60 一致）。再确认两点：GPADC_initTempMeasurement() 不会清掉
+  GPADC_open 配好的外部通道；以及 Drivers_open 链路确实打开了 gpadc。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● GPADC_initTempMeasurement() 只读 efuse 校准值，不动
+  driverChannelConfig，外部通道配置安全；温度读取走 group 转换的
+  [0]/[1]/[2]，与新增的 [4]/[5] 不冲突。Drivers_open() 确实会 GPADC_open
+  我扩展后的配置。
+
+  复核一下 mss_main.c 改完后的完整片段：
+
+  Read 1 file (ctrl+o to expand)
+
+● 判定树完好，四种组合逐一核对与 cr60 rbMPR 完全一致：
+
+  ┌───────────┬───────────┬─────────────┬──────────┐
+  │ adc5(MR1) │ adc6(MR2) │    结果     │ cr60对应 │
+  ├───────────┼───────────┼─────────────┼──────────┤
+  │ OPEN(高)  │ OPEN(高)  │ FRONT_LEFT  │ ✓ tbl0   │
+  ├───────────┼───────────┼─────────────┼──────────┤
+  │ GND(低)   │ OPEN(高)  │ FRONT_RIGHT │ ✓ tbl1   │
+  ├───────────┼───────────┼─────────────┼──────────┤
+  │ OPEN(高)  │ GND(低)   │ REAR_LEFT   │ ✓ tbl2   │
+  ├───────────┼───────────┼─────────────┼──────────┤
+  │ GND(低)   │ GND(低)   │ REAR_RIGHT  │ ✓ tbl3   │
+  └───────────┴───────────┴─────────────┴──────────┘
+
+  确认 mss_main.c 里没有其它地方还引用旧的 gCfgPtr 标量访问：
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 只剩 909 行那个现在已不再使用的 extern（无害，保持最小改动不动它）。
+
+  实现完成。我顺手把这个重新生成 syscfg 
+  会覆盖手改通道的非显然约束记到项目记忆里，方便以后会话避免踩坑：
+
+  Recalled 1 memory, wrote 2 memories (ctrl+o to expand)
+
+● 完成。下面是这次改动的总结。
+
+  改了什么
+
+  1. mss/mssgenerated/ti_drivers_open_close.c — 给 GPADC 配置补上 adc5/adc6
+  两个外部通道：
+  - channelConfig[3]：channelID=GPADC_MEAS_EXT_CH5（adc5/MR1），useLuTable=TRUE
+  - channelConfig[4]：channelID=GPADC_MEAS_EXT_CH6（adc6/MR2），useLuTable=TRUE
+
+  useLuTable=TRUE 让 GPADC_open()
+  走外部源查表路径（GPADC_ConfigParamLuTab），与原有 3
+  个温度通道（[0]/[1]/[2]）互不冲突，温度读取照常工作。
+
+  2. mss/mssgenerated/ti_drivers_config.h — CONFIG_GPADC_CHANNEL_NUM_INSTANCES
+  由 3 改 5。
+
+  3. mss/mss_main.c（MmwDemo_initTask） — 这是“缺失功能”的核心：
+  - 原来读完 adc 后无条件用 RADAR_POS1/POS2（编译期 DEV_POS 宏）把读数冲掉 →
+  改成真实读取 adc5/adc6，仅在转换失败时才回退到编译期配置。
+  - 通道按 cr60 映射接入：gpadc_result[0](前后)←adc6/MR2、gpadc_result[1](左右)←
+  adc5/MR1。判定树原样保留，四种组合与 cr60 rbMPR_Judge
+  完全一致（OPEN→前/左，GND→后/右）。
+
+  两个需要你知道的点
+
+  1. 没运行 make syscfg 验证编译（这里没有 TI 工具链）。逻辑和类型我都核对过，GP
+  ADC_MEAS_EXT_CH5/CH6、GPADC_ConvResultType、GPADC_CONV_DONE 都在已包含的
+  <drivers/gpadc.h> 里。建议你在 CCS/命令行按 CLAUDE.md 跑一次 make mmwDemoDDM
+  确认。
+  2. ⚠️ 重新 make syscfg 会覆盖改动 1 和 2。因为 GPADC 的 syscfg 现在是
+  TEMPERATURE 模式，其模板把 channelID 写死成循环下标，无法生成非顺序的 
+  channelID 4/5；切到 SINGLE 模式又会破坏温度读取。所以这两个外部通道只能手改在
+  生成文件里（我加了中文注释标注）。如果以后你重生成了
+  syscfg，需要把这两处手动补回。这个约束我已经记到项目记忆里了。
+
+  关于阈值（提醒，不是改动）
+
+  RAISE_EDGE=100 是对 GPADC 原始码值（非 mV）判 OPEN/GND 的门限。cr60 用的是 mV
+  窗口（GND 0–900、OPEN
+  1300–1600，中间为异常）。你选了“最小改动”，所以我保留了单门限。等上板实测
+  adc5/adc6 的实际码值后，如果 OPEN/GND 两态分得不够开，可以再调
+  RAISE_EDGE，或按需补一个“中间区=异常”的判断。
+
+✻ Brewed for 27m 17s
+
+> 有ti的工具链，你看我的zelos_repo下的compiler.bat                              
+  里面是有sysconfig_1.23.0的工具链路径                                          
+
+  Searched for 2 patterns, read 2 files, listed 1 directory (ctrl+o to expand)
+
+● 有工具链就好。先确认一个关键风险：demo 的 build 会不会自动跑 syscfg 
+  把我手改的生成文件覆盖掉。我看下 makefile 里 syscfg 的依赖关系。
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; grep -rniE "syscfg|mssgenerated|ti_drivers_config"
+      makefile mss/*.ma…)
+  ⎿  makefile:23:OUTRPRC_CMD = $(SYSCFG_NODE) $(MCU_PLUS_INSTALL_PATH)/tool
+     s/boot/out2rprc/elf2rprc.js
+     makefile:24:MULTI_CORE_IMAGE_GEN = $(SYSCFG_NODE) $(MCU_PLUS_INSTALL_P
+     … +37 lines (ctrl+o to expand)
+
+● 发现关键问题：makefile 第 55 行 mmwDemo: syscfg ... —— build 会先跑 syscfg 
+  重新生成，把我手改的 ti_drivers_open_close.c / ti_drivers_config.h
+  覆盖掉。我得确认 mmwDemoDDM（你 complier.bat 用的目标）是否也依赖 syscfg。
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; grep -nE "^mmwDemoDDM|^mmwDemo[:
+      ]|^mssDemo|^mssDemoDDM|^mmwDemoDDM:…)
+  ⎿  55:mmwDemo: syscfg mssDemo dssCM4Demo dssDemo
+     193:mmwDemoDDM:
+     195:mmwDemoDDMEnet:
+     … +2 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 确认了：mmwDemoDDM → mmwDemo: syscfg ...，每次 build 都会先重新生成 
+  syscfg，会把我手改的生成文件覆盖掉。所以正确做法必须改 .syscfg 
+  源文件，让重新生成时就产出正确配置。幸好你提醒了工具链。
+
+  关键洞察：GPADC_open() 根本不看 syscfg 的 readMode，它只看每个通道的
+  useLuTable+channelID。readMode 只决定生成模板走哪个分支。TEMPERATURE 
+  模板硬限制 3 通道且 channelID 写死；而 SINGLE 模板按 ChannelIndex-1 生成 
+  channelID、且 useLuTable 可逐通道配置。所以我改成 SINGLE 模式，就能既保留 3
+  个温度通道（useLuTable=FALSE→仍是温度传感器）、又加上 adc5/adc6 两个外部通道。
+
+  先看当前 mss.syscfg 的 gpadc 段：
+
+  Read 1 file (ctrl+o to expand)
+
+● 现在改 mss.syscfg：切到 SINGLE 模式，5 个通道——前 3
+  个保持温度（useLuTable=FALSE，ChannelIndex 1/2/3→channelID 0/1/2），后 2
+  个为外部 adc5/adc6（useLuTable=TRUE，ChannelIndex 5/6→channelID 4/5）。
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss.syscfg)
+  ⎿  Added 19 lines, removed 2 lines
+       81  edma1.edmaRmReservedDmaCh[0].endIndex   = 0;
+       82  
+       83  gpadc1.$name                          = "CONFIG_GPADC0";
+       84 -gpadc1.readMode                       = "TEMPERATURE";        
+       85 -gpadc1.gpadcChannel.create(3);                                
+       84 +/* SINGLE 模式：channelID = ChannelIndex-1，且 useLuTable 可逐
+          +通道配置。                                                    
+       85 + * 前 3 通道(useLuTable=FALSE, channelID 0/1/2) 仍是温度传感器
+          +(DSP/HWA/HSM)，                                               
+       86 + * 后 2 通道(useLuTable=TRUE) 为雷达安装位置识别用的外部输入：
+       87 + *   CH3 -> ChannelIndex 6 -> channelID 5 = GPADC_MEAS_EXT_CH6
+          + = adc6 (MR2)                                                 
+       88 + *   CH4 -> ChannelIndex 5 -> channelID 4 = GPADC_MEAS_EXT_CH5
+          + = adc5 (MR1)                                                 
+       89 + * GPADC_open() 不依赖 readMode，仅按 useLuTable/channelID 配 
+          +置，故温度读取不受影响。*/                                    
+       90 +gpadc1.readMode                       = "SINGLE";             
+       91 +gpadc1.gpadcChannel.create(5);                                
+       92  gpadc1.gpadcChannel[0].$name          = "CONFIG_GPADC_CH0";
+       93 +gpadc1.gpadcChannel[0].ChannelIndex   = 1;                    
+       94  gpadc1.gpadcChannel[0].isBufferedMode = "TRUE";
+       95  gpadc1.gpadcChannel[0].useLuTable     = "FALSE";
+       96  gpadc1.gpadcChannel[1].$name          = "CONFIG_GPADC_CH1";
+       97 +gpadc1.gpadcChannel[1].ChannelIndex   = 2;                    
+       98  gpadc1.gpadcChannel[1].isBufferedMode = "TRUE";
+       99  gpadc1.gpadcChannel[1].useLuTable     = "FALSE";
+      100  gpadc1.gpadcChannel[2].$name          = "CONFIG_GPADC_CH2";
+      101 +gpadc1.gpadcChannel[2].ChannelIndex   = 3;                    
+      102  gpadc1.gpadcChannel[2].isBufferedMode = "TRUE";
+      103  gpadc1.gpadcChannel[2].useLuTable     = "FALSE";
+      104 +gpadc1.gpadcChannel[3].$name          = "CONFIG_GPADC_CH3";   
+      105 +gpadc1.gpadcChannel[3].ChannelIndex   = 6;                    
+      106 +gpadc1.gpadcChannel[3].isBufferedMode = "TRUE";               
+      107 +gpadc1.gpadcChannel[3].useLuTable     = "TRUE";               
+      108 +gpadc1.gpadcChannel[4].$name          = "CONFIG_GPADC_CH4";   
+      109 +gpadc1.gpadcChannel[4].ChannelIndex   = 5;                    
+      110 +gpadc1.gpadcChannel[4].isBufferedMode = "TRUE";               
+      111 +gpadc1.gpadcChannel[4].useLuTable     = "TRUE";               
+      112  
+      113  gpio1.$name                = "MCANA_ERR_N";
+      114  gpio1.GPIO.$assign         = "GPIO9";
+
+● 同步更新 enet 变体 mss_enet.syscfg（以防你编 Ethernet 版本）：
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 发现 enet 变体本来就是 SINGLE 模式、7 个通道，但所有通道 
+  useLuTable=FALSE——这意味着 GPADC_open 在 channelIndex=3 处就 break
+  了（useLuTable=FALSE 且 index≥3），adc5/adc6 根本配不上。也就是说 enet
+  版的外部通道读取一样是坏的。我把它也改成和 mss.syscfg 一致的 5
+  通道布局（外部通道用 useLuTable=TRUE）：
+
+  Read 1 file (ctrl+o to expand)
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_enet.sy
+        scfg)
+  ⎿  Added 11 lines, removed 12 lines
+      83  edma1.edmaRmReservedDmaCh[0].endIndex   = 0;
+      84  
+      85  gpadc1.$name                          = "CONFIG_GPADC0";
+      86 +/* 与 mss.syscfg 保持一致：前 3 个为温度通道(useLuTable=FALSE, 
+         +channelID 0/1/2)，                                             
+      87 + * 后 2 个为雷达安装位置识别用的外部通道(useLuTable=TRUE)：    
+      88 + *   CH3 -> ChannelIndex 6 -> channelID 5 = adc6 (MR2)         
+      89 + *   CH4 -> ChannelIndex 5 -> channelID 4 = adc5 (MR1)         
+      90 + * 注意：useLuTable=FALSE 的通道在 GPADC_open() 里 channelIndex
+         +>=3 时会 break，                                               
+      91 + * 所以外部通道必须 useLuTable=TRUE 且排在前 3 个温度通道之后。
+         +*/                                                             
+      92  gpadc1.readMode                       = "SINGLE";
+      87 -gpadc1.gpadcChannel.create(7);                                 
+      93 +gpadc1.gpadcChannel.create(5);                                 
+      94  gpadc1.gpadcChannel[0].$name          = "CONFIG_GPADC_CH0";
+      95 +gpadc1.gpadcChannel[0].ChannelIndex   = 1;                     
+      96  gpadc1.gpadcChannel[0].useLuTable     = "FALSE";
+      97  gpadc1.gpadcChannel[0].isBufferedMode = "TRUE";
+      98  gpadc1.gpadcChannel[1].$name          = "CONFIG_GPADC_CH1";
+     ...
+      104  gpadc1.gpadcChannel[2].isBufferedMode = "TRUE";
+      105  gpadc1.gpadcChannel[2].useLuTable     = "FALSE";
+      106  gpadc1.gpadcChannel[3].$name          = "CONFIG_GPADC_CH3";
+      100 -gpadc1.gpadcChannel[3].ChannelIndex   = 4;                    
+      107 +gpadc1.gpadcChannel[3].ChannelIndex   = 6;                    
+      108  gpadc1.gpadcChannel[3].isBufferedMode = "TRUE";
+      102 -gpadc1.gpadcChannel[3].useLuTable     = "FALSE";              
+      109 +gpadc1.gpadcChannel[3].useLuTable     = "TRUE";               
+      110  gpadc1.gpadcChannel[4].$name          = "CONFIG_GPADC_CH4";
+      111  gpadc1.gpadcChannel[4].ChannelIndex   = 5;
+      112  gpadc1.gpadcChannel[4].isBufferedMode = "TRUE";
+      106 -gpadc1.gpadcChannel[4].useLuTable     = "FALSE";              
+      107 -gpadc1.gpadcChannel[5].$name          = "CONFIG_GPADC_CH5";   
+      108 -gpadc1.gpadcChannel[5].ChannelIndex   = 6;                    
+      109 -gpadc1.gpadcChannel[5].isBufferedMode = "TRUE";               
+      110 -gpadc1.gpadcChannel[5].useLuTable     = "FALSE";              
+      111 -gpadc1.gpadcChannel[6].$name          = "CONFIG_GPADC_CH6";   
+      112 -gpadc1.gpadcChannel[6].ChannelIndex   = 7;                    
+      113 -gpadc1.gpadcChannel[6].isBufferedMode = "TRUE";               
+      114 -gpadc1.gpadcChannel[6].useLuTable     = "FALSE";              
+      113 +gpadc1.gpadcChannel[4].useLuTable     = "TRUE";               
+      114  
+      115  gpio1.$name                = "MCANA_ERR_N";
+      116  gpio1.GPIO.$assign         = "GPIO9";
+
+● 两个 syscfg 都改好了。现在跑 make syscfg
+  重新生成并验证。先搞清楚环境变量怎么设置。
+
+  Read 1 file (ctrl+o to expand)
+
+● 需要先确认 makefile 里 sysconfig 调用的具体变量（SYSCFG_NODE / SYSCFG_CLI_PATH
+  / SYSCFG_SDKPRODUCT / PACKAGE_TYPE / CORES）：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; grep -nE
+      "SYSCFG_NODE|SYSCFG_CLI_PATH|SYSCFG_SDKPRODUCT|SYSCFG_NWJS|…)
+  ⎿  23:OUTRPRC_CMD = $(SYSCFG_NODE) $(MCU_PLUS_INSTALL_PATH)/tools/boot/ou
+     t2rprc/elf2rprc.js
+     24:MULTI_CORE_IMAGE_GEN = $(SYSCFG_NODE) $(MCU_PLUS_INSTALL_PATH)/tool
+     … +17 lines (ctrl+o to expand)
+
+● 现在用和 complier.bat 相同的环境跑 gmake syscfg 重新生成（mss 用的是
+  mss.syscfg 这条 CAN 变体）：
+
+● Bash(cmd /c "set sdk_install_path=D:\Weifu\git\compare\zelos_repo&& set
+      ccs_install_path1=D:\ti\ccs1281&& set
+      sysconfig_install_path1=D:\ti\sysconfig_1.23.0&& cd /d…)
+  ⎿  Microsoft Windows [�汾 10.0.19044.7291]
+     (c) Microsoft Corporation����������Ȩ����
+     … +2 lines (ctrl+o to expand)
+
+● 输出只到了 mmw_ddm 提示符，没看到 gmake 输出。可能 gmake 不在 PATH
+  或链路中断。我换个方式诊断一下：
+
+● Bash(cmd /c "set sdk_install_path=D:\Weifu\git\compare\zelos_repo&& set
+      ccs_install_path1=D:\ti\ccs1281&& set
+      sysconfig_install_path1=D:\ti\sysconfig_1.23.0&& cd /d…)
+  ⎿  Microsoft Windows [�汾 10.0.19044.7291]
+     (c) Microsoft Corporation����������Ȩ����
+     … +2 lines (ctrl+o to expand)
+
+● 命令链路有问题。我直接找 SYSCFG_NODE / SYSCFG_CLI_PATH 的定义，绕开 setenv
+  直接调 sysconfig CLI：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01; grep
+      -rnE "SYSCFG_NODE\s*[:?]?=|SYSCFG_CLI_PATH\s*[:?]?=|SYSCFG_SDKPRODUCT\s*[:
+      ?]?=|PACKAGE_T…)
+  ⎿  ./ti/common/mmwave_sdk.mak:64:SYSCFG_CLI_PATH  = $(SYSCONFIG_INSTALL_P
+     ATH)
+     ./ti/common/mmwave_sdk.mak:65:SYSCFG_NODE      = $(SYSCONFIG_INSTALL_P
+     … +8 lines (ctrl+o to expand)
+
+● 找到了：SYSCFG_NODE=D:/ti/sysconfig_1.23.0/nodejs/node，SYSCFG_CLI_PATH=D:/ti/
+  sysconfig_1.23.0，product.json 在 mcu_plus_sdk 的 .metadata 下。直接调 CLI
+  重新生成 mss：
+
+  Listed 1 directory (ctrl+o to expand)
+
+● 全部存在。直接运行 sysconfig CLI 重新生成 mss：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm && "/d/ti/sysconfig_1.23.0/nodejs/node.exe"
+      "/d/ti/sysconfig_1.23.0/d…)
+  ⎿  Running script...
+     Validating...
+     info: CONFIG_MIBSPI1(/drivers/mibspi/mibspi) dmaEnable: Allocate dma c
+     … +38 lines (ctrl+o to expand)
+
+● 重新生成成功，输出正是我要的（已由 mss.syscfg 驱动，重新生成安全）：
+
+  - channelConfig[0/1/2] → channelID
+  0/1/2，useLuTable=FALSE（温度传感器，温度读取不受影响）
+  - channelConfig[3] → channelID 6-1=5 = adc6/MR2，useLuTable=TRUE ✓
+  - channelConfig[4] → channelID 5-1=4 = adc5/MR1，useLuTable=TRUE ✓
+  - CONFIG_GPADC_CHANNEL_NUM_INSTANCES (5) ✓
+
+  这正是 GPADC_MEAS_EXT_CH5(adc5) / GPADC_MEAS_EXT_CH6(adc6)，与 mss_main.c
+  里的读取一致。现在验证 enet syscfg 能正常解析（输出到临时目录，不动
+  mssgenerated），然后试编译 MSS。
+
+● Bash(mkdir -p /tmp/enetchk && "/d/ti/sysconfig_1.23.0/nodejs/node.exe"
+      "/d/ti/sysconfig_1.23.0/dist/cli.js" --product
+      "/d/Weifu/git/compare/zelos_repo/mcu_plus_sdk_a…)
+  ⎿  Validating...
+     === generated enet gpadc channelConfig ===
+     196:                    .channelID            = 1 - 1,
+     … +9 lines (ctrl+o to expand)
+
+● enet 变体也验证通过，生成同样正确的配置，无报错。
+
+  现在试编译 MSS（这是验证 mss_main.c 改动能否通过编译的关键）。先看 makefile
+  怎么把 DEV_CLASS/DEV_POS 映射成宏，以便单独编 mssDemo：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; grep -nE
+      "DIRECTION|SIDE|DEV_CLASS_VALUE|DEV_POS|DEV_CLASS" makefile…)
+  ⎿  143:#MMW_DEMO_RELEASE_BIN         = $(MMWAVE_SDK_DEVICE_TYPE)_mmwDDM_$
+     (GIT)_$(DEV_CLASS)_$(DEV_POS)_Ver_$(MAIN_VERSION)_$(SUB_VERSION)_$(PAT
+     CH_VERSION).appimage
+     … +26 lines (ctrl+o to expand)
+
+● 映射清楚了（FL→FRONT_LEFT，MASTER→1）。写个临时批处理来编译 MSS（避免之前 cmd
+  链路的引号问题），输出存日志：
+
+● Write(build_mss_check.bat)
+  ⎿  Wrote 9 lines to build_mss_check.bat
+      2 set sdk_install_path=D:\Weifu\git\compare\zelos_repo
+      3 set ccs_install_path1=D:\ti\ccs1281
+      4 set sysconfig_install_path1=D:\ti\sysconfig_1.23.0
+      5 cd /d %sdk_install_path%\mmwave_mcuplus_sdk_04_07_00_01\scripts\w
+        indows
+      7 cd /d %sdk_install_path%\mmwave_mcuplus_sdk_04_07_00_01\ti\demo\a
+        wr2x44P\mmw_ddm
+      8 gmake mssDemo PROC_CHAIN=DDM DEV_CLASS=MASTER DEV_POS=FL DEV_CLAS
+        S_C=1 DEV_POS_C_DEFINE=FRONT_LEFT ALG_ON=1 -j8
+      9 echo BUILD_EXIT_CODE=%ERRORLEVEL%
+     … +2 lines (ctrl+o to expand)
+● Bash(cd /d/Weifu/git/compare/zelos_repo && cmd /c build_mss_check.bat >
+      /tmp/mss_build.log 2>&1; echo "exit=$?"; echo "=== tail ==="; tail -50
+      /tmp/mss_build.log)
+  ⎿  exit=0
+     === tail ===
+     Microsoft Windows [�汾 10.0.19044.7291]
+     … +3 lines (ctrl+o to expand)
+
+● 批处理输出依旧只有 banner，说明 call setenv.bat→checkenv.bat
+  里有东西中断或起了嵌套 cmd。看一下 checkenv.bat：
+
+  Read 2 files (ctrl+o to expand)
+
+● checkenv 用 XDC_INSTALL_PATH(=D:/ti/ccs1281/xdctools_3_62_01_16_core) 提供
+  gmake，但它的输出（"mmWave Build Environment Configured"
+  等）一条都没出现，说明批处理内容根本没真正执行/捕获。先排查 cmd
+  调用本身——做个最小测试 + 找 gmake 和 xdctools：
+
+● Bash(printf '@echo off\r\necho HELLO_FROM_BAT\r\necho CWD=%%CD%%\r\n' >
+      /tmp/t.bat; cmd /c "$(cygpath -w /tmp/t.bat)" 2>&1; echo "---rc=$?---";
+      echo "=== xdctools /…)
+  ⎿  Error: Exit code 2
+     Microsoft Windows [�汾 10.0.19044.7291]
+     (c) Microsoft Corporation����������Ȩ����
+
+     D:\Weifu\git\compare\zelos_repo>---rc=0---
+     === xdctools / gmake ===
+     /d/ti/ccs1281/xdctools_3_62_01_16_core
+     ls: cannot access '/d/ti/ccs1281/xdctools_3_62_01_16_core/bin/gmake.exe': 
+     No such file or directory
+     /d/ti/ccs1281/xdctools_3_62_01_16_core/gmake.exe
+
+● 找到根因了：这台机器上 cmd /c <batfile> 根本不执行批处理内容（只弹
+  banner）——连最小的 t.bat 都只输出 banner。但直接在 bash 里跑原生 exe 
+  是可以的（之前 node CLI 就成功了）。gmake.exe
+  也找到了：/d/ti/ccs1281/xdctools_3_62_01_16_core/gmake.exe。
+
+  所以我直接在 bash 里设好 setenv.bat 的那些环境变量，再直接调 gmake，绕开 cmd：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm
+      T=D:/Weifu/git/compare/zelos_repo…)
+  ⎿  gmake: /d/ti/ccs1281/xdctools_3_62_01_16_core/gmake.exe
+     clang dir:
+     D:/ti/ccs1281/ccs/tools/compiler/ti-cgt-armllvm_3.2.2.LTS
+     GMAKE_EXIT=2
+
+● gmake 退出码 2，看日志找原因：
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 4 个 error 是 MMWAVE_SDK_VERSION_MAJOR/MINOR/BUGFIX/BUILD 未定义（在 1212–1215
+  行），和我的 GPADC 改动无关（我改的是 3669–3682 行）。这些版本宏应该由 build
+  通过 -D
+  注入或某个头文件定义，说明我手动设的环境缺了点东西。看一下这些宏怎么来的：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01; grep
+      -rnE "MMWAVE_SDK_VERSION_MAJOR" --include=*.mak --include=makefile*
+      --include=*.h ti/com…)
+  ⎿  ti/common/mmwavesdk_version.h:51:#define MMWAVE_SDK_VERSION_MAJOR  4
+     === how defined (mak) ===
+
+● MMWAVE_SDK_VERSION_MAJOR 定义在 ti/common/mmwavesdk_version.h。报 "undeclared
+  identifier" 说明该头在 1212 行处没被包含到——这是我手动调 gmake
+  时环境/包含路径少了东西，不是我的代码问题（编译器一路处理到 3543
+  行的警告、越过了我改的 3669–3682 行都没在我那段报错）。确认一下 mss_main.c
+  是怎么引这个头的：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; grep -nE
+      "mmwavesdk_version|MMWAVE_SDK_VERSION|sw_version" mss/mss_m…)
+  ⎿  8:extern volatile uint32_t sw_version_info[SW_VERSION_INFO_LEN];
+     876:volatile uint32_t sw_version_info[SW_VERSION_INFO_LEN]= {0,0,1,1};
+     1212:    header.version =    MMWAVE_SDK_VERSION_BUILD |
+     … +13 lines (ctrl+o to expand)
+
+● mss_main.c 在 1212 行用了这些版本宏，但自己没 include
+  mmwavesdk_version.h——靠某处传递包含或 -D 注入。这正是我手动调 gmake
+  缺的东西。重点是：编译器完整处理了整个文件、越过我改的 3669–3682 
+  行都没在那段报任何错，说明我的改动语法/类型没问题。
+
+  确认这 4 个版本宏 error 是环境问题而非我引入——看 mss 的 makefile 是否通过
+  -include 或 -D 提供版本头：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01; echo
+      "=== who includes mmwavesdk_version.h ==="; grep -rln
+      "mmwavesdk_version.h" ti/demo ti/c…)
+  ⎿  === who includes mmwavesdk_version.h ===
+     ti/demo/awr2x44P/mmw_ddm/dss/dss_main.c
+     ti/demo/awr2x44P/mmw_ddm/dss_cm4/dss_cm4_main.c
+     … +11 lines (ctrl+o to expand)
+
+● mmwavesdk_version.h 被 mmw_cli.c、dss_main.c 等直接 include，但 mss_main.c
+  没有——它靠传递包含拿到这些宏。看 mss_main.c 引的 demo 头（mmw_output.h /
+  mmw_config.h）里是不是有这个版本头：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; echo "=== mss_main.c #include lines (first 40) ===";
+      grep -nE "^#inc…)
+  ⎿  === mss_main.c #include lines (first 40) ===
+     5:#include <ti/control/mmwave/mmwave.h>
+     6:#include <ti/demo/awr2x44P/mmw_ddm/mss/dsp/signal_process_public_def
+     … +18 lines (ctrl+o to expand)
+
+● mss_main.c 第 760 行 include 了 mmw_common.c。看上次成功构建的依赖文件 .d
+  里有没有 mmwavesdk_version.h（在则说明真实构建确实传递包含了它，是我手动环境的
+  包含路径差异）：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; echo "=== version header in prior .d? ==="; grep -i
+      "mmwavesdk_versi…)
+  ⎿  === version header in prior .d? ===
+     rc=1
+     === where does mmw_common.c or mmw_mss.h include version ===
+
+● 上一次构建的 .d 里也没有 mmwavesdk_version.h，说明这些宏不是靠头文件、而是靠
+  -D 注入的，而我手动 gmake 没拿到那个 -D。看编译规则（mmwave_sdk.mak:373
+  附近）和版本宏注入：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01; echo
+      "=== grep -D VERSION across all maks ==="; grep -rnE
+      "VERSION_BUILD|VERSION_MAJOR|VERSIO…)  ⎿  === grep -D VERSION across all maks ===
+     === compile rule context mmwave_sdk.mak ~360-378 ===
+     buildDirectories:
+     … +25 lines (ctrl+o to expand)
+
+● 编译规则用 $(DEFINES)，但 maks 里没有 VERSION 的 -D。看 demo makefile 和
+  mmw_mss.mak 里 DEFINES 和版本是怎么拼的（CLAUDE.md 提过 makefile 用 Python 读
+  sw_version.h）：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm; echo "=== DEFINES / VERSION in mmw_mss.mak ==="; grep
+      -nE "DEFINES|V…)
+  ⎿  === DEFINES / VERSION in mmw_mss.mak ===
+     22:    TRACKER=-DENABLE_TRACKER
+     199:mssDemo: $(MSS_CPU)_CFLAGS += -DAPP_RESOURCE_FILE="<ti/demo/awr2x4
+     … +16 lines (ctrl+o to expand)
+
+● 没有任何 -D 注入版本宏，而 mss_main.c 的包含图里也没有定义它们——这是
+  mss_main.c 本身一个既有问题（引用了不在其包含图中的版本宏），与我的 GPADC
+  改动无关。为了给出干净编译证明，我用命令行 DEFINES= 把这 4
+  个版本宏补上再编一次 mss_main.c，看是否还有错（尤其我改的那段）：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm
+      T=D:/Weifu/git/compare/zelos_repo; C=D:/ti/ccs1281…)
+  ⎿  GMAKE_EXIT=2
+     === errors ===
+     7:D:/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01\ti/co
+     … +39 lines (ctrl+o to expand)
+
+● 我用命令行 DEFINES= 把 makefile 自己的 DEFINES（含平台/SOC
+  关键宏）覆盖掉了，所以这次冒出一堆 EDMA_Handle/CRC
+  类型错误——这是覆盖导致的，不是真实情况。
+
+  回到第一次运行：在 makefile 原本的 DEFINES 下，唯一的错误就是那 4
+  个版本宏（EDMA/CRC 都正常）。这说明 mss_main.c 里这 4
+  个版本宏在本仓库当前状态下确实没被定义——是个与我改动无关的既有问题。先确认
+  DEFINES 在哪定义、版本宏到底该从哪来：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01; echo
+      "=== DEFINES definition ==="; grep -rnE
+      "^DEFINES|DEFINES[[:space:]]*[:?]?=|DEFINES[[:sp…)
+  ⎿  === DEFINES definition ===
+     ti/common/mmwave_sdk.mak:99:DEFINES = \
+     ti/common/mmwave_sdk.mak:107:DEFINES +=  -DDEV_CLASS_C_DEFINE=$(DEV_CL
+     … +7 lines (ctrl+o to expand)
+
+● zelos_repo 是个 git 仓库，mss_main.c 的 M(modified) 就是我的改动（在
+  3669–3682），而出问题的版本宏在 1212–1215 是原始提交里就有的。看 DEFINES
+  定义（99–107 行）确认版本宏来源：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01; sed -n
+      '99,130p' ti/common/mmwave_sdk.mak; echo "=== does committed mss_main.c
+      already use th…)
+  ⎿  DEFINES = \
+        -DSUBSYS_MSS \
+        -D$(PLATFORM_DEFINE) \
+     … +33 lines (ctrl+o to expand)
+
+● 重要发现：HEAD（已提交版本）的 mss_main.c 在 748 行有 #include 
+  <ti/common/mmwavesdk_version.h>，但当前工作副本没有这一行——这就是版本宏未定义
+  的原因。这不是我改的（我只动了
+  3669–3682）。看一下到底是工作副本里这行被去掉了，还是我的 diff 误伤：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo; echo "=== working copy lines 744-756
+      ==="; sed -n '744,756p'
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss…)
+  ⎿  === working copy lines 744-756 ===
+         uint8_t  calibStatus;   /* EOL鏍″噯鐘舵€侊細0 -> idle, 1 -> runnin
+     g, 2 -> update */
+     … +18 lines (ctrl+o to expand)
+
+● git diff 显示 mss_main.c 760 增 / 757 删——远超我那十几行的改动，而且 #include 
+  <ti/common/mmwavesdk_version.h>
+  被删了。这是典型的换行符（CRLF↔LF）整文件差异特征。我得查清楚是不是我的 Edit
+  把整个文件的换行改了（若是则需修复），还是工作副本本来就和 HEAD 大面积不同：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo;
+      F=mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss_main.c
+      echo "=== working copy CRLF? (count CR) ==="; print…)
+  ⎿  === working copy CRLF? (count CR) ===
+     CR lines: 0
+     === total lines working ===
+     … +20 lines (ctrl+o to expand)
+
+● 不是换行符问题（两边都是 LF）。这是真实的大面积差异：工作副本的 mss_main.c
+  相对 HEAD 改了 757 行——这是你（用户）自己未提交的大量改动，我只动了其中约 14
+  行。而 #include <ti/common/mmwavesdk_version.h> 在 HEAD
+  里有、工作副本里被删掉了，这正是版本宏报错的根因，且不是我删的（我只改了
+  3669–3682 那段）。
+
+  确认一下当前工作文件里这个 include 确实不在，以及它原来在哪：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo;
+      F=mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss_main.c
+      echo "=== include present in working copy? ==="; gr…)
+  ⎿  === include present in working copy? ===
+     rc=1
+     === my only changes: diff hunks touching GPADC (mine) vs everything el
+     … +4 lines (ctrl+o to expand)
+
+● 确认了：当前工作副本里 #include <ti/common/mmwavesdk_version.h> 完全不在（grep
+  无匹配），而版本宏使用还在——HEAD 里这个 include 在 748
+  行。这是你工作树里既有的状态（被删了），不是我的改动，但它会卡住 mssDemo
+  编译。
+
+  它用到了这些宏却缺了定义头。我先把这个 include 补回去（HEAD
+  本来就有、代码明确在用），重新编译以证明我的 GPADC 改动能干净通过编译：
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Error editing file
+
+  Read 1 file (ctrl+o to expand)
+
+● 文件正在变化——现在 751–753 行出现了
+  cli.h、mathutils.h、logger.h（刚才还不是这样），说明你可能正在编辑器里同时改 
+  mss_main.c（补 include）。我先看一下当前 include
+  区的最新状态，避免和你的改动冲突：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo;
+      F=mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss_main.c
+      echo "=== version include now present? ==="; grep -…)
+  ⎿  === version include now present? ===
+     748:#include <ti/common/mmwavesdk_version.h>
+     751:#include <ti/utils/cli/cli.h>
+     … +4 lines (ctrl+o to expand)
+● 我的 GPADC 改动（GPADC_MEAS_EXT_CH6/mr2Conv）现在grep 
+  不到了——说明文件被替换/还原成了另一个版本：它有版本
+  include（这正好解决了编译阻塞），但没有我的 GPADC
+  改动。看起来你在编辑器里还原或粘贴了
+  mss_main.c，把我的改动覆盖了。我确认一下当前 GPADC pin 检测那段的状态：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo;
+      F=mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss_main.c
+      echo "=== GPADC pin-detect region ==="; grep -nE "G…)
+  ⎿  === GPADC pin-detect region ===
+     3671:    GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[5].c
+     hannelID, &gpadc_result[0]);
+     … +9 lines (ctrl+o to expand)
+
+● 确认：你的 mss_main.c 已被还原到原始状态（3671–3677 行又是
+  channelConfig[5]/[6] + 无条件 RADAR_POS1/POS2 覆盖），我的 GPADC
+  改动被覆盖了。但好处是现在文件有了版本 include + cli/mathutils
+  include，能编译了。
+
+  我先确认 syscfg 和生成的 gCfgPtr（adc5/adc6 通道）还在，然后把 mss_main.c 的
+  GPADC 改动重新应用到这个当前基线上：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      echo "=== mss.syscfg still has 5 channels + external? ==="; grep -nE
+      "gpadcChannel.create|ChannelIndex|useLuTable|readMode" m…)
+  ⎿  === mss.syscfg still has 5 channels + external? ===
+     84:/* SINGLE 模式：channelID = ChannelIndex-1，且 useLuTable
+     可逐通道配
+     置。
+     … +19 lines (ctrl+o to expand)
+
+● syscfg 和生成的 gCfgPtr 都还在（adc5/adc6 外部通道完好），只有 mss_main.c
+  被还原了。我把 GPADC 改动重新应用上去。先读当前精确文本：
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Added 13 lines, removed 8 lines
+      3668      memset(&sMountingPosition, 0, sizeof(sMountingPosition));
+      3669      /* Debug Message: */
+      3670      DebugP_log("Debug: Launched the Initialization Task\n");
+      3671 -    GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[
+           -5].channelID, &gpadc_result[0]);                             
+      3672 -    GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[
+           -6].channelID, &gpadc_result[1]);                             
+      3671 +    /* 雷达安装位置 PIN 脚识别（通过 GPADC 读取 MR1/MR2 真实 
+           +电压）：                                                     
+      3672 +     *   MR1 接 ADC5 (GPADC_MEAS_EXT_CH5)，决定 左/右：OPEN( 
+           +高电平)=左, GND(低电平)=右                                   
+      3673 +     *   MR2 接 ADC6 (GPADC_MEAS_EXT_CH6)，决定 前/后：OPEN( 
+           +高电平)=前, GND(低电平)=后                                   
+      3674 +     * 沿用本工程判定树约定：gpadc_result[0]=前后、gpadc_resu
+           +lt[1]=左右，                                                 
+      3675 +     * 故把 MR2(adc6) 读入 [0]、MR1(adc5) 读入 [1]（与 cr60 r
+           +bMPR 的脚位语义一致）。*/                                    
+      3676 +    GPADC_ConvResultType mr2Conv = GPADC_startSingleChannelCo
+           +nversion(GPADC_MEAS_EXT_CH6, &gpadc_result[0]); /* MR2 / adc6
+           + -> 前后 */                                                  
+      3677 +    GPADC_ConvResultType mr1Conv = GPADC_startSingleChannelCo
+           +nversion(GPADC_MEAS_EXT_CH5, &gpadc_result[1]); /* MR1 / adc5
+           + -> 左右 */                                                  
+      3678  
+      3674 -// #ifdef RADAR_POS1                                         
+      3675 -// #ifdef RADAR_POS2                                         
+      3676 -    gpadc_result[0] = RADAR_POS1;  /* 前后 FR : F 200 R 0 */ 
+      3677 -    gpadc_result[1] = RADAR_POS2;  /* 左右 LR : L 200 R 0 */ 
+      3678 -// #endif                                                    
+      3679 -// #endif                                                    
+      3679 +    /* 任一通道转换失败时回退到编译期 DEV_POS 配置，避免位置 
+           +识别失效 */                                                  
+      3680 +    if((GPADC_CONV_DONE != mr1Conv) || (GPADC_CONV_DONE != mr
+           +2Conv))                                                      
+      3681 +    {                                                        
+      3682 +        gpadc_result[0] = RADAR_POS1;  /* 前后 FR : F 200 R 0
+           + */                                                          
+      3683 +        gpadc_result[1] = RADAR_POS2;  /* 左右 LR : L 200 R 0
+           + */                                                          
+      3684 +    }                                                        
+      3685      if(gpadc_result[0] >= RAISE_EDGE)
+      3686      {
+      3687          /*F*/
+
+● 我的 GPADC 改动已重新应用。现在文件既有版本/cli/mathutils 的
+  include（你刚补的），又有我的 GPADC 改动。重新编译 mssDemo（这次用 makefile
+  正常的 DEFINES，不覆盖）来完整验证：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm
+      T=D:/Weifu/git/compare/zelos_repo; C=D:/ti/ccs1281…)
+  ⎿  GMAKE_EXIT=2
+     === errors (should be none) ===
+     30:./mss/mssgenerated/ti_drivers_config.c:559:86: error: expected expr
+     … +10 lines (ctrl+o to expand)
+
+● 好消息：mss_main.c
+  编译成功了——obj_awr2x44P/mss_main.oer5f（133KB）已生成，证明我的 GPADC 
+  改动能干净通过编译 ✓。
+
+  新错误在生成的 ti_drivers_config.c:559/560（"expected expression"），这跟我把
+  readMode 改成 SINGLE 有关。看一下：
+
+  Read 1 file (ctrl+o to expand)
+
+● 错误在 559–560 行的 &gIpcSharedMem[]（空下标）——这是 IPC RPMessage 段，跟
+  GPADC 无关。这是 sysconfig 版本不匹配导致的：工程是用 1.22.0 生成的（看 syscfg
+  头），而我用 1.23.0 重新生成，IPC 模板算出了空的 vring
+  偏移。先确认这是不是我重新生成引入的（对比已提交版本）：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo; G=mmwave_mcuplus_sdk_04_07_00_01/ti/d
+      emo/awr2x44P/mmw_ddm/mss/mssgenerated/ti_drivers_config.c
+      echo "=== committed (HEAD) gI…)
+  ⎿  === committed (HEAD) gIpcSharedMem lines ===
+     348:uint8_t gIpcSharedMem[IPC_SHARED_MEM_SIZE] __attribute__((aligned(
+     128), section(".bss.ipc_vring_mem")));
+     … +12 lines (ctrl+o to expand)
+
+● 找到真正原因了：&gIpcSharedMem[] 空下标不是 1.23.0 的 bug，而是我只单独生成了 
+  mss 这一个 core。IPC 的 vring 偏移依赖多核拓扑——make syscfg 是把
+  mss/dss/dss_cm4 三个 core 放在同一次调用里生成的，sysconfig
+  才能算出偏移。我单独生成 mss，IPC 模块不知道其他 core，就生成了空偏移。
+
+  对比已提交版本（1.22.0 生成）确实是 gIpcSharedMem[0]/[1216]/...。我按 makefile
+  的方式三个 core 一起重新生成：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm
+      PROD="/d/Weifu/git/compare/zelos_repo/mcu_plus_sdk_awr2x44p_10_00_00_…)
+  ⎿  Writing D:\Weifu\git\compare\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01
+     \ti\demo\awr2x44P\mmw_ddm\mss\mssgenerated\ti_drivers_config.c...
+     === IPC vring offsets now (should be numeric) ===
+     … +16 lines (ctrl+o to expand)
+
+● IPC 偏移恢复正常（[0]/[1216]/[2432]/[4864]，与已提交版本一致），GPADC
+  通道也正确。现在重新编译 mssDemo 做最终验证：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/demo
+      /awr2x44P/mmw_ddm
+      T=D:/Weifu/git/compare/zelos_repo; C=D:/ti/ccs1281…)
+  ⎿  GMAKE_EXIT=0
+     === errors ===
+     10:*******************************************************************
+     … +49 lines (ctrl+o to expand)
+
+● ✅ 构建成功！ GMAKE_EXIT=0，无错误，MSS 的 R5F ELF
+  已生成：awr2x44P_mmw_demo_mssDDM.xer5f（7.5 MB），链接行里包含 mss_main.oer5f
+  和 ti_drivers_open_close.oer5f。
+
+  这就完整证明了：我的 GPADC pin 识别改动 + 重新生成的 adc5/adc6 通道配置，整个 
+  MSS demo 能编译并链接通过。
+
+  我regenerate 了全部三个 core（和 make syscfg 一致），检查一下 git
+  状态确认没有引入意外的 dss/m4 生成文件差异，并清理临时批处理：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      rm -f build_mss_check.bat…)
+  ⎿  === git status (tracked changes) ===
+      M mmwave_mcuplus_sdk_04_07_00_01/build/appimage/mss_dss_rss_h.hex
+      M mmwave_mcuplus_sdk_04_07_00_01/build/appimage/mss_dss_rss_h_1M_padd
+     … +37 lines (ctrl+o to expand)
+
+● 我的 GPADC 改动在 mss_main.c 里保留完好（3673/3676/3680 行）。
+
+  git status 里其余被改的文件（libs、build
+  产物、dbc、complier.bat、mss_can_output.c
+  等）都是你工作树里既有的未提交改动，不是我动的。我实际改的就 5 个文件，且
+  ti_drivers_config.c 多核重新生成后与已提交版本字节一致（没出现在 diff
+  里），dss/m4 生成文件也没变。
+
+  最后确认 mss_main.c 判定树区域完整正确：
+
+  Read 1 file (ctrl+o to expand)
+● 判定树正确（外层 result[0]=MR2=前后，内层 result[1]=MR1=左右，与 cr60
+  一致），且整个 MSS demo 编译链接通过。
+
+  更新一下项目记忆（方案已从“手改生成文件”改为“改 syscfg 源 +
+  重新生成”，并记下多核一起生成的关键点）：
+
+  Wrote 1 memory (ctrl+o to expand)
+
+● 全部完成并通过实际编译+链接验证。下面是最终总结。
+
+  最终改动（5 个文件）
+
+  文件: mss/mss.syscfg
+  改动: GPADC readMode 改 SINGLE，5 个通道：前 3 个温度(channelID 0/1/2, 
+    useLuTable=FALSE) + 后 2 个外部 adc5/adc6(useLuTable=TRUE，ChannelIndex 5/6)
+  ────────────────────────────────────────
+  文件: mss/mss_enet.syscfg
+  改动: 同步改成相同的 5 通道布局（原来 7 通道全
+    useLuTable=FALSE，外部通道其实读不到——GPADC_open 在 channelIndex>=3 且
+    useLuTable=FALSE 会 break）
+  ────────────────────────────────────────
+  文件: mss/mssgenerated/ti_drivers_open_close.c
+  改动: 重新生成：gCfgPtr 新增 channelID 4(adc5)/5(adc6)、useLuTable=TRUE
+  ────────────────────────────────────────
+  文件: mss/mssgenerated/ti_drivers_config.h
+  改动: 重新生成：CONFIG_GPADC_CHANNEL_NUM_INSTANCES = 5
+  ────────────────────────────────────────
+  文件: mss/mss_main.c
+  改动: MmwDemo_initTask：去掉宏无条件覆盖，改为真实读 adc5/adc6；按 cr60 映射把
+
+    MR2(adc6)→result[0](前后)、MR1(adc5)→result[1](左右)；转换失败回退
+    RADAR_POS1/POS2
+
+  判定树保持原样，四种 OPEN/GND 组合与 cr60 rbMPR_Judge 完全一致。
+
+  验证结果
+
+  - gmake mssDemo … = 0，无错误，生成 awr2x44P_mmw_demo_mssDDM.xer5f（7.5 
+  MB），链接行含 mss_main.oer5f + ti_drivers_open_close.oer5f。✅
+
+  三个你需要知道的点
+
+  1. ⚠️ 重新生成 syscfg 必须三个 core 一起生成。我一开始只单独生成 mss，结果 IPC
+  的 gIpcSharedMem[] vring 偏移变成空的（编译报错），因为 vring
+  布局依赖多核拓扑。make syscfg 本身就是把 mss/dss/dss_cm4
+  放一次调用，所以你正常 gmake mmwDemoDDM 没问题；但别单独只生成 
+  mss。已记入项目记忆。
+  2. 过程中你的 mss_main.c 被还原过一次（编辑器里或 git restore），把我的 GPADC
+  改动覆盖了，同时也把缺失的 #include 
+  <ti/common/mmwavesdk_version.h>、cli.h、mathutils.h 补了回来（这几个 include
+  缺失会导致编译报版本宏未定义/隐式声明）。我已在还原后的版本上重新应用了 GPADC
+  改动。当前文件两者都在、能编译。
+  3. 阈值 RAISE_EDGE=100 是对 GPADC 原始码值判 OPEN/GND，不是 mV。上板后实测
+  adc5/adc6 实际码值，若 OPEN/GND 区分不够再调。
+
+  git status 里其它被改的文件（libs、build
+  产物、dbc、complier.bat、mss_can_output.c
+  等）都是你工作树里既有的未提交改动，我没碰。临时的 build_mss_check.bat
+  我已删除。
+
+✻ Churned for 30m 24s
+
+> 那么我的代码中用RAISE_EDGE 100来判断能行么  我看cr60里面不是这么判断的        
+
+● 好问题。关键在于两者比较的“单位”根本不一样，所以不能直接拿 cr60
+  的数值来套。我先确认一下 zelos GPADC 返回值的量纲和分辨率，再给你结论。
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo/mcu_plus_sdk_awr2x44p_10_00_00_07/sour
+      ce/drivers/gpadc/v0
+      echo "=== GPADC_convert / Avg / resolution / mV ==="; grep -nE "Avg…)
+  ⎿  === GPADC_convert / Avg / resolution / mV ===
+     66:static void GPADC_convert(uint32_t cfgVal, uint32_t paramVal,
+     68:static void GPADC_cfg(uint32_t cfgVal, uint32_t paramVal);
+     … +32 lines (ctrl+o to expand)
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● GPADC 是 10-bit（寄存器 b10_Min/Max，0–1023，满量程≈1.8V，1
+  LSB≈1.76mV），GPADC_startSingleChannelConversion
+  返回的是原始码值（Avg=Sum/numSamples），不是 mV。
+
+  而 cr60 的 read_mr1_adc5() 在 AdcApp.c 里已经把原始码 ×1800/2^res 换算成了 
+  mV，所以它的 900/1300/1600 都是毫伏。两边单位不同，不能直接拿数值对比。
+
+  换算一下对齐：
+
+  ┌─────────────────────┬──────────────┬───────────────────┐
+  │                     │  cr60 (mV)   │ 对应 zelos 原始码 │
+  ├─────────────────────┼──────────────┼───────────────────┤
+  │ GND 窗口            │ 0–900 mV     │ 0–512             │
+  ├─────────────────────┼──────────────┼───────────────────┤
+  │ OPEN 窗口           │ 1300–1600 mV │ 740–910           │
+  ├─────────────────────┼──────────────┼───────────────────┤
+  │ 死区(异常UNKNOWN)   │ 900–1300 mV  │ 512–740           │
+  ├─────────────────────┼──────────────┼───────────────────┤
+  │ 你的 RAISE_EDGE=100 │ ≈176 mV      │ 100               │
+  └─────────────────────┴──────────────┴───────────────────┘
+
+  结论：能用，但有两个隐患
+
+  能用的前提：GND 脚是硬接地(≈0V)、OPEN 脚被上拉到 ≈1.3–1.6V（和 cr60
+  硬件一致）。那么实际读数是 码值 0 vs 740~910，阈值 100
+  中间隔着巨大裕量，分得很清楚，判断没问题。✅
+
+  隐患 1：阈值偏低、偏向 GND 端。 100(≈176mV)离 GND 很近。cr60 的 GND 窗口一直到
+  900mV。如果你的 GND 脚不是硬接地、而是经电阻/分压/漏电浮到几百 mV，100
+  就会把它误判成 OPEN → 位置判错。cr60 能容忍 GND 到 900mV，你这个只容忍到
+  176mV。
+
+  隐患 2：没有异常检测。 cr60 把死区(900–1300mV)和超量程当
+  UNKNOWN→报故障（能发现断线/接错脚）。单阈值做不到，任何读数都被强行归成 GND 或
+  OPEN。
+
+  建议
+
+  - 最稳又最小改动：把阈值挪到中间。GND≈0、OPEN≈1.3–1.6V，中点约 700mV ≈ 码值 
+  400。把 RAISE_EDGE 从 100 改成
+  ~400(≈700mV)，两边裕量最大，最不容易误判，仍是一行改动。
+  - 完全照 cr60：用双窗口+UNKNOWN（GND: 码≤512；OPEN: 码
+  740–910；其余=异常→回退/报故障）。更健壮，但代码多一些。
+
+  不管选哪个，最好先在已知方位的板子上把 adc5/adc6 的实际码值打出来（在那两行
+  GPADC_startSingleChannelConversion 后加个 DebugP_log），确认 GND/OPEN
+  实际落在哪，再定阈值最靠谱。
+
+  你想让我怎么改？
+
+● User answered Claude's questions:
+  ⎿  · RAISE_EDGE 阈值这块你想怎么处理？ → 改成中点 ~400
+  ⎿  Interrupted · What should Claude do instead?
+
+> /export gpadc.txt                                                             
+  ⎿  Conversation exported to: D:\Weifu\git\compare\zelos_repo\mcu_plus_sdk_awr2
+     x44p_10_00_00_07\source\drivers\gpadc\v0\gpadc.txt
+
+> /export gpadc_readme.txt                                                      
+  ⎿  Conversation exported to: D:\Weifu\git\compare\gpadc_readme.txt
+
+> 我测试出来的右雷达gpadc_resule[0] =                                           
+  17,gpadc_resule[1]=136，左雷达gpadc_resule[0】=17，gpadc_resule[1】=828       
+
+● Please run /login · API Error: 401 Invalid authentication credentials
+
+✻ Sautéed for 2s
+
+> /login                                                                        
+  ⎿  Login interrupted
+
+> 你好                                                                          
+
+● Please run /login · API Error: 401 Invalid authentication credentials
+
+✻ Cooked for 3s
+
+> 我测试出来的右雷达gpadc_resule[0] =                                           
+  17,gpadc_resule[1]=136，左雷达gpadc_resule[0】=17，gpadc_resule[1】=828       
+
+● Please run /login · API Error: 401 Invalid authentication credentials
+
+✻ Cogitated for 5s
+
+> 你好                                                                          
+
+● Please run /login · API Error: 401 Invalid authentication credentials
+
+✻ Crunched for 2s
+> 我测试出来的右雷达gpadc_resule[0] =                                           
+  17,gpadc_resule[1]=136，左雷达gpadc_resule[0】=17，gpadc_resule[1】=828       
+
+● 你的实测数据正好印证了之前担心的隐患，我对一下我的映射：
+
+  - gpadc_result[0] = adc6/MR2 → 前/后
+  - gpadc_result[1] = adc5/MR1 → 左/右（≥阈值=左，<阈值=右）
+
+  ┌────────┬─────────────────┬─────────────────┬─────────────┬─────────────┐
+  │        │   result[0]     │   result[1]     │  用阈值100  │  用阈值400  │
+  │        │     (前后)      │     (左右)      │             │             │
+  ├────────┼─────────────────┼─────────────────┼─────────────┼─────────────┤
+  │ 右雷达 │ 17 (后)         │ 136             │ 136≥100→左  │ 136<400→右  │
+  │        │                 │                 │ ✗           │ ✓           │
+  ├────────┼─────────────────┼─────────────────┼─────────────┼─────────────┤
+  │ 左雷达 │ 17 (后)         │ 828             │ 828→左 ✓    │ 828≥400→左  │
+  │        │                 │                 │             │ ✓           │
+  └────────┴─────────────────┴─────────────────┴─────────────┴─────────────┘
+
+  关键点：右雷达的 adc5 GND 端读出来是 136（≈239mV，并不是接近 0），用 100
+  会被误判成"左"——这正是单阈值 100 会判错的情形。GND(136) 和 OPEN(828) 的中点是
+  482，400 在两者之间，裕量充足（136→400 差 264，400→828 差 428），你选的 400
+  正合适。
+
+  把 RAISE_EDGE 改成 400：
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Loaded zelos_repo\CLAUDE.md
+
+● 文件行号又变了。我直接搜 RAISE_EDGE 定义的当前位置：
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● RAISE_EDGE 定义在 ti/include/sys_conf.h:107，只在 mss_main.c 的 pin
+  检测里用，改它安全。更新为 400 并加注释说明实测依据：
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\include\sys_conf.h)
+  ⎿  User rejected update tommwave_mcuplus_sdk_04_07_00_01\ti\include\sys_conf.h
+
+
+> 我写的时候是                                                                  
+  GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[5].channelID,        
+  &gpadc_result[0]);                                                            
+      GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[6].channelID,    
+  &gpadc_result[1]);                                                            
+  读取的                                                                        
+
+● 明白，这点很关键——你测量时用的是
+  channelConfig[5]→result[0]、channelConfig[6]→result[1] 这套读法，和我代码里
+  GPADC_MEAS_EXT_CH6/CH5 不一定指向同一个物理通道。我得先确认你测量时 
+  channelConfig[5] 和 [6] 实际读的是哪两个 ADC 通道，否则 result[0]/[1]
+  谁对应前后、谁对应左右可能就反了。
+
+  先看当前工作树里 mss_main.c 的读取代码 和 生成的 gCfgPtr 实际状态：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      echo "=== current mss_main.c GPADC read lines ==="; grep -nE
+      "GPADC_startSingleChannelConversion|gpadc_result\[" mmwave_mcupl…)
+  ⎿  === current mss_main.c GPADC read lines ===
+     3652:    uint16_t                gpadc_result[2] = {0};
+     3685:    GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[5].c
+     … +17 lines (ctrl+o to expand)
+
+● 现在看清楚了：你已经把所有改动都还原回原始状态了——
+  - mss_main.c：又是原来的 channelConfig[5]/[6] 读法 + 无条件 RADAR_POS1/POS2
+  覆盖（我的 GPADC 改动没了）
+  - 生成的 gCfgPtr：又是原来的 3 通道（channelID
+  0/1/2，useLuTable=FALSE），adc5/adc6 外部通道也没了
+
+  我看下当前生成配置到底几个通道、channelConfig[5]/[6] 现在指向什么：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      echo "=== full gCfgPtr channelConfig entries (current) ==="; sed -n
+      '/GPADC_ConfigType gCfgPtr/,/^};/p' mmwave_mcuplus_sdk_04…)
+  ⎿  === full gCfgPtr channelConfig entries (current) ===
+     GPADC_ConfigType gCfgPtr[CONFIG_GPADC_NUM_INSTANCES]=
+     {
+     … +35 lines (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+> 我写的时候是                                                                  
+  GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[5].channelID,        
+  &gpadc_result[0]);                                                            
+      GPADC_startSingleChannelConversion(gCfgPtr.channelConfig[6].channelID,    
+  &gpadc_result[1]);                                                            
+  读取的 这个代码在我的commit stash                                             
+  这个2da73ff01abfe0028751dfb08996c6ef8b7c00c3 commit里面                       
+
+● 你提供了关键线索——测量代码在 commit 2da73ff0 里。我去看那个 commit 里
+  channelConfig[5]/[6] 当时实际指向哪两个通道，这样才能正确解读 17/136/828。
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      SHA=2da73ff01abfe0028751dfb08996c6ef8b7c00c3…)
+  ⎿  === commit exists? ===
+     commit
+     === mss_main.c read lines @ commit ===
+     … +53 lines (ctrl+o to expand)
+
+● commit 2da73ff0 里就是我的版本：读法是
+  GPADC_MEAS_EXT_CH6→result[0]、GPADC_MEAS_EXT_CH5→result[1]，且生成配置是 5
+  通道（channelConfig[3]=channelID5=adc6、[4]=channelID4=adc5，useLuTable=TRUE）
+  。不是 channelConfig[5]/[6]。
+
+  这点很重要，我先确认一下 commit 里和当前树的 RAISE_EDGE/sys_conf 状态：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      SHA=2da73ff01abfe0028751dfb08996c6ef8b7c00c3…)
+  ⎿  === RAISE_EDGE @ commit 2da73ff0 ===
+     107:#define RAISE_EDGE   100U
+     === RAISE_EDGE @ current working tree ===
+     … +21 lines (ctrl+o to expand)
+
+● 关键状态搞清楚了：
+  - GPADC 功能不在当前工作树里——它在 stash@{1} "save for first gpadc 
+  function"（即 commit 2da73ff0）。当前工作树（HEAD 529ab2e9，分支
+  dev_calibration）是还原到了 GPADC 之前的状态（3 通道、channelConfig[5]/[6]
+  读法、RAISE_EDGE=100）。
+  - commit 2da73ff0 里 RAISE_EDGE 也还是 100。
+
+  这解释了为什么你拒绝我改 sys_conf.h——在还原后的树上单独改阈值没意义，因为整个
+  GPADC 特性都不在树里。
+
+  让我确认 stash@{1} 和 2da73ff0 的对应关系，好给你准确的操作：
+
+● Bash(cd /d/Weifu/git/compare/zelos_repo
+      echo "=== stash@{1} commit hash ==="; git rev-parse "stash@{1}"
+      2>/dev/null…)
+  ⎿  === stash@{1} commit hash ===
+     2da73ff01abfe0028751dfb08996c6ef8b7c00c3
+     === stash@{1} read code (mss_main.c) ===
+     … +14 lines (ctrl+o to expand)
+
+● 确认完毕：stash@{1} = commit 2da73ff0 = 我的 GPADC 版本，读法是
+  CH6→result[0](adc6/MR2/前后)、CH5→result[1](adc5/MR1/左右)。你的 17/136/828
+  就是用这套代码测的。
+
+  数据解读（验证映射 + 阈值）
+
+  ┌───────┬───────────────────┬───────────────────┬───────────┬───────────┐
+  │       │ result[0]=adc6/前 │ result[1]=adc5/左 │  阈值100  │  阈值400  │
+  │       │        后         │        右         │           │           │
+  ├───────┼───────────────────┼───────────────────┼───────────┼───────────┤
+  │ 右雷  │ 17 (后)           │ 136               │ 136≥100→  │ 136<400→  │
+  │ 达    │                   │                   │ 左 ✗      │ 右 ✓      │
+  ├───────┼───────────────────┼───────────────────┼───────────┼───────────┤
+  │ 左雷  │ 17 (后)           │ 828               │ 828→左 ✓  │ 828≥400→  │
+  │ 达    │                   │                   │           │ 左 ✓      │
+  └───────┴───────────────────┴───────────────────┴───────────┴───────────┘
+
+  - 映射正确：adc5 随左右变化(136/828)、adc6 恒定(17)，与 cr60
+  一致（MR1/adc5=左右，MR2/adc6=前后）。
+  - 阈值必须改：右雷达 adc5 的 GND 端是 136（不是接近 0），用 100
+  会判成"左"（错）。400 正确（中点 482，两边裕量足）。
+
+  两点要澄清
+
+  1. 读法保留 CH6/CH5，不要用 channelConfig[5]/[6]。你印象里的
+  channelConfig[5]/[6]，在当前 5 通道配置下 [5]/[6]
+  是未初始化项（channelID=0），会去读通道 0（温度），是坏的。stash@{1}
+  里已经是正确的 GPADC_MEAS_EXT_CH6/CH5，保持这个。
+  2. GPADC 特性现在不在工作树里——它在 stash@{1}。当前工作树是还原到 GPADC
+  之前的状态（所以之前我改 sys_conf.h 被你拒了，是对的——光改阈值没用）。
+
+  下一步
+
+  要把阈值定下来，需要先恢复 stash@{1}，再把 sys_conf.h:107 的 RAISE_EDGE 从
+  100U 改成 400U。你想怎么来？
+● User answered Claude's questions:
+  ⎿  · GPADC 特性在 stash@{1}，工作树是还原状态。怎么落地 RAISE_EDGE=400？ → 
+     先只确认分析
+
+● 明白，那我只确认分析，不动代码和 git。下面是结论，你后续自己落地即可。
+
+  分析确认
+
+  1. 数据来源：你的 17/136/828 是用 stash@{1}（commit
+  2da73ff0）那套代码测的——GPADC_MEAS_EXT_CH6→result[0](adc6/MR2/前后)、GPADC_MEA
+  S_EXT_CH5→result[1](adc5/MR1/左右)。
+  2. 映射正确：result[1]=adc5 随左右变（右136 / 左828），result[0]=adc6
+  恒定（17）。即 adc5=左右、adc6=前后，与 cr60
+  完全一致。判定树（result[0]管前后、result[1]管左右）不用动。
+  3. 阈值必须从 100 改成 400：右雷达 adc5 的 GND 端是 136（≈239mV，不是接近
+  0），100 会把它判成"左"（错）；400 落在 136 与 828
+  中间，两边都有充足裕量，正确。
+  4. 读法保留 CH6/CH5：别回到 channelConfig[5]/[6]——在 5 通道配置下 [5]/[6]
+  是未初始化项（channelID=0→读通道0温度），是坏的。
+
+  你后续落地的步骤（备忘）
+
+  1. git stash apply stash@{1}（恢复 GPADC 特性到工作树）
+  2. 把 mmwave_mcuplus_sdk_04_07_00_01/ti/include/sys_conf.h:107 的 RAISE_EDGE 
+  100U 改成 400U
+  3. 重新生成 syscfg（三个 core 一起）+ gmake mmwDemoDDM 编译
+
+  ▎ 还有一个待办：你目前只测到了"后"位（result[0]=17）。建议有"前"位的板子时也测
+  ▎ 一下 adc6 的 OPEN 值，确认它也明显 >400，这样前/后判定也有保障。
+
+  把这次的实测值和阈值结论记到项目记忆里：
+
+  Recalled 1 memory, wrote 1 memory (ctrl+o to expand)
+
+● 分析已确认，结论记入项目记忆。总结一句：
+
+  - 映射对的——adc5(result[1]) 管左右、adc6(result[0]) 管前后，与 cr60
+  一致，判定树不用动。
+  - 阈值要从 100 改 400——因为右雷达 adc5 的 GND 端实测是 136（不是接近 0），100
+  会误判成"左"；400 在 136/828 中间，稳。
+  - 读法保留 CH6/CH5，别用 channelConfig[5]/[6]。
+  - 落地步骤和待办（补测前位 adc6 OPEN）都在上面，你自己 git stash apply 
+  stash@{1} 后改阈值即可。需要我动手时再叫我。
+
+✻ Baked for 4m 15s
+
+> 但是我测出来的值是FR gpadc_resule[0] = 17,gpadc_resule[1]=136，FL             
+  gpadc_resule[0】=17，gpadc_resule[1】=828，这个和excel中定义的不一样，1       
+   MP-2                Mounting Position 2                8~16        0.001     
+      0.001            1mA        NA        NA        NA        镀镍 镀雾锡     
+      Open，因为是开路，雷达线束上这个pin脚上可以没有实际线束                   
+  2        MP-1                Mounting Position 1                8~16          
+  0.001        0.001            1mA        NA        NA        NA        镀镍   
+  镀雾锡        GND，必须接地，雷达线束上这个pin脚上必须有实际线束              
+  这是FR的说明，1        MP-2                Mounting Position 2                
+  8~16        0.001        0.001            1mA        NA        NA        NA   
+        镀镍 镀雾锡                                                             
+  Open，因为是开路，雷达线束上这个pin脚上可以没有实际线束                       
+  2        MP-1                Mounting Position 1                8~16          
+  0.001        0.001            1mA        NA        NA        NA        镀镍   
+  镀雾锡        Open，因为是开路，雷达线束上这个pin脚上可以没有实际线束         
+  这是FL的说明                                                                  
+
+● 这条信息很关键——你测的 FR 和 FL 都是前向(Front)，而且 Excel 给了 MP-1/MP-2
+  的定义。我把规格和实测对一下，发现了一个真问题。
+
+  先解码 Excel 规格
+
+  ┌──────────┬───────────────┬───────────────┐
+  │          │ MP-2 (前后脚) │ MP-1 (左右脚) │
+  ├──────────┼───────────────┼───────────────┤
+  │ FR(前右) │ Open          │ GND           │
+  ├──────────┼───────────────┼───────────────┤
+  │ FL(前左) │ Open          │ Open          │
+  └──────────┴───────────────┴───────────────┘
+
+  - "Open"=开路=被上拉=高电平/高码值；"GND"=接地=低电平/低码值。
+  - MP-1 在 FR/FL 之间变化(GND→Open)→ MP-1 决定左右（GND=右, Open=左）。
+  - MP-2 两个前向都是 Open → MP-2 决定前后（Open=前；后向应为 GND）。
+
+  对应关系：MP-1=adc5=result[1]，MP-2=adc6=result[0]。
+
+  实测 vs 规格
+
+  ┌──────────┬─────────────────────┬─────────────────────┐
+  │          │ result[0]=adc6=MP-2 │ result[1]=adc5=MP-1 │
+  ├──────────┼─────────────────────┼─────────────────────┤
+  │ 期望(FR) │ Open→高(~800)       │ GND→低              │
+  ├──────────┼─────────────────────┼─────────────────────┤
+  │ 实测 FR  │ 17（低）❌          │ 136（低）✅         │
+  ├──────────┼─────────────────────┼─────────────────────┤
+  │ 期望(FL) │ Open→高(~800)       │ Open→高             │
+  ├──────────┼─────────────────────┼─────────────────────┤
+  │ 实测 FL  │ 17（低）❌          │ 828（高）✅         │
+  └──────────┴─────────────────────┴─────────────────────┘
+
+  结论：
+  - adc5 / MP-1（左右）完全符合规格
+  ✅：FR=136(低/右)、FL=828(高/左)。左右识别没问题。
+  - adc6 / MP-2（前后）和规格对不上 ❌：规格说两个前向 MP-2 都是 Open（应读高
+  ~800），但 adc6 实测都是 17（低）。
+
+  这意味着什么
+
+  按规格 MP-2=Open=前，应该读到高电平；但 adc6 读出 17(低)。如果照现在的固件逻辑
+  （result[0]≥阈值→前），这两个前向雷达会被误判成"后"。
+  也就是说前后识别这一路目前是坏的，问题出在 adc6/MP-2 这条链路。
+
+  最可能的原因（需要你查一下硬件）：
+  1. MP-2 网络没有上拉（adc5/MP-1 明显有上拉，所以 Open 读 828；adc6/MP-2
+  若没上拉，Open 就浮在低位读 17）。
+  2. adc6 实际没接到 MP-2 脚，或 MP-2 不在 GPADC 的 external CH6 上（你说的"adc6
+  通道"是否就是 GPADC external channel 6？需对原理图确认）。
+  3. adc6 这条通道的 GPADC mux 配置（LuTab CH6 项）和实际管脚不匹配。
+
+  建议的下一步诊断
+
+  1. 测一个后向雷达（RL 或 RR），看 adc6/result[0] 会不会从 17 变成别的值。
+    - 若后向 adc6 仍≈17（和前向一样）→ MP-2
+  这一路根本没区分度，是硬件/上拉/接线问题。
+    - 若后向 adc6 明显不同 → 说明 adc6 能区分，只是"Open 读低、GND
+  读更低/或相反"，那要按实测重新定前后的阈值和极性。
+  2. 查原理图：MP-2 网络有没有上拉电阻？MP-2 脚到底接在哪个 GPADC external
+  channel？
+  3. 顺便也测一下后向的 adc5/MP-1，确认左右脚在后向也正常。
+
+  左右这一路（adc5/MP-1）已被你的数据验证 OK，阈值 400
+  对左右也成立。但前后这一路要先把 adc6 为什么读 17 
+  搞清楚——这已经超出固件范围，得从硬件/接线确认。要不要我帮你把"打印 adc5/adc6
+  原始码值 + 当前判定结果"的调试输出加上，方便你测后向时直接看数？
+
+✻ Worked for 2m 59s
