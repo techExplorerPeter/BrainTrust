@@ -1,0 +1,1241 @@
+ ▐▛███▜▌   Claude Code v2.1.175
+▝▜█████▛▘  Fable 5 · Claude Pro
+  ▘▘ ▝▝    D:\Project\CR\Project\zelos_repo
+
+   Claude Fable 5 is currently unavailable. Please use Opus 4.8 or another available model. Learn more: https://www.anthropic.com/news/fable-mythos-access
+
+> /model fable                                                                  
+  ⎿  Set model to Fable 5 and saved as your default for new sessions
+
+> 帮我看看现在工程中的任务优先级分配是否合理，发波任务的优先级是最高的，然后时  
+  间同步的报文优先级也比较高，主要是现在有一个问题，在这个commit0b2b849b207f85e 
+  242a362532a18535178112d29中功能测试都是ok的，我最新ce9b584833bcb41349f487374e 
+  494c1ccffd04ac增加了时间同步后，发现EOL标定的时候标定板都找不到了，标定错误了 
+  ，这个现象有点奇怪，因为我的时间同步是单独的功能，除了可能会因为时间同步报文  
+  丢失的情况会影响开启和关闭发波，并不会影响别的功能，你帮我分析下两件事：第一  
+  件事就是我现象的原因分析，另一个是我的任务优先级分配是否合理，因为在我的理解  
+  中，毫米波雷达优先级最高的是发波，can接收优先级也高，但是can发送的优先级是可  
+  以比较低的，如果不合理应该怎么分配                                            
+
+● 我来先看两个 commit 之间的改动，再梳理任务优先级分配。
+
+● Bash(git log --oneline 0b2b849b..ce9b5848 && git diff --stat
+      0b2b849b..ce9b5848 -- | tail -40)
+  ⎿  ce9b5848 delete extra canid
+     080b2b0a update all mounts configuration
+     58e248fe Merge branch 'dev_calibration' into dev_debug
+     … +12 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(git diff --stat 0b2b849b..ce9b5848)
+  ⎿   .../ti/demo/awr2x44P/mmw_ddm/mss/mmw_cli.c         |   5 +
+      .../ti/demo/awr2x44P/mmw_ddm/mss/mss_mcan.c        |   6 +
+      .../ti/demo/awr2x44P/mmw_ddm/mss/wf_time_sync.c    | 678 ++++++++++++
+     … +3 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 找到了时间同步任务（优先级 5）。现在看时间同步的具体实现和两个 commit
+  之间的完整 diff。
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(git diff 0b2b849b..ce9b5848 --
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss_mcan.c
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/ms…)
+  ⎿  diff --git a/mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/m
+     ss/mmw_cli.c b/mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm
+     /mss/mmw_cli.c
+     … +37 lines (ctrl+o to expand)
+
+  Searched for 7 patterns, read 5 files (ctrl+o to expand)
+
+● 分析完成。先说结论：EOL 标定失败大概率不是优先级问题，而是时间同步功能改变了"
+  发波启动"的语义——sensorStart 不再真正发波，而标定状态机恰恰依赖发波产生的帧结
+  果来驱动。下面分两部分详细说明。
+
+  ---
+  一、EOL 标定找不到标定板的原因分析
+
+  因果链
+
+  这次新增时间同步后，mmw_cli.c:360-363 在 MmwDemo_CLISensorStart 里加了：
+
+  #if (WF_DOMAIN_TIME_SYNC_ENABLE == 1U)
+      wf_time_sync_enter_silent_wait();
+      return 0;     // 注意：直接 return，不再调用 MmwDemo_startSensor()
+  #endif
+
+  而 WF_DOMAIN_TIME_SYNC_ENABLE 在 wf_time_sync.h:19 是硬编码为 1 的。这意味着：
+
+  1. 上电后雷达不再自动发波。开机时 MmwDemo_CLIInit → 
+  MmwDemo_CLISensorStart（mmw_cli.c:1853）只做
+  open/config，然后进入静默等待。只有在 CAN-A 上收到一帧完全合法的 TimeSync
+  报文（ID 匹配 0x040/0x041、必须是 CAN-FD 帧 fdf=1、DLC=15、CRC-16/CCITT-FALSE
+  校验通过），wf_time_sync 任务才会调 MmwDemo_startSensor()。
+  2. EOL 标定状态机依赖发波才能运行。标定使能命令（CAN-B 0xC3）只是把
+  calibStatus 置为 idle；真正的状态机 wf_ant_calib_main() 是在
+  mmwDemo_mssRspTask 里被调用的（mss_main.c:2629），而 RspTask 阻塞在
+  RspSemHandle 上——只有 DSP 出帧结果才会被唤醒。
+  3. 所以在 EOL 工位上：如果标定台架不发 TimeSync 报文（很可能，EOL
+  台架不是域控），雷达从不发波 → DSP 永远没有帧结果 → RspTask 永远不醒 →
+  wf_ant_calib_main 永远停在 idle，连切换到标定波形那一步都走不到 →
+  上位机自然"找不到标定板"。整车功能测试 OK 是因为车上域控持续发 TimeSync。
+
+  即使台架发了 TimeSync，还有两个隐患
+
+  - 1.2 秒超时异步停波（wf_time_sync.c:463-485）：时间同步任务每 10ms
+  检查一次，TimeSync 断流超过 1.2s 就直接调 MmwDemo_stopSensor()。如果 EOL
+  流程中台架的 TimeSync
+  有间断（比如切到标定命令交互阶段就停发），会在标定采数中途把波停掉。
+  - 传感器状态机有两个互不知情的"主人"：时间同步任务（启/停波 +
+  wfTimeSyncObj.sensorStarted
+  标志）和标定状态机（antCalib_wave_stop/restart，直接改
+  gMmwMssMCB.sensorState）。标定停波时不会清
+  sensorStarted，时间同步停波时标定也不知道。一旦交错（例如同步超时把
+  sensorStarted 清零后，下一帧有效 TimeSync 到来，正好落在标定 wave_stop 和
+  wave_restart 之间），时间同步任务会用改了一半的 profile 
+  配置去启动传感器，且无任何互斥保护。这类竞态足以让标定波形错乱、采到无效数据。
+
+  验证与修复建议
+
+  验证很简单：EOL 现场抓 CAN-A 总线看有没有 0x040/0x041 的 CAN-FD 帧；或在 EOL
+  时读 wfTimeSyncObj.state——如果一直是 SILENT_WAIT，就是这个原因。
+
+  修复方向（推荐组合使用）：
+  1. 标定模式豁免时间同步：在 wf_time_sync_check_timeout() 和
+  wf_time_sync_process_frame() 的启停波动作前判断 wf_get_ant_calib_status() != 
+  init 时直接跳过；同时 EOL/产线模式（可以用收到 0xC3 标定命令作为标志，或加一条
+  CLI/CAN 命令）下绕过 silent wait，直接 MmwDemo_startSensor()。
+  2. 收敛传感器控制权：时间同步模块不要直接调
+  MmwDemo_startSensor/stopSensor，改为向唯一的控制任务（如 mmWave ctrl
+  task）发事件，由它串行化所有启停请求，竞态自然消失。
+
+  ---
+  二、任务优先级分配评估
+
+  当前 MSS 上的实际分配（FreeRTOS，数字越大优先级越高，非 ENET 编译分支
+  mss_main.c:810-817）：
+
+  ┌───────────────────────────────────┬────────┬─────────────────────────────┐
+  │               任务                │ 优先级 │            职责             │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ mmWave ctrl（"发波"控制）         │ 6      │ 向 radarss 发控制命令       │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ CAN 发送 (canoutput)              │ 5      │ 目标列表打包发送            │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ 时间同步 (wf_time_sync)           │ 5      │ 10ms 轮询 + 启停波          │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ CAN 接收 (canreceive)             │ 4      │ CAN-A/B 收包解析，含        │
+  │                                   │        │ TimeSync 打时间戳           │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ RspTask（信号链后处理/感知/标定） │ 4      │ 每帧重计算负载              │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ RF 温度监测                       │ 4      │ 周期监测                    │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ CLI、Flash 写                     │ 3      │                             │
+  ├───────────────────────────────────┼────────┼─────────────────────────────┤
+  │ CANB 车身信息接收                 │ 2      │                             │
+  └───────────────────────────────────┴────────┴─────────────────────────────┘
+
+  你的理解基本正确，现状有两个问题：
+
+  1. CAN 发送 (5) 高于 CAN 接收 (4)，方向反了。 接收路径承载
+  TimeSync、标定命令、车速等输入，每条报文处理很短，应该高优先级快进快出；发送大
+  块目标数据本来就允许有延迟。建议对调：CAN 接收 → 5，CAN 发送 → 3~4。
+
+  2. CAN 接收和 RspTask 同为 4，这对时间同步精度是实质性伤害。 TimeSync
+  的本地时间戳是在 wf_time_sync_handle_canfd
+  里取的（ClockP_getTimeUsec()），运行在 CAN 接收任务上下文。RspTask
+  是重计算任务，同优先级下只能靠 tick 时间片轮转，CAN
+  接收被延迟几毫秒很正常——而你的 offset 跳变门限只有
+  1.6ms（WF_TIME_SYNC_OFFSET_JUMP_LIMIT_US）。这会造成 offset
+  抖动、偶发误判"本地时钟异常"、帧边界对齐误差。更彻底的做法是把时间戳提前到 
+  MCAN RX 中断里取（或用 MCAN 硬件 RX timestamp），任务延迟就不再影响精度。
+
+  建议的目标分配：
+
+  ┌──────────────┬────────────┬─────────────────────────────────────────────┐
+  │     任务     │ 建议优先级 │                    理由                     │
+  ├──────────────┼────────────┼─────────────────────────────────────────────┤
+  │ mmWave ctrl  │ 6（不变）  │ 事件驱动、执行短，启停波延迟最小化          │
+  ├──────────────┼────────────┼─────────────────────────────────────────────┤
+  │ CAN 接收     │ 5          │ 输入链路（时间同步/命令）要快进快出         │
+  ├──────────────┼────────────┼─────────────────────────────────────────────┤
+  │ 时间同步     │ 5（不变）  │ 轻量，但启停波动作建议改为发事件给 ctrl     │
+  │              │            │ task                                        │
+  ├──────────────┼────────────┼─────────────────────────────────────────────┤
+  │ RspTask      │ 4（不变）  │ 重计算，必须低于 CAN 接收，只需满足 66ms    │
+  │              │            │ 帧周期                                      │
+  ├──────────────┼────────────┼─────────────────────────────────────────────┤
+  │ CAN 发送     │ 3~4        │ 可容忍延迟，你的直觉是对的                  │
+  ├──────────────┼────────────┼─────────────────────────────────────────────┤
+  │ CLI / Flash  │ 3 / 2      │ Flash 擦写阻塞时间长，宜更低                │
+  │ 写           │            │                                             │
+  └──────────────┴────────────┴─────────────────────────────────────────────┘
+
+  补充一点认知校准：AWR2x44P 上 chirp/frame 时序是
+  radarss（FECSS）硬件自治的，R5F
+  的"发波任务"只负责下发控制命令，它的优先级影响的是启停响应延迟，不影响每个
+  chirp 的时序精度——所以发波控制任务最高是合理的，但不必为它牺牲其他链路。
+
+  总结：优先级有上述两处值得调整，但这次 EOL 失败的根因是功能性的——silent wait
+  把上电发波拦住了，而标定状态机靠发波驱动，属于循环依赖；外加时间同步超时停波和
+  双控制方竞态两个隐患。建议先在 EOL 现场确认 SILENT_WAIT
+  状态坐实根因，再按上面的方向加标定豁免。
+
+✻ Crunched for 5m 44s
+
+> 任务优先级我已经改好了，另外的按照你的两个推荐组合修复方向修复下              
+
+● 好的。动手前先看几处实现细节：MmwDemo_mmWaveCtrlTask、MmwDemo_startSensor/stop
+  Sensor 的结构，确定事件化改造怎么落地。
+
+  Searched for 4 patterns, read 3 files (ctrl+o to expand)
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Added 17 lines
+      3129      return errCode;
+      3130  }
+      3131  
+      3132 +/*                                                           
+      3133 + * 传感器启停序列存在两个驱动方: 时间同步任务(静默等待启动/同
+           +步丢失停波)和                                                
+      3134 + * RSP 任务里的天线标定状态机(stop -> 改参 -> restart)。该互 
+           +斥锁用于串行化                                               
+      3135 + * 整段启停序列 —— 调用方必须在整个序列期间持锁, 而不是只包住
+           +单次 start/stop。                                            
+      3136 + */                                                          
+      3137 +static SemaphoreP_Object gSensorCtrlMutex;                   
+      3138 +                                                             
+      3139 +void MmwDemo_sensorCtrlLock(void)                            
+      3140 +{                                                            
+      3141 +    (void)SemaphoreP_pend(&gSensorCtrlMutex, SystemP_WAIT_FOR
+           +EVER);                                                       
+      3142 +}                                                            
+      3143 +                                                             
+      3144 +void MmwDemo_sensorCtrlUnlock(void)                          
+      3145 +{                                                            
+      3146 +    SemaphoreP_post(&gSensorCtrlMutex);                      
+      3147 +}                                                            
+      3148 +                                                             
+      3149  /**
+      3150   *  @b Description
+      3151   *  @n
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Added 4 lines, removed 1 line
+      3826      SemaphoreP_constructBinary(&gMmwMssMCB.DPMstopSemHandle, 
+            0);
+      3827      SemaphoreP_constructBinary(&gMmwMssMCB.DPMioctlSemHandle,
+             0);
+      3828      SemaphoreP_constructBinary(&gMmwMssMCB.RspSemHandle, 0);
+      3829 -                                                             
+      3829 +                                                             
+      3830 +    /* Mutex serializing sensor start/stop sequences (time sy
+           +nc task vs calibration) */                                   
+      3831 +    SemaphoreP_constructMutex(&gSensorCtrlMutex);            
+      3832 +                                                             
+      3833      /* Create binary semaphore to pend Main task, */
+      3834      SemaphoreP_constructBinary(&gMmwMssMCB.demoInitTaskComple
+            teSemHandle, 0);
+      3835  
+
+● 2. mmw_mss.h——导出锁接口：
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mmw_mss.h)
+  ⎿  File must be read first
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mmw_mss.h)
+  ⎿  Added 4 lines
+      605  extern int32_t MmwDemo_configSensor(bool isFirstConf);
+      606  extern int32_t MmwDemo_startSensor(void);
+      607  extern void MmwDemo_stopSensor(void);
+      608 +/* 传感器启停序列互斥锁: 时间同步任务与标定状态机共用, 持锁范 
+          +围须覆盖整段                                                  
+      609 + * stop -> 改参 -> restart 序列 */                            
+      610 +extern void MmwDemo_sensorCtrlLock(void);                     
+      611 +extern void MmwDemo_sensorCtrlUnlock(void);                   
+      612  
+      613  #ifdef ENET_STREAM
+      614  extern int32_t MmwDemo_mssEnetCfgDone(void);
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● 3. wf_calib_ant_channel.c——标定波形切换全程持锁：
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_calib_an
+        t_channel.c)
+  ⎿  Added 2 lines
+      283      int32_t retVal  = 0;
+      284      MMWave_CalibrationCfg   calibrationCfg;
+      285      memset ((void *)&calibrationCfg, 0, sizeof(MMWave_Calibrat
+           ionCfg));
+      286 +    /* 整段 stop -> 改参 -> restart 持锁, 防止时间同步任务并发
+          +启停传感器 */                                                 
+      287 +    MmwDemo_sensorCtrlLock();                                 
+      288      if( (mode == shortMode) || (mode == longMode) )
+      289      {
+      290          antCalib_wave_stop();
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_calib_an
+        t_channel.c)
+  ⎿  Added 2 lines, removed 1 line
+      398          }
+      399          ClockP_usleep(100);
+      400      }
+      401 -                                                              
+      401 +    MmwDemo_sensorCtrlUnlock();                               
+      402 +                                                              
+      403      return retVal;
+      404  }
+      405  
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● 4. wf_time_sync.c——标定豁免 + EOL 旁路启动 + 启停持锁。 分几处编辑：
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)
+  ⎿  Added 1 line
+      2  #include "mmw_mss.h"
+      3  #include "mss_mcan.h"
+      4  #include "dtc_fault_manager.h"   /* fault_monitor_update(), FAUL
+         T_TIMESYNC_TIMEOUT -> DTC_TIMESYNC_FAILURE */
+      5 +#include "wf_calib_ant_channel.h" /* wf_get_ant_calib_status(): 
+        +标定期间豁免时间同步启停管控 */                                 
+      6  
+      7  #include <kernel/dpl/HwiP.h>
+      8  
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)
+  ⎿  Added 2 lines
+      49  static void wf_time_sync_set_dtc(WFTimeSyncDtcReason_e reason);
+      50  static void wf_time_sync_clear_dtc(void);
+      51  static void wf_time_sync_report_dtc(uint8_t active, WFTimeSyncD
+          tcReason_e reason);
+      52 +static uint8_t wf_time_sync_calib_active(void);                
+      53 +static void wf_time_sync_calib_bootstrap(void);                
+      54  
+      55  void wf_time_sync_init(TimeSyncDev_e devDef)
+      56  {
+
+● Task 循环中加入 EOL 旁路启动检查：
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)
+  ⎿  Added 45 lines
+      128              }
+      129          }
+      130  
+      131 +        /* EOL/标定旁路: 标定使能但传感器未发波时(产线台架通常
+          +无 TimeSync 源,                                               
+      132 +         * 静默等待会卡死帧驱动的标定状态机), 由本任务直接启动
+          +传感器。 */                                                   
+      133 +        wf_time_sync_calib_bootstrap();                       
+      134 +                                                              
+      135          wf_time_sync_check_timeout();
+      136      }
+      137  }
+      138  
+      139 +/* 标定豁免: 标定状态机非空闲(init)期间, 时间同步不得启停传感 
+          +器。 */                                                       
+      140 +static uint8_t wf_time_sync_calib_active(void)                
+      141 +{                                                             
+      142 +    return (wf_get_ant_calib_status() != init) ? 1U : 0U;     
+      143 +}                                                             
+      144 +                                                              
+      145 +/*                                                            
+      146 + * EOL 标定旁路启动: 标定刚使能(idle, 状态机尚未被帧结果驱动) 
+          +且传感器处于                                                  
+      147 + * 已配置未发波状态(OPENED/STOPPED)时, 绕过静默等待直接启动发 
+          +波, 让 RSP 任务                                               
+      148 + * 能收到帧结果去推进标定状态机。启动序列与标定状态机的 stop->
+          +改参->restart                                                 
+      149 + * 通过 MmwDemo_sensorCtrlLock 串行化, 锁内二次确认避免竞态重 
+          +复启动。                                                      
+      150 + */                                                           
+      151 +static void wf_time_sync_calib_bootstrap(void)                
+      152 +{                                                             
+      153 +    if (wf_get_ant_calib_status() != idle)                    
+      154 +    {                                                         
+      155 +        return;                                               
+      156 +    }                                                         
+      157 +    if ((gMmwMssMCB.sensorState != MmwDemo_SensorState_OPENED)
+          + &&                                                           
+      158 +        (gMmwMssMCB.sensorState != MmwDemo_SensorState_STOPPED
+          +))                                                            
+      159 +    {                                                         
+      160 +        return;                                               
+      161 +    }                                                         
+      162 +                                                              
+      163 +    MmwDemo_sensorCtrlLock();                                 
+      164 +    if ((wf_get_ant_calib_status() == idle) &&                
+      165 +        ((gMmwMssMCB.sensorState == MmwDemo_SensorState_OPENED
+          +) ||                                                          
+      166 +         (gMmwMssMCB.sensorState == MmwDemo_SensorState_STOPPE
+          +D)))                                                          
+      167 +    {                                                         
+      168 +        if (MmwDemo_startSensor() == 0)                       
+      169 +        {                                                     
+      170 +            gMmwMssMCB.sensorState = MmwDemo_SensorState_START
+          +ED;                                                           
+      171 +            wfTimeSyncObj.sensorStarted = 1U;                 
+      172 +#if (WF_TIME_SYNC_DEBUG_ENABLE == 1U)                         
+      173 +            DebugP_log("WF TimeSync: calib bootstrap, sensor s
+          +tarted (bypass silent wait)\r\n");                            
+      174 +#endif                                                        
+      175 +        }                                                     
+      176 +    }                                                         
+      177 +    MmwDemo_sensorCtrlUnlock();                               
+      178 +}                                                             
+      179 +                                                              
+      180  void wf_time_sync_handle_canfd(const MCAN_RxBufElement *rxMsg)
+      181  {
+      182      WFTimeSyncFrame_s frame;
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)  ⎿  Added 6 lines
+      492          wf_time_sync_clear_dtc();
+      493      }
+      494  
+      495 +    /* 标定豁免: 标定状态机持有传感器控制权, 这里只维持时间跟 
+          +踪, 不驱动启停。 */                                           
+      496 +    if (wf_time_sync_calib_active() != 0U)                    
+      497 +    {                                                         
+      498 +        return;                                               
+      499 +    }                                                         
+      500 +                                                              
+      501      if ((wfTimeSyncObj.silentWaitEnabled != 0U) &&
+      502          (wfTimeSyncObj.sensorStarted == 0U))
+      503      {
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)
+  ⎿  Added 7 lines
+      518  {
+      519      uint64_t nowLocalUs;
+      520  
+      521 +    /* 标定豁免: 标定期间不因同步丢失停波(EOL 台架可能无 TimeS
+          +ync 源)。                                                     
+      522 +     * 标定结束后管控自动恢复: 若同步源确实丢失, 下一轮检查会 
+          +正常停波报 DTC。 */                                           
+      523 +    if (wf_time_sync_calib_active() != 0U)                    
+      524 +    {                                                         
+      525 +        return;                                               
+      526 +    }                                                         
+      527 +                                                              
+      528      if ((wfTimeSyncObj.sensorStarted == 0U) || (wfTimeSyncObj.
+           lastRxLocalUs == 0ULL))
+      529      {
+      530          return;
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)
+  ⎿  Added 3 lines
+      552      uint64_t nowLocalUs;
+      553      int32_t retVal;
+      554  
+      555 +    /* 先持锁再计算边界, 保证等待+启动整段与标定启停序列互斥 *
+          +/                                                             
+      556 +    MmwDemo_sensorCtrlLock();                                 
+      557 +                                                              
+      558      targetGlobalUs = wf_time_sync_next_frame_boundary(currentG
+           lobalUs);
+      559      targetLocalUs = (int64_t)targetGlobalUs - wfTimeSyncObj.of
+           fsetUs;
+      560      nowLocalUs = ClockP_getTimeUsec();
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_time_syn
+        c.c)
+  ⎿  Added 6 lines
+      597          wfTimeSyncObj.sensorStarted = 1U;
+      598          wfTimeSyncObj.state = WF_TIME_SYNC_STATE_SYNCED;
+      599      }
+      600 +                                                              
+      601 +    MmwDemo_sensorCtrlUnlock();                               
+      602  }
+      603  
+      604  static void wf_time_sync_stop_sensor(void)
+     ...
+      608          return;
+      609      }
+      610  
+      611 +    MmwDemo_sensorCtrlLock();                                 
+      612 +                                                              
+      613      if (gMmwMssMCB.sensorState == MmwDemo_SensorState_STARTED)
+      614      {
+      615          MmwDemo_stopSensor();
+     ...
+      618  
+      619      wfTimeSyncObj.sensorStarted = 0U;
+      620      wfTimeSyncObj.stopCount++;
+      621 +                                                              
+      622 +    MmwDemo_sensorCtrlUnlock();                               
+      623  #if (WF_TIME_SYNC_DEBUG_ENABLE == 1U)    
+      624      DebugP_log("WF TimeSync: sync lost, sensor stopped\r\n");
+      625  #endif    
+
+● 所有代码修改完成。现在尝试编译验证。先检查构建环境：
+
+● PowerShell(Test-Path D:\ti\ccs1281\ccs; Test-Path D:\ti\sysconfig_1.22.0;
+            Get-ChildItem D:\ti -Name 2>$null | Select-Object -First 10)
+  ⎿  True
+     False
+     2-e44-lc_-cr_new_lj
+     … +9 lines (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● PowerShell(Select-String -Path "D:\Project\CR\Project\zelos_repo\mmwave_mcuplu
+            s_sdk_04_07_00_01\scripts\windows\setenv.bat" -Pattern
+            "TOOLS_INSTALL_PATH|SYSCONFIG|MMWAVE_S…)
+  ⎿  set MMWAVE_SDK_DEVICE=awr2x44P
+     set sysconfig_install_path_env=%sysconfig_install_path1:\=/%
+     set MMWAVE_SDK_TOOLS_INSTALL_PATH=%sdk_install_path_env%
+     … +15 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● PowerShell($env:sdk_install_path; $env:ccs_install_path1;
+            $env:sysconfig_install_path1;
+            [Environment]::GetEnvironmentVariable('sdk_install_path','Machine');
+            [Environment]:…)
+  ⎿  (No output)
+
+● PowerShell(Test-Path
+            "D:\ti\ccs1281\ccs\tools\compiler\ti-cgt-armllvm_3.2.2.LTS";
+            Test-Path "D:\ti\ccs1281\ccs\utils\bin\gmake.exe"; Select-String
+            -Path "D:\Project\CR\Pro…)
+  ⎿  True
+     True
+     set MMWAVE_SDK_TOOLS_INSTALL_PATH=%sdk_install_path_env%
+     … +16 lines (ctrl+o to expand)
+
+● PowerShell(cmd /c "set sdk_install_path=D:\Project\CR\Project\zelos_repo&& set
+            ccs_install_path1=D:\ti\ccs1281&& set
+            sysconfig_install_path1=D:\ti\sysconfig_1.23.0&& cd /d…)
+  ⎿  Error: Exit code 1
+     'checkenv.bat' is not recognized as an internal or external command,
+     operable program or batch file.
+
+● PowerShell(Get-ChildItem -Recurse -Filter checkenv.bat D:\Project\CR\Project\z
+            elos_repo\mmwave_mcuplus_sdk_04_07_00_01\scripts | ForEach-Object
+            FullName; Select-String -Pa…)
+  ⎿  D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\script
+     s\windows\checkenv.bat
+     call checkenv.bat
+       REM ERROR: Failure in checkenv.bat !!!
+
+● setenv.bat 需要在 scripts\windows 目录里调用。调整后重试：
+
+● PowerShell(cmd /c "set sdk_install_path=D:\Project\CR\Project\zelos_repo&& set
+            ccs_install_path1=D:\ti\ccs1281&& set
+            sysconfig_install_path1=D:\ti\sysconfig_1.23.0&& cd /d…)
+  ⎿  Error: Exit code 1
+     'setenv.bat' is not recognized as an internal or external command,
+     operable program or batch file.
+
+● 直接写个临时批处理脚本来构建，避免引号转义问题：
+
+● Write(build_mss_tmp.bat)
+  ⎿  Wrote 10 lines to build_mss_tmp.bat
+       2 set sdk_install_path=D:\Project\CR\Project\zelos_repo
+       3 set ccs_install_path1=D:\ti\ccs1281
+       4 set sysconfig_install_path1=D:\ti\sysconfig_1.23.0
+         00_01\scripts\windowsroject\zelos_repo\mmwave_mcuplus_sdk_04_07_
+       6 call setenv.bat
+       7 if errorlevel 1 exit /b 1
+         00_01\ti\demo\awr2x44P\mmw_ddmlos_repo\mmwave_mcuplus_sdk_04_07_
+       9 D:\ti\ccs1281\ccs\utils\bin\gmake.exe mmwDemoDDM DEV_CLASS=MASTE
+         R DEV_POS=FR PROFILE=release
+      10 exit /b %errorlevel%
+     … +3 lines (ctrl+o to expand)
+● PowerShell(cmd /c D:\Project\CR\Project\zelos_repo\build_mss_tmp.bat)
+  ⎿  Error: Exit code 1
+     'setenv.bat' is not recognized as an internal or external command,
+     operable program or batch file.
+
+● PowerShell(Select-String -Path "D:\Project\CR\Project\zelos_repo\mmwave_mcuplu
+            s_sdk_04_07_00_01\scripts\windows\setenv.bat" -Pattern "call|cd " |
+            ForEach-Object {"{0}: {1}…)
+  ⎿  84: @REM Call script to check env variables and set paths
+     85: call checkenv.bat
+
+● PowerShell(cmd /c "cd /d D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_0
+            4_07_00_01\scripts\windows & echo CWD=%CD% & dir /b setenv.bat")
+  ⎿  CWD=D:\Project\CR\Project\zelos_repo
+     setenv.bat
+
+● 奇怪，单独测试 cd 是正常的。打开 echo 跟踪批处理执行：
+
+● PowerShell(cmd /c "type D:\Project\CR\Project\zelos_repo\build_mss_tmp.bat |
+            findstr /n ." ; cmd /v:on /c
+            D:\Project\CR\Project\zelos_repo\build_mss_tmp.bat 2>&1 | Select-…)
+  ⎿  Error: Exit code 1
+     1:@echo off
+     2:set sdk_install_path=D:\Project\CR\Project\zelos_repo
+     3:set ccs_install_path1=D:\ti\ccs1281
+     4:set sysconfig_install_path1=D:\ti\sysconfig_1.23.0
+     5:cd /d D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\scr
+     ipts\windows
+     6:call setenv.bat
+     7:if errorlevel 1 exit /b 1
+     8:cd /d D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\ti\
+     demo\awr2x44P\mmw_ddm
+     9:D:\ti\ccs1281\ccs\utils\bin\gmake.exe mmwDemoDDM DEV_CLASS=MASTER 
+     DEV_POS=FR PROFILE=release
+     … +9 lines (ctrl+o to expand)
+
+● PowerShell(cmd /c "cd /d D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_0
+            4_07_00_01\scripts\windows & call setenv.bat & echo RC=%errorlevel%"
+            2>&1 | Select-Object -La…)
+  ⎿  Interrupted · What should Claude do instead?
+
+> 是这样的，你编译的话直接运行complier.bat就行了 环境我都是配置好了的           
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● PowerShell(Remove-Item D:\Project\CR\Project\zelos_repo\build_mss_tmp.bat
+            -Force)
+  ⎿  Error: Exit code 1
+     Remove-Item : Cannot find path 
+     'D:\Project\CR\Project\zelos_repo\build_mss_tmp.bat' because it does not 
+     exist.
+     At line:1 char:1
+     + Remove-Item D:\Project\CR\Project\zelos_repo\build_mss_tmp.bat -Force
+     + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+         + CategoryInfo          : ObjectNotFound: 
+     (D:\Project\CR\P...ild_mss_tmp.bat:String) [Remove-Item], ItemNotFoundEx 
+        ception
+         + FullyQualifiedErrorId : 
+     PathNotFound,Microsoft.PowerShell.Commands.RemoveItemCommand
+
+● 临时脚本已不存在（无需清理）。运行 complier.bat：
+
+● PowerShell(cmd /c "cd /d
+            D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01 &
+            complier.bat" 2>&1 | Out-File -Encoding utf8
+            D:\Project\CR\Project\zelos_repo\bu…)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  Invalid tool parameters
+
+● Background command "Run full build via complier.bat, log to file" failed with exit code 1
+
+● 后台任务退出码 1，查看日志定位问题：
+
+● PowerShell($log = Get-Content D:\Project\CR\Project\zelos_repo\build_log.txt;
+            "lines=$($log.Count)"; $log | Select-String -Pattern
+            "error|Error|ERROR|warning #|cannot|fail…)
+  ⎿  lines=8
+         + FullyQualifiedErrorId : NativeCommandError
+
+  Read 1 file (ctrl+o to expand)
+
+● PowerShell($env:NoDefaultCurrentDirectoryInExePath)
+  ⎿  1
+
+● PowerShell(cmd /c "set NoDefaultCurrentDirectoryInExePath=& cd /d
+            D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01 &
+            call .\complier.bat" 2>&1 | Out-File -E…)  ⎿  Running in the background (↓ to manage)
+
+● PowerShell(Start-Sleep -Seconds 60; $f =
+            "C:\Users\Administrator\AppData\Local\Temp\claude\D--Project-CR-Proj
+            ect-zelos-repo\462a6faf-979e-4ce3-b518-3734634587a0\tasks\b8qt…)
+  ⎿  Error: Blocked: Start-Sleep 60 followed by: $f = 
+     "C:\Users\Administrator\AppData\Local\Temp\claude\D--Project-CR-Project-zel
+     os-repo\462a6faf-979e-4ce3-b518-3734634587a0\tasks\b8qttmiiq.output"; 
+     (Get-Content D:\Project\CR\Project\zelos_repo\build_log.txt -ErrorAction 
+     SilentlyContinue | Measure-Object -Line).Lines. To wait for a condition, 
+     use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done` — 
+     Monitor runs bash). To wait for a command you started, use 
+     run_in_background: true. Do not chain shorter sleeps to work around this 
+     block.
+
+  Read 1 file (ctrl+o to expand)
+
+● 脚本这次正常跑起来了（setenv.bat 已成功执行，正在往下编译）。等后台编译完成的
+  通知，我再检查编译/链接结果并向你汇报。
+
+✻ Cooked for 1m 58s
+
+● Background command "Run complier.bat with CWD exe lookup re-enabled" completed
+(exit code 0)
+
+● 编译结束（退出码 0）。检查日志中有无错误，并确认 appimage 产物：
+
+● PowerShell($log = Get-Content D:\Project\CR\Project\zelos_repo\build_log.txt;
+            "total lines: $($log.Count)"; $log | Select-String -Pattern
+            "error|Error #|ERROR|undefined|pl…)
+  ⎿  total lines: 408
+     L148: + FullyQualifiedErrorId : NativeCommandError
+
+● PowerShell(Get-ChildItem D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_0
+            4_07_00_01\ti\demo\awr2x44P\mmw_ddm\*.appimage* | Sort-Object
+            LastWriteTime -Descending | Sel…)
+  ⎿  Name                                                           Length
+     LastWriteTime
+     ----                                                           ------
+     … +7 lines (ctrl+o to expand)
+
+● PowerShell($log = Get-Content D:\Project\CR\Project\zelos_repo\build_log.txt;
+            $log[138..160])
+  ⎿  Requirement already satisfied: crccheck in c:\users\administrator\appd
+     ata\local\programs\python\python314\lib\site-packages (from cantools)
+     (1.3.1)
+     … +18 lines (ctrl+o to expand)
+
+● PowerShell(Get-ChildItem D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_sdk_0
+            4_07_00_01\ti\demo\awr2x44P\mmw_ddm\*.xer5f,
+            D:\Project\CR\Project\zelos_repo\mmwave_mcuplus_…)
+  ⎿  Name                              LastWriteTime
+     ----                              -------------
+     awr2x44P_mmw_demo_mssDDM.xer5f    2026/6/12 18:26:07
+     … +2 lines (ctrl+o to expand)
+
+● PowerShell($log = Get-Content D:\Project\CR\Project\zelos_repo\build_log.txt;
+            $log | Select-String -Pattern
+            "wf_time_sync|wf_calib|mss_main|sensorCtrl|warning" -SimpleMatc…)
+  ⎿  L259: [R5 Device/Type: awr2x44P/awr2x44P] Building file: ./mss/mss_mai
+     n.c
+     L260: ./mss/mss_main.c:3509:5: warning: call to undeclared function 'B
+     … +69 lines (ctrl+o to expand)
+
+  Read 1 file, wrote 2 memories (ctrl+o to expand)
+
+● 清理临时日志文件，然后总结：
+
+● PowerShell(Remove-Item D:\Project\CR\Project\zelos_repo\build_log.txt -Force;
+            git -C D:\Project\CR\Project\zelos_repo status --short --
+            mmwave_mcuplus_sdk_04_07_00_01/ti/d…)
+  ⎿   M mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/dbc/rx_
+     can_dbc.c
+      M mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/dbc/rx_
+     … +13 lines (ctrl+o to expand)
+
+● 修复完成，编译验证通过。
+
+  结果
+
+  编译：complier.bat 全流程跑完，wf_time_sync.c / wf_calib_ant_channel.c /
+  mss_main.c 编译零警告（日志中仅有的 4 条警告是 mss_main.c 里
+  BoardDiag_mcanWritePmicReg 的历史遗留问题，与本次改动无关），三核 ELF
+  全部重新链接成功——MSS_L2 没有触发碎片化链接错误，最终生成
+  awr2x44P_mmwDDM_ce9b58_MASTER_FR_Close_WD_Ver_1_1_109.appimage 并完成 ImageGen
+  打包。
+
+  修改清单（4 个文件）
+
+  方向一：标定豁免 + EOL 旁路启动（wf_time_sync.c）
+  - wf_time_sync_check_timeout()：标定状态机非 init 期间直接返回，不再因
+  TimeSync 断流 1.2s 在标定中途异步停波；标定结束后管控自动恢复，安全语义不变。
+  - wf_time_sync_process_frame()：标定期间照常更新 offset/时间跟踪和 DTC
+  恢复，但不再驱动启停。
+  - 新增 wf_time_sync_calib_bootstrap()（任务 10ms
+  循环内调用）：标定刚使能（idle）且传感器已配置未发波（OPENED/STOPPED）时，绕过
+  静默等待直接启动发波——打破"标定靠帧驱动、帧靠发波、发波靠
+  TimeSync"的死锁。车上正常运行时此函数不动作。
+
+  方向二：收敛传感器控制权（互斥锁）
+  - mss_main.c：新增 gSensorCtrlMutex（mutex，带优先级继承，initTask 中构造）+
+  MmwDemo_sensorCtrlLock/Unlock()；mmw_mss.h 导出。
+  - wf_calib_ant_channel.c：antCalib_wave_switch() 整段 stop→改参→restart 持锁。
+  - wf_time_sync.c：边界启动（含等待）、超时停波、bootstrap
+  启动三处持锁并在锁内二次确认状态，消除"标定改参一半被时间同步并发启停"的竞态。
+
+  另外说明：mss/dbc/ 下 4 个文件的改动是 complier.bat 用 cantools
+  重新生成的（构建流程自带），不是我手改的。
+
+  上硬件验证建议：EOL 台架上（不发 TimeSync）发 0xC3 标定使能命令，确认 ~10ms
+  内开始发波、标定状态机正常走完并能在 0x310
+  收到通道数据；再回归一次车上场景（TimeSync 正常收发、断流 1.2s 停波 + DTC
+  F24D81、恢复后边界重启）。
+
+✻ Worked for 1m 45s
+
+> /model opus                                                                   
+  ⎿  Set model to Opus 4.8 and saved as your default for new sessions
+> /export syncOA.txt                                                            
+  ⎿  Conversation exported to: D:\Project\CR\Project\zelos_repo\syncOA.txt
+
+> 我刚刚没表达清除，是这样哈，EOL标定板标定也是在车上标定的，这个时候测试的时候 
+   时间同步报文也是发了的，所以你刚才的改发还有用么  还能解决问题么             
+
+● 关键澄清明白了——标定也是在车上、TimeSync
+  报文正常发送的情况下做的。那我之前"EOL 台架不发 TimeSync
+  导致死锁"的根因假设就是错的，得重新核实。让我先读几处之前没看透的代码，特别是
+  CAN-A 的接收过滤和标定的数据通路。
+
+  Read 1 file (ctrl+o to expand)
+
+● 非常关键的发现——CAN-A 上同时承载了 TimeSync 
+  报文和标定报文（RX_CAN_DBC_CAL_CFG_*、RX_CAN_DBC_CAL_STATIC_RESULT_*，即静态
+  EOL 标定，走 g_StaticEOL* 这套，和我之前看的 CAN-B
+  天线标定是两码事）。它们共用 CAN-A 的硬件接收过滤器。而最新 commit 标题正是
+  "delete extra canid"。我要查 CAN-A 接收过滤器数组到底被怎么改了。
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(git show --stat ce9b5848 | head -40)
+  ⎿  commit ce9b584833bcb41349f487374e494c1ccffd04ac
+     Author: Peter Zhu <1374889099@qq.com>
+     Date:   Fri Jun 12 14:30:54 2026 +0800
+     … +10 lines (ctrl+o to expand)
+
+● 最新 commit ce9b5848 "delete extra canid" 改的正是 can_rx_id_array.c/h 和
+  mss_mcan.c——CAN-A 的接收过滤器。看具体改了什么：
+
+● Bash(git show ce9b5848 -- mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_
+      ddm/mss/can_rx_id_array.c
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/c…)
+  ⎿  commit ce9b584833bcb41349f487374e494c1ccffd04ac
+     Author: Peter Zhu <1374889099@qq.com>
+     Date:   Fri Jun 12 14:30:54 2026 +0800
+     … +55 lines (ctrl+o to expand)
+
+● 这个 commit 本身是良性的（只删了和 RX_CAN_DBC_TSYNC_* 重复的 0x40/0x41
+  字面量）。但它揭示了真正要害：CAN-A 用硬件 RX buffer + 过滤器接收，TimeSync 
+  和标定报文挤在同一组过滤器里。我要确认 MCAN 的
+  buffer/过滤器容量够不够。读过滤器配置和 buffer 接收逻辑：
+
+  Read 1 file (ctrl+o to expand)
+
+● 现在 CAN-A 接收机制清楚了：每个 customFilterId 占一个 dedicated RX
+  buffer，TimeSync 和标定报文共用这组 buffer。决定性的对比是——好版本 0b2b849b 里
+  CAN-A 收哪些 ID、有几个 buffer，对比现在加了 TimeSync
+  之后。我直接拉历史版本对比，并看 buffer 容量宏：
+
+● Bash(echo "===== 0b2b849b (GOOD) can_rx_id_array.h ====="; git show
+      0b2b849b:mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/can_r
+      x_id_array.h 2>/dev/nul…)
+  ⎿  ===== 0b2b849b (GOOD) can_rx_id_array.h =====
+     9:#define CAN_RX_ID_ARRAY_H
+     25:#define CAN_RX_POS_SPECIFIC_ID_COUNT   (3u)
+     … +82 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 决定性事实：0b2b849b（好版本）的 can_rx_id_array.c 已经完全包含 TimeSync + 
+  标定的 CAN-A 接收配置，和现在 HEAD 几乎一致（POS_SPECIFIC=3）。所以 CAN-A 
+  过滤器/buffer 不是根因，好坏版本一样。真正的差异回到发波控制（silent_wait +
+  wf_time_sync 启停）。
+
+  而且我注意到：processCanaData 里的标定是 g_StaticEOL* 这套静态 EOL 标定（走
+  CAN-A，用标定板测安装角），跟我之前改的 CAN-B
+  天线通道标定（wf_ant_calib）是两套不同系统。EOL
+  标定板对应的应该是前者。我得查它的状态机怎么依赖发波：
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● EOL 标定状态机分布在 mss_can_output.c 和 mss_main.c（2703、3610
+  两处）。读这两处核心，确认它和发波/时间同步的依赖关系：
+
+  Read 1 file (ctrl+o to expand)
+
+● 读完 EOL
+  标定的完整数据流，我得到一个必须如实告诉你的结论：我之前的修改方向错了，对你的
+  EOL 标定问题大概率没用。 有两层原因。
+
+  第一层：我改错了"标定系统"
+
+  这个工程里有两套完全不同的标定，我之前一直在改错的那一套：
+
+  ┌─────────┬───────────────────────────────────┬───────────────────────────┐
+  │         │            我之前改的             │     你说的 EOL 标定板     │
+  ├─────────┼───────────────────────────────────┼───────────────────────────┤
+  │ 模块    │ wf_calib_ant_channel（天线16通道  │ g_StaticEOL*（静态 EOL    │
+  │         │ 校准）                            │ 安装角标定）              │
+  ├─────────┼───────────────────────────────────┼───────────────────────────┤
+  │         │                                   │ CAN-A，ID                 │
+  │ 命令总  │ CAN-B，ID 0xC3                    │ CAL_CFG(0x60/0x260) +     │
+  │ 线      │                                   │ CAL_STATIC_RESULT(0x61/0x │
+  │         │                                   │ 261)                      │
+  ├─────────┼───────────────────────────────────┼───────────────────────────┤
+  │ 状态变  │ antCalibObj.calibStatus           │ g_StaticEOLStatusFlag     │
+  │ 量      │                                   │                           │
+  ├─────────┼───────────────────────────────────┼───────────────────────────┤
+  │ 怎么干  │ 自己调 antCalib_wave_stop/restart │ 只设标志位，由 RspTask(pe │
+  │ 活      │  切波形                           │ rception_process) 和      │
+  │         │                                   │ mss_flashWriteTask 处理   │
+  └─────────┴───────────────────────────────────┴───────────────────────────┘
+
+  "找标定板/角反射器算安装角"是 g_StaticEOL
+  这套（CAN-A）。而我加的豁免、互斥锁、bootstrap 全部作用在
+  wf_ant_calib（CAN-B）上——和你的 EOL 标定毫无交集。
+
+  关键点：EOL 标定（g_StaticEOL）从不调用传感器启停，它只在 mss_mcan.c 里置
+  g_StaticEOLStatusFlag，然后 RspTask 每帧 perception_process(... pos_flag_char 
+  ...)
+  去检测标定板。所以"时间同步任务并发启停传感器"这个我费力去加锁防的竞态，对 EOL
+  根本不存在。
+
+  第二层：连根因场景也判断错了
+
+  我原来假设"EOL 台架不发 TimeSync 导致死锁"，你已纠正：车上标定、TimeSync
+  正常发送。在这个前提下，bootstrap（只在没 TimeSync
+  时触发）永远不会执行，自然也救不了你。
+
+  所以结论很直接：我这四个文件的改动应该回退，它们解决不了 EOL 标定失败。
+
+  真正的根因方向
+
+  加时间同步后，对 EOL 标定唯一的实质影响是这条链：
+
+  上电不再直接发波 → silent_wait 等第一帧合法 TimeSync → 才在帧边界 startSensor
+  → 发波
+                                      ↓
+                  EOL 靠 RspTask 每帧 perception_process 检测标定板
+                                      ↓
+                  雷达没正常发波 ⇒ RspTask 不跑 ⇒ 标定板找不到
+
+  最可能的真凶是 雷达在 EOL 时根本没成功进入发波。"TimeSync
+  报文发了"不等于"雷达接受了它并启动发波"——wf_time_sync_parse_frame 对 ID /
+  fdf=1 / DLC=15 / CRC-16/CCITT-FALSE 任一不符就 return，雷达会一直停在
+  SILENT_WAIT 不发波。EOL 台架那条 CAN-A 上的 TimeSync 报文，CRC
+  算法或字节序（你中间还有个 commit 专门 "adjust protocol to
+  big-endian"）只要和雷达期望差一点，发波就起不来。
+
+  需要你现场确认一个事实来锁定根因
+
+  EOL 标定失败时，雷达到底发波了没有？可以看任一指标：
+  - wfTimeSyncObj.state 是 SYNCED(已发波) 还是卡在 SILENT_WAIT(没发波)；
+  - validFrameCount / crcErrorCount / invalidFrameCount——如果 crc/invalid 在涨而
+  valid=0，就是 TimeSync 报文被拒、雷达没发波；
+  - 或直接看 EOL 时有没有点云/目标输出。
+
+  如果是"没发波"，根因就是 TimeSync 解析门槛（CRC/字节序/DLC）在 EOL
+  台架不被满足，修法是放宽/修正解析，或给 EOL/产线一个绕过 silent_wait
+  直接发波的开关——这跟我之前加的东西完全是另一回事。
+
+  要不要我先把刚才那四个文件的改动回退掉，然后按"确认雷达是否发波"这个方向重新查
+  wf_time_sync_parse_frame 的解析条件和 EOL 台架 TimeSync
+  报文的匹配？你先告诉我上面那个现象（发波了没有），方向能立刻收窄。
+
+✻ Worked for 9m 27s
+
+> EOL 标定失败时，雷达还是在发波，报文输出也是有                                
+
+● 关键信息收到——雷达在发波、报文也有输出。这就排除了"没发波"的方向，也基本排除了
+  EOL 触发报文完全收不到（否则标定不会"启动后找不到标定板"，而是根本不启动）。
+  问题缩小到：雷达正常发波、EOL 流程启动了，但 perception 
+  在点云里找不到标定板目标。
+
+  这里有个我必须查清的线索：你列出的 commit 里，紧挨着的 080b2b0a "update all 
+  mounts configuration" ——"mounts/安装配置"直接决定 EOL
+  算法去哪个角度区域搜标定板。我要确认这批改动里到底有没有动安装角配置。
+
+● Bash(echo "===== net diff 0b2b849b..ce9b5848 (完整文件列表) ====="; git diff
+      --stat 0b2b849b ce9b5848; echo ""; echo "===== 080b2b0a 'update all
+      mounts' 改了哪些文件 ====="; git…)
+  ⎿  ===== net diff 0b2b849b..ce9b5848 (完整文件列表) =====
+      .../ti/demo/awr2x44P/mmw_ddm/mss/mmw_cli.c         |   5 +
+      .../ti/demo/awr2x44P/mmw_ddm/mss/mss_mcan.c        |   6 +
+     … +15 lines (ctrl+o to expand)
+
+● 确认两个关键事实：
+  1. net diff 只有 4 个文件，080b2b0a "update all mounts" 改的也只是
+  wf_time_sync.h（按安装位 FL/FR 配 TimeSync 的 CAN ID，不是雷达安装角）。所以
+  EOL/perception 代码一行没动，根因 100% 在这 4 个文件。
+  2. 核心差异是 mmw_cli.c 的 silent_wait——好版本 0b2b849b
+  上电直接发波，坏版本改成等 TimeSync 在帧边界对齐后才发波。
+
+  我看一下好版本的 wf_time_sync.c
+  是否根本不控制发波，坐实"发波启动方式改变"这个方向：
+
+● Bash(echo "===== 0b2b849b(好) wf_time_sync.c 是否控制发波 ====="; git show
+      0b2b849b:mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/wf_ti
+      me_sync.c 2>/dev/null |…)  ⎿  ===== 0b2b849b(好) wf_time_sync.c 是否控制发波 =====
+     98:            ClockP_usleep(100000);
+     … +15 lines (ctrl+o to expand)
+
+● 三个关键事实现在全部坐实了，根因方向可以确定，我之前的修改也确实跑偏了。如实汇
+  报：
+
+  坐实的结论
+
+  根因 100% 在这 4 个文件（mmw_cli.c / mss_mcan.c / wf_time_sync.c/h），EOL 和
+  perception 的代码一行没动（080b2b0a "update all mounts" 改的也只是
+  wf_time_sync.h 里按安装位选 TimeSync CAN ID，不是雷达安装角）。
+
+  核心差异是发波的启动方式变了，证据很硬：
+  - 好版本 0b2b849b：wf_time_sync.c 只有 102 行，完全不碰发波；CLISensorStart
+  结尾直接 MmwDemo_startSensor() → 上电即发波。
+  - 坏版本 ce9b5848：wf_time_sync.c 涨到接管发波启停；CLISensorStart 改成
+  silent_wait + return，上电不发波，等第一帧 TimeSync 
+  后在"全局帧边界"对齐才启动发波。
+
+  所以现象完全自洽：雷达最终是在发波（等到 TimeSync
+  就起来了），报文也有输出，但发波的启动时刻和时序基准变了，而 EOL
+  找标定板恰恰对点云/帧序敏感。
+
+  我之前的修改：确认跑偏，建议回退
+
+  我改的是 wf_calib_ant_channel（CAN-B 0xC3
+  天线通道校准）的锁/豁免/bootstrap，跟你 EOL 标定板用的
+  g_StaticEOL（CAN-A）是两套系统，互不相干。在"车上 TimeSync 正常 + 雷达在发波"
+  的真实场景下，这些改动既不触发也不对症。应该回退，别让它们污染问题。
+
+  最可能的具体机制（按可能性）
+
+  1. 帧边界对齐改变了发波时序。start_sensor_on_boundary 用
+  WF_TIME_SYNC_FRAME_PERIOD_US=66ms 的全局网格 +
+  相位（FL=0、FR=33ms）来决定启动时刻。但雷达实际帧周期是
+  DSP_FRAME_PERIOD/flexCAN_framePrd，如果它不等于 
+  66ms，这个"边界对齐"启动后立刻漂移、毫无意义，反而平白引入一段启动延迟和相位扰
+  动——前左/前右两台雷达的发波相位关系跟好版本不一样了，EOL 时点云特性随之变化。
+  2. silent_wait 的启动延迟 vs EOL 触发时序错位：EOL 的
+  CAL_CFG/CAL_STATIC_RESULT 若在雷达还没发波时就到了，g_StaticEOLStatusFlag
+  被置位但 perception 还没开始跑，导致 EOL 起始帧与算法期望不一致。
+
+  一刀切的定位实验（最快）
+
+  保留时间同步功能，但把发波改回"上电即发"，看 EOL 是否恢复：
+  - 去掉 mmw_cli.c 里 silent_wait + return，恢复 CLISensorStart 直接
+  startSensor；
+  - 让 wf_time_sync 只做时间跟踪/offset 计算，不接管发波启停、不做帧边界对齐。
+
+  结果二选一，直接锁定根因：
+  - EOL 恢复 → 坐实是 silent_wait / 帧边界对齐发波破坏了 EOL。修法：给
+  EOL/产线一条"上电即发、不做边界对齐"的发波路径，时间同步只在后台跟踪时间；或把
+  边界对齐的周期改成与实际发波帧周期一致。
+  - EOL 仍失败 → 排除发波时序，转去查时间同步任务（prio 5）对 CAN-A 接收/RspTask
+  的抢占与时序影响。
+
+  要不要我现在就：(1) 回退我之前那 4 个文件的改动，(2) 
+  按上面的实验做一个最小改动（发波回到上电即发、时间同步只跟踪时间）并编译？你拿
+  这个版本上车一测，就能一刀切确认根因。在动手前我先确认一下，因为这次要改的是发
+  波启动主路径，方向得跟你对齐。
+
+✻ Cogitated for 5m 39s
+
+> 你先回退版，然后按照- EOL 仍失败 →排除发波时序，转去查时间同步任务（prio      
+  5）对 CAN-A 接收/RspTask 的抢占与时序影响。来查  我已经把任务优先级改好了     
+
+● 好的，先回退。关键是：你的优先级改动和我的改动都在工作区里（未提交），我必须只
+  回退我加的代码，绝不碰你的优先级改动。所以先看清楚当前 diff，再精准还原。
+
+● Bash(echo "===== 当前工作区改动文件 ====="; git status --short --
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/ ; echo "";
+      echo "===== mss_main.c diff (看优先级 vs…)
+  ⎿  ===== 当前工作区改动文件 =====
+      M mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/dbc/rx_
+     can_dbc.c
+     … +78 lines (ctrl+o to expand)
+
+● 看清楚了——mss_main.c 里你的优先级改动（CANOUTPUT 5→3、CANINPUT 4→5、FLASHWRITE
+  3→2）和我的 mutex 改动是分开的，我只删 mutex 部分。先看另外两个文件的
+  diff，然后统一回退：
+
+● Bash(echo "===== wf_calib_ant_channel.c diff ====="; git diff -- mmwave_mcuplu
+      s_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/wf_calib_ant_channel.c;
+      echo ""; echo "=…)
+  ⎿  ===== wf_calib_ant_channel.c diff =====
+     diff --git a/mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/m
+     ss/wf_calib_ant_channel.c b/mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr
+     … +164 lines (ctrl+o to expand)
+
+● 所有改动看清了——wf_calib_ant_channel.c、wf_time_sync.c、mmw_mss.h
+  三个文件全是我加的（没有你的优先级改动混入），可以整文件还原；mss_main.c
+  里你的优先级改动和我的 mutex 分开，只精准删 mutex。
+
+  注意到你的优先级现在是：CAN接收=5、时间同步=5（同级）、RspTask=4、CAN发送=3、F
+  lashWrite=2——这对接下来查抢占很关键。先回退：
+
+● Bash(cd mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss && git
+      checkout -- wf_calib_ant_channel.c wf_time_sync.c mmw_mss.h && echo
+      "reverted 3 files OK"…)
+  ⎿  reverted 3 files OK
+      M mss_main.c
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Removed 17 lines
+      3129      return errCode;
+      3130  }
+      3131  
+      3132 -/*                                                           
+      3133 - * 传感器启停序列存在两个驱动方: 时间同步任务(静默等待启动/同
+           -步丢失停波)和                                                
+      3134 - * RSP 任务里的天线标定状态机(stop -> 改参 -> restart)。该互 
+           -斥锁用于串行化                                               
+      3135 - * 整段启停序列 —— 调用方必须在整个序列期间持锁, 而不是只包住
+           -单次 start/stop。                                            
+      3136 - */                                                          
+      3137 -static SemaphoreP_Object gSensorCtrlMutex;                   
+      3138 -                                                             
+      3139 -void MmwDemo_sensorCtrlLock(void)                            
+      3140 -{                                                            
+      3141 -    (void)SemaphoreP_pend(&gSensorCtrlMutex, SystemP_WAIT_FOR
+           -EVER);                                                       
+      3142 -}                                                            
+      3143 -                                                             
+      3144 -void MmwDemo_sensorCtrlUnlock(void)                          
+      3145 -{                                                            
+      3146 -    SemaphoreP_post(&gSensorCtrlMutex);                      
+      3147 -}                                                            
+      3148 -                                                             
+      3132  /**
+      3133   *  @b Description
+      3134   *  @n
+
+● 三个文件已还原，mss_main.c 第一处 mutex 块已删。删第二处（construct）：
+
+● Update(mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Removed 3 lines
+      3810      SemaphoreP_constructBinary(&gMmwMssMCB.DPMioctlSemHandle,
+             0);
+      3811      SemaphoreP_constructBinary(&gMmwMssMCB.RspSemHandle, 0);
+      3812  
+      3813 -    /* Mutex serializing sensor start/stop sequences (time sy
+           -nc task vs calibration) */                                   
+      3814 -    SemaphoreP_constructMutex(&gSensorCtrlMutex);            
+      3815 -                                                             
+      3813      /* Create binary semaphore to pend Main task, */
+      3814      SemaphoreP_constructBinary(&gMmwMssMCB.demoInitTaskComple
+            teSemHandle, 0);
+      3815  
+  ⎿  Found 30 new diagnostic issues in 3 files (ctrl+o to expand)
+
+● 那些 clang 报错是 IDE 缺 SDK include 路径导致的静态分析噪声（complier.bat
+  实际能编过），忽略。先验证回退干净，同时开始查 CAN 接收的中断/信号量机制：
+
+● Bash(echo "===== mss_main.c 现在只应剩优先级改动 ====="; git diff --
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/mss_main.c;
+      echo ""; echo "===== 源码改动文件(排除dbc生…)
+  ⎿  ===== mss_main.c 现在只应剩优先级改动 =====
+
+     ===== 源码改动文件(排除dbc生成物) =====
+     … +3 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 回退已生效（git status 那行报错只是我上条命令 cd 进了 mss/
+  导致路径拼接错误，不影响）。先用绝对路径确认 mss_main.c
+  只剩你的优先级改动，并读 CAN-A 中断 ISR 看它怎么唤醒任务：
+
+● Bash(cd /d/Project/CR/Project/zelos_repo && echo "===== mss_main.c diff
+      (应只剩优先级) =====" && git diff --
+      mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/mss/ms…)
+  ⎿  ===== mss_main.c diff (应只剩优先级) =====
+     diff --git a/mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_ddm/m
+     ss/mss_main.c b/mmwave_mcuplus_sdk_04_07_00_01/ti/demo/awr2x44P/mmw_dd
+     … +43 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 回退干净了：mss_main.c 只剩你的优先级改动（CANOUTPUT 5→3、CANINPUT
+  4→5、FlashWrite 3→2），其余源码无我的痕迹（剩下的都是 complier.bat 生成的
+  build 产物/lib/hex）。CAN-A 的 ISR 也确认很轻——只 post 两个 binary
+  信号量，不在中断里做重活。
+
+  现在查抢占的关键前提：FreeRTOS 的调度配置（是否抢占式、同级是否时间片轮转）和
+  RspTask/perception 的实际耗时。这决定抢占影响有多大：
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 埋点很全——代码里 mssTimeRecord[2] 就是 perception(tracker)
+  的单帧耗时，还输出到了 csp.trackerTime。这是验证抢占影响的现成工具。找
+  FreeRTOS 调度配置：
+
+● Bash(f=$(find . -name "FreeRTOSConfig.h" 2>/dev/null | grep -iE
+      "awr2x44p|mssgen|mmw_ddm" | head -1); echo "file: $f"; if [ -n "$f" ];
+      then grep -nE "configUSE_PREEM…)  ⎿  file: ./mcu_plus_sdk_awr2x44p_10_00_00_07/source/kernel/freertos/confi
+     g/awr2x44p/c66/FreeRTOSConfig.h
+     64:#define configUSE_PREEMPTION                                    (1)
+     … +7 lines (ctrl+o to expand)
+
+● 关键配置找到了：configUSE_PREEMPTION=1、configUSE_TIME_SLICING=0、tick=1ms。确
+  认 MSS(r5f) 也是这个配置：
+
+● Bash(f=$(find . -name "FreeRTOSConfig.h" 2>/dev/null | grep -iE "r5f" | grep
+      -i awr2x44p | head -1); echo "r5f config: $f"; if [ -n "$f" ]; then grep
+      -nE "configUSE_…)
+  ⎿  r5f config: ./mcu_plus_sdk_awr2x44p_10_00_00_07/source/kernel/freertos
+     /config/awr2x44p/r5f/FreeRTOSConfig.h
+     64:#define configUSE_PREEMPTION                                    (1)
+     … +3 lines (ctrl+o to expand)
+
+● 回退已确认干净，调度模型也查清了。这次的调查有实质性发现，直接命中你指定的方向
+  。
+
+  回退状态
+
+  源码只剩你的优先级改动（mss_main.c：CANOUTPUT 5→3、CANINPUT 4→5、FlashWrite
+  3→2），我加的 mutex/豁免/bootstrap 全部清除。其余 M 的都是 complier.bat 生成的
+  build 产物/lib/hex，不是源码。
+
+  关键发现：调度配置放大了抢占
+
+  MSS(r5f) 的 FreeRTOS 是 configUSE_PREEMPTION=1 + 
+  configUSE_TIME_SLICING=0。后者是要害——同优先级任务之间不做时间片轮转，一个任务
+  跑起来直到自己阻塞或被更高优先级抢占，同级的其他就绪任务根本不插队。
+
+  EOL 的 perception 跑在 RspTask(prio 4)。把好版本和现在对比：
+
+  好版本 0b2b849b（没有时间同步任务，CANINPUT=4）：
+  - CANINPUT(4) == RspTask(4)，同级 + 不轮转 → RspTask 一旦开始跑
+  perception，同级的 CAN 接收不会打断它，CAN 报文只在 RspTask
+  等下一帧阻塞的间隙处理。
+  - perception 单帧连续执行，完整不被切碎。 EOL 检测稳定。
+
+  现在（时间同步任务 prio 5 + 你把 CANINPUT 提到 5）：
+  - 现在有两个 prio 5 任务（CAN接收、时间同步）都高于 RspTask(4)。
+  - 每来一帧 CAN 报文（车上 EOL，CAN-A/B 上车身/周边报文很密）→ ISR 唤醒
+  CANINPUT(5) → 立即抢占正在跑的 perception。
+  - 时间同步任务每 10ms 超时 tick + 每帧 TimeSync 唤醒 → 也抢占 perception。
+  - perception 被反复打断、切成碎片，单帧墙钟耗时被拉长，CAN 越忙拉得越长。
+
+  这完美解释了你看到的现象
+
+  - 发波正常 → mmWaveCtrl 是 prio 6 最高，且 chirp 时序由 radarss
+  硬件自治，不受抢占影响；
+  - 报文输出正常 → CANOUTPUT(3) 在 DSP 出帧后照常发；
+  - 但找不到标定板 → 唯独 EOL 检测所在的 RspTask(4) 被两个 prio 5
+  任务抢占，perception 单帧超时/点云时序错乱，标定板检测不稳定。
+
+  而且这条因果只在"加了时间同步"之后成立：时间同步任务本身抢
+  perception，加上为配合它把 CANINPUT 提到 5 也开始抢
+  perception。这里要如实说一句：我第一轮建议把 CAN 接收提到 5 
+  时，没考虑到它会反过来高于 RspTask、抢占 EOL perception——那个建议有疏漏。
+
+  先验证（用现成埋点，不用改代码）
+
+  代码里 mssTimeRecord[2] 就是 perception 单帧耗时，已经输出到
+  csp.trackerTime（mss_main.c:2700/2724/2726）。对比好版本 vs 现在、EOL
+  时这个值是否明显变大/抖动——变大就坐实是抢占拖慢了 perception。
+
+  修复方向
+
+  核心矛盾：CAN 接收不能被时间同步抢占（第一轮诉求），但 perception
+  也不能被它俩抢占。利用 TIME_SLICING=0
+  的特性，最干净的解法是让这三者同级、靠各自阻塞协作：
+
+  ┌────────────┬──────┬─────────────────────────────────────────────────────┐
+  │            │ 建议 │                                                     │
+  │    任务    │      │                        理由                         │
+  │            │ prio │                                                     │
+  ├────────────┼──────┼─────────────────────────────────────────────────────┤
+  │ mmWaveCtrl │ 6    │ 不变                                                │
+  ├────────────┼──────┼─────────────────────────────────────────────────────┤
+  │ CAN接收 /  │      │ 三者同级 + 不轮转 → 互不抢占；perception            │
+  │ 时间同步 / │ 5    │ 单帧连续跑完，CAN 接收在其阻塞间隙处理（CAN 有硬件  │
+  │  RspTask   │      │ dedicated buffer 缓冲，短延迟不丢帧）               │
+  ├────────────┼──────┼─────────────────────────────────────────────────────┤
+  │ CANOUTPUT  │ 3    │ 不变                                                │
+  │ / CLI      │      │                                                     │
+  ├────────────┼──────┼─────────────────────────────────────────────────────┤
+  │ FlashWrite │ 2    │ 注意：EOL 的 sMountingPosition 写入靠它（prio 2     │
+  │            │      │ 最低），若被长期压制会延迟更新安装角，是次要隐患    │
+  └────────────┴──────┴─────────────────────────────────────────────────────┘
+
+  把 RspTask 从 4 提到 5（和 CAN接收、时间同步同级）是关键一步——前提是
+  perception 单帧耗时不能太长导致 CAN 的 RX dedicated buffer
+  溢出，这正好可以用上面的 mssTimeRecord[2] 实测来确认安全边界。
+
+  要不要我：先帮你把 RspTask 提到 prio 
+  5（其余保持你现在的设置）然后编译出一版，你上车用 csp.trackerTime
+  对比验证？这是针对"抢占拖慢
+  perception"这条线最直接的一刀。改之前我先跟你确认，因为动 RspTask 优先级要权衡
+  CAN buffer 溢出风险。
+
+✻ Crunched for 8m 33s

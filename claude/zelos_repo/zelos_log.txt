@@ -1,0 +1,2061 @@
+		zlog created log at: pm Jun 18 15:46:39 2026
+		LOG format: [YYYY/MM/DD hh:mm:ss uuu* THREAD_NAME LEVEL FILE->FUNCTION:LINE] message		(uuu*: microseconds fractions of the seconds value)
+
+2026/06/18 15:46:39 142339 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj5_yawrate: -5.8980598183211441e-17
+rsds_per_obj5_width: 1.5
+rsds_per_obj5_obstprobability: 77
+rsds_per_obj5_motiontype: 4
+rsds_per_obj5_measstate: 1
+rsds_per_obj5_lifecycle: 41
+rsds_per_obj5_length: 1.5
+rsds_per_obj5_id: 67
+rsds_per_obj5_headingang: -0.64200000000000013
+rsds_per_obj5_existprob: 0.93127999999999989
+rsds_per_obj5_distzstd: 0.30000000000000004
+rsds_per_obj5_distz: 2.375
+rsds_per_obj5_distystd: 0.60000000000000009
+rsds_per_obj5_disty: -2.75
+rsds_per_obj5_distxstd: 0.4
+rsds_per_obj5_distx: 105.3125
+rsds_per_obj5_classtypeprob: 60
+rsds_per_obj5_classtype: 9
+rsds_per_obj5_absvelystd: 0.625
+rsds_per_obj5_absvely: -0.017600000000005875
+rsds_per_obj5_absvelxstd: 0.25
+rsds_per_obj5_absvelx: -0.017600000000005875
+rsds_per_obj5_absaccelystd: 1.125
+rsds_per_obj5_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 142918 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj6_yawrate: -5.8980598183211441e-17
+rsds_per_obj6_width: 1.5
+rsds_per_obj6_validflag: true
+rsds_per_obj6_motiontype: 4
+rsds_per_obj6_measstate: 1
+rsds_per_obj6_lifecycle: 30
+rsds_per_obj6_length: 1.5
+rsds_per_obj6_id: 12
+rsds_per_obj6_headingang: 2.952
+rsds_per_obj6_existprob: 0.93127999999999989
+rsds_per_obj6_distzstd: 0.2
+rsds_per_obj6_distz: 0.375
+rsds_per_obj6_distystd: 0.2
+rsds_per_obj6_disty: -5.5
+rsds_per_obj6_distxstd: 0.30000000000000004
+rsds_per_obj6_distx: 0.25
+rsds_per_obj6_absvelystd: 0.0625
+rsds_per_obj6_absvely: -0.017600000000005875
+rsds_per_obj6_absvelxstd: 0.25
+rsds_per_obj6_absvelx: -0.017600000000005875
+rsds_per_obj6_absaccelystd: 4.875
+rsds_per_obj6_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 143596 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj7_yawrate: -5.8980598183211441e-17
+rsds_per_obj7_width: 1.5
+rsds_per_obj7_motiontype: 4
+rsds_per_obj7_measstate: 1
+rsds_per_obj7_lifecycle: 199
+rsds_per_obj7_length: 1.5
+rsds_per_obj7_id: 56
+rsds_per_obj7_headingang: 2.764
+rsds_per_obj7_existprob: 0.93127999999999989
+rsds_per_obj7_distzstd: 0.30000000000000004
+rsds_per_obj7_distz: 2.75
+rsds_per_obj7_distystd: 0.5
+rsds_per_obj7_disty: 1.25
+rsds_per_obj7_distxstd: 0.30000000000000004
+rsds_per_obj7_distx: 111.375
+rsds_per_obj7_classtypeprob: 53
+rsds_per_obj7_classtype: 9
+rsds_per_obj7_absvelystd: 0.6875
+rsds_per_obj7_absvely: -0.017600000000005875
+rsds_per_obj7_absvelxstd: 0.1875
+rsds_per_obj7_absvelx: -0.017600000000005875
+rsds_per_obj7_absaccelystd: 4.25
+rsds_per_obj7_absaccelxstd: 0.4375
+
+2026/06/18 15:46:39 143636 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj8_yawrate: -5.8980598183211441e-17
+rsds_per_obj8_width: 1.5
+rsds_per_obj8_obstprobability: 100
+rsds_per_obj8_motiontype: 4
+rsds_per_obj8_measstate: 1
+rsds_per_obj8_lifecycle: 181
+rsds_per_obj8_length: 1.5
+rsds_per_obj8_id: 34
+rsds_per_obj8_headingang: 0.32199999999999995
+rsds_per_obj8_existprob: 0.93127999999999989
+rsds_per_obj8_distzstd: 0.2
+rsds_per_obj8_distz: 1.625
+rsds_per_obj8_distystd: 0.30000000000000004
+rsds_per_obj8_disty: -6.125
+rsds_per_obj8_distxstd: 0.2
+rsds_per_obj8_distx: 60.375
+rsds_per_obj8_classtypeprob: 100
+rsds_per_obj8_classtype: 9
+rsds_per_obj8_absvelystd: 0.3125
+rsds_per_obj8_absvely: -0.017600000000005875
+rsds_per_obj8_absvelxstd: 0.125
+rsds_per_obj8_absvelx: -0.017600000000005875
+rsds_per_obj8_absaccelystd: 1.625
+rsds_per_obj8_absaccelxstd: 0.1875
+
+2026/06/18 15:46:39 144338 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj9_yawrate: -5.8980598183211441e-17
+rsds_per_obj9_width: 1.5
+rsds_per_obj9_obstprobability: 100
+rsds_per_obj9_motiontype: 4
+rsds_per_obj9_measstate: 1
+rsds_per_obj9_lifecycle: 222
+rsds_per_obj9_length: 1.5
+rsds_per_obj9_id: 32
+rsds_per_obj9_headingang: -0.094000000000000056
+rsds_per_obj9_existprob: 0.93127999999999989
+rsds_per_obj9_distzstd: 0.2
+rsds_per_obj9_distz: 0.875
+rsds_per_obj9_distystd: 0.2
+rsds_per_obj9_disty: -7.375
+rsds_per_obj9_distxstd: 0.2
+rsds_per_obj9_distx: 13.1875
+rsds_per_obj9_classtypeprob: 100
+rsds_per_obj9_classtype: 9
+rsds_per_obj9_absvelystd: 0.125
+rsds_per_obj9_absvely: -0.017600000000005875
+rsds_per_obj9_absvelxstd: 0.125
+rsds_per_obj9_absvelx: -0.017600000000005875
+rsds_per_obj9_absaccelystd: 5
+rsds_per_obj9_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 144376 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj10_yawrate: -5.8980598183211441e-17
+rsds_per_obj10_width: 1.5
+rsds_per_obj10_motiontype: 4
+rsds_per_obj10_measstate: 1
+rsds_per_obj10_lifecycle: 221
+rsds_per_obj10_length: 1.5
+rsds_per_obj10_id: 36
+rsds_per_obj10_headingang: 0.68199999999999994
+rsds_per_obj10_existprob: 0.93127999999999989
+rsds_per_obj10_distzstd: 0.2
+rsds_per_obj10_distz: 6
+rsds_per_obj10_distystd: 0.2
+rsds_per_obj10_disty: -7.25
+rsds_per_obj10_distxstd: 0.2
+rsds_per_obj10_distx: 47.5625
+rsds_per_obj10_classtypeprob: 100
+rsds_per_obj10_classtype: 7
+rsds_per_obj10_absvelystd: 0.125
+rsds_per_obj10_absvely: -0.017600000000005875
+rsds_per_obj10_absvelxstd: 0.125
+rsds_per_obj10_absvelx: -0.017600000000005875
+rsds_per_obj10_absaccelystd: 5
+rsds_per_obj10_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 145056 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj11_yawrate: -5.8980598183211441e-17
+rsds_per_obj11_width: 1.5
+rsds_per_obj11_obstprobabilit: 100
+rsds_per_obj11_motiontype: 4
+rsds_per_obj11_measstate: 1
+rsds_per_obj11_lifecycle: 248
+rsds_per_obj11_length: 1.5
+rsds_per_obj11_id: 62
+rsds_per_obj11_headingang: -2.842
+rsds_per_obj11_existprob: 0.93127999999999989
+rsds_per_obj11_distzstd: 0.2
+rsds_per_obj11_distz: 0.375
+rsds_per_obj11_distystd: 0.2
+rsds_per_obj11_disty: -7.625
+rsds_per_obj11_distxstd: 0.2
+rsds_per_obj11_distx: 16.8125
+rsds_per_obj11_classtype: 9
+rsds_per_obj11_absvelystd: 0.125
+rsds_per_obj11_absvely: -0.017600000000005875
+rsds_per_obj11_absvelxstd: 0.125
+rsds_per_obj11_absvelx: -0.017600000000005875
+rsds_per_obj11_absaccelystd: 2.375
+rsds_per_obj11_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 145110 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj12_yawrate: -5.8980598183211441e-17
+rsds_per_obj12_width: 1.5
+rsds_per_obj12_motiontype: 4
+rsds_per_obj12_measstate: 1
+rsds_per_obj12_lifecycle: 97
+rsds_per_obj12_length: 1.5
+rsds_per_obj12_id: 41
+rsds_per_obj12_headingang: 2.92
+rsds_per_obj12_existprob: 0.93127999999999989
+rsds_per_obj12_distzstd: 0.30000000000000004
+rsds_per_obj12_distz: 6.375
+rsds_per_obj12_distystd: 0.5
+rsds_per_obj12_disty: -7
+rsds_per_obj12_distxstd: 0.4
+rsds_per_obj12_distx: 90
+rsds_per_obj12_classtypeprob: 96
+rsds_per_obj12_classtype: 7
+rsds_per_obj12_absvelystd: 0.6875
+rsds_per_obj12_absvely: -0.017600000000005875
+rsds_per_obj12_absvelxstd: 0.25
+rsds_per_obj12_absvelx: -0.017600000000005875
+rsds_per_obj12_absaccelystd: 2.5625
+rsds_per_obj12_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 145775 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj13_yawrate: -5.8980598183211441e-17
+rsds_per_obj13_width: 1.5
+rsds_per_obj13_validflag: true
+rsds_per_obj13_motiontype: 4
+rsds_per_obj13_measstate: 1
+rsds_per_obj13_lifecycle: 212
+rsds_per_obj13_length: 1.5
+rsds_per_obj13_id: 1
+rsds_per_obj13_headingang: 0.13799999999999996
+rsds_per_obj13_existprob: 0.93127999999999989
+rsds_per_obj13_distzstd: 0.2
+rsds_per_obj13_distz: 5.75
+rsds_per_obj13_distystd: 0.2
+rsds_per_obj13_disty: 6.25
+rsds_per_obj13_distxstd: 0.2
+rsds_per_obj13_distx: 32.5
+rsds_per_obj13_classtypeprob: 100
+rsds_per_obj13_classtype: 7
+rsds_per_obj13_absvelystd: 0.125
+rsds_per_obj13_absvely: -0.017600000000005875
+rsds_per_obj13_absvelxstd: 0.125
+rsds_per_obj13_absvelx: -0.017600000000005875
+rsds_per_obj13_absaccelystd: 3.8125
+rsds_per_obj13_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 145828 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj14_yawrate: -5.8980598183211441e-17
+rsds_per_obj14_width: 1.5
+rsds_per_obj14_motiontype: 4
+rsds_per_obj14_measstate: 1
+rsds_per_obj14_lifecycle: 170
+rsds_per_obj14_length: 1.5
+rsds_per_obj14_id: 37
+rsds_per_obj14_headingang: 2.454
+rsds_per_obj14_existprob: 0.93127999999999989
+rsds_per_obj14_distzstd: 0.2
+rsds_per_obj14_distz: 3.5
+rsds_per_obj14_distystd: 0.4
+rsds_per_obj14_disty: -9
+rsds_per_obj14_distxstd: 0.30000000000000004
+rsds_per_obj14_distx: 68.9375
+rsds_per_obj14_classtypeprob: 98
+rsds_per_obj14_classtype: 7
+rsds_per_obj14_absvelystd: 0.5625
+rsds_per_obj14_absvely: -0.017600000000005875
+rsds_per_obj14_absvelxstd: 0.1875
+rsds_per_obj14_absvelx: -0.017600000000005875
+rsds_per_obj14_absaccelystd: 3.8125
+rsds_per_obj14_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 146525 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:243->ProcessData] [RADARS_RX] Parse frameheader_fl for rsds_algoblind: 1
+rsds_calib_finalcalibstate: 7
+rsds_mountposx: 2.66
+rsds_yawmountangle: 0.7939
+rsds_per_obj_num: 11
+rsds_per_hdr_timestamp: 209
+rsds_per_hdr_rollingcounter: 2
+rsds_mountposz: 0.30000000000000004
+rsds_mountposy: 0.6
+rsds_calib_eleoffset: -0.010000000000000026
+rsds_calib_azioffset: -0.033400000000000027
+rsds_blind: 1
+
+2026/06/18 15:46:39 146570 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj1_yawrate: -5.8980598183211441e-17
+rsds_per_obj1_width: 1.5
+rsds_per_obj1_obstprobability: 100
+rsds_per_obj1_motiontype: 4
+rsds_per_obj1_measstate: 1
+rsds_per_obj1_lifecycle: 70
+rsds_per_obj1_length: 1.5
+rsds_per_obj1_id: 36
+rsds_per_obj1_headingang: 1.054
+rsds_per_obj1_existprob: 0.93127999999999989
+rsds_per_obj1_distzstd: 0.2
+rsds_per_obj1_distz: 1.375
+rsds_per_obj1_distystd: 0.2
+rsds_per_obj1_disty: 1.125
+rsds_per_obj1_distxstd: 0.2
+rsds_per_obj1_distx: 31.4375
+rsds_per_obj1_classtypeprob: 100
+rsds_per_obj1_classtype: 9
+rsds_per_obj1_absvelystd: 0.125
+rsds_per_obj1_absvely: -0.017600000000005875
+rsds_per_obj1_absvelxstd: 0.125
+rsds_per_obj1_absvelx: -0.017600000000005875
+rsds_per_obj1_absaccelystd: 6.4375
+rsds_per_obj1_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 147295 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj2_yawrate: -5.8980598183211441e-17
+rsds_per_obj2_width: 1.5
+rsds_per_obj2_validflag: true
+rsds_per_obj2_obstprobability: 100
+rsds_per_obj2_motiontype: 4
+rsds_per_obj2_measstate: 1
+rsds_per_obj2_lifecycle: 31
+rsds_per_obj2_length: 1.5
+rsds_per_obj2_id: 4
+rsds_per_obj2_headingang: 1.15
+rsds_per_obj2_existprob: 0.93127999999999989
+rsds_per_obj2_distzstd: 0.2
+rsds_per_obj2_distz: 1
+rsds_per_obj2_distystd: 0.2
+rsds_per_obj2_disty: -0.5
+rsds_per_obj2_distxstd: 0.2
+rsds_per_obj2_distx: 30.75
+rsds_per_obj2_classtypeprob: 100
+rsds_per_obj2_classtype: 9
+rsds_per_obj2_absvelystd: 0.1875
+rsds_per_obj2_absvely: -0.017600000000005875
+rsds_per_obj2_absvelxstd: 0.125
+rsds_per_obj2_absvelx: -0.017600000000005875
+rsds_per_obj2_absaccelystd: 7.875
+rsds_per_obj2_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 147376 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj3_yawrate: -5.8980598183211441e-17
+rsds_per_obj3_width: 1.5
+rsds_per_obj3_validflag: true
+rsds_per_obj3_motiontype: 4
+rsds_per_obj3_measstate: 1
+rsds_per_obj3_lifecycle: 40
+rsds_per_obj3_length: 1.5
+rsds_per_obj3_id: 8
+rsds_per_obj3_headingang: -1.9180000000000001
+rsds_per_obj3_existprob: 0.93127999999999989
+rsds_per_obj3_distzstd: 0.2
+rsds_per_obj3_distz: 4.5
+rsds_per_obj3_distystd: 0.2
+rsds_per_obj3_disty: 5.75
+rsds_per_obj3_distxstd: 0.2
+rsds_per_obj3_distx: 32.625
+rsds_per_obj3_classtypeprob: 100
+rsds_per_obj3_classtype: 7
+rsds_per_obj3_absvelystd: 0.125
+rsds_per_obj3_absvely: -0.017600000000005875
+rsds_per_obj3_absvelxstd: 0.125
+rsds_per_obj3_absvelx: -0.017600000000005875
+rsds_per_obj3_absaccelystd: 5.1875
+rsds_per_obj3_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 147981 [fffeb8af76e0] INFO [component.cc:221->TakeFinish] [RADARS_RX] -- Component DRIVER_RADARS_RX Frame --
+No.92598|0hz|0MBps|50.0844ms.
+Time: 2026-06-18 15:46:39.147972160, ErrorLevel: ERROR, ErrorCode: ERROR_DRIVER_CLASS_DATA_IS_NULL, Message: Driver[radars-rx] data is null.
+2026/06/18 15:46:39 148113 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj4_yawrate: -5.8980598183211441e-17
+rsds_per_obj4_width: 1.5
+rsds_per_obj4_validflag: true
+rsds_per_obj4_obstprobability: 100
+rsds_per_obj4_motiontype: 4
+rsds_per_obj4_measstate: 1
+rsds_per_obj4_lifecycle: 43
+rsds_per_obj4_length: 1.5
+rsds_per_obj4_id: 9
+rsds_per_obj4_headingang: -5.8980598183211441e-17
+rsds_per_obj4_existprob: 0.93127999999999989
+rsds_per_obj4_distzstd: 0.2
+rsds_per_obj4_distystd: 0.2
+rsds_per_obj4_disty: 5.875
+rsds_per_obj4_distxstd: 0.2
+rsds_per_obj4_distx: 26.4375
+rsds_per_obj4_classtypeprob: 100
+rsds_per_obj4_classtype: 9
+rsds_per_obj4_absvelystd: 0.125
+rsds_per_obj4_absvely: -0.017600000000005875
+rsds_per_obj4_absvelxstd: 0.125
+rsds_per_obj4_absvelx: -0.017600000000005875
+rsds_per_obj4_absaccelystd: 4.9375
+rsds_per_obj4_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 148174 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj5_yawrate: -5.8980598183211441e-17
+rsds_per_obj5_width: 1.5
+rsds_per_obj5_validflag: true
+rsds_per_obj5_obstprobability: 100
+rsds_per_obj5_motiontype: 4
+rsds_per_obj5_measstate: 1
+rsds_per_obj5_lifecycle: 255
+rsds_per_obj5_length: 1.5
+rsds_per_obj5_headingang: -5.8980598183211441e-17
+rsds_per_obj5_existprob: 0.93127999999999989
+rsds_per_obj5_distzstd: 0.2
+rsds_per_obj5_distz: 0.25
+rsds_per_obj5_distystd: 0.2
+rsds_per_obj5_disty: 7.25
+rsds_per_obj5_distxstd: 0.30000000000000004
+rsds_per_obj5_distx: 3.6875
+rsds_per_obj5_classtypeprob: 100
+rsds_per_obj5_classtype: 9
+rsds_per_obj5_absvelystd: 0.125
+rsds_per_obj5_absvely: -0.017600000000005875
+rsds_per_obj5_absvelxstd: 0.5
+rsds_per_obj5_absvelx: -0.017600000000005875
+rsds_per_obj5_absaccelystd: 15.3125
+rsds_per_obj5_absaccelxstd: 0.3125
+
+2026/06/18 15:46:39 149347 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj6_yawrate: -5.8980598183211441e-17
+rsds_per_obj6_width: 1.5
+rsds_per_obj6_motiontype: 4
+rsds_per_obj6_measstate: 1
+rsds_per_obj6_lifecycle: 189
+rsds_per_obj6_length: 1.5
+rsds_per_obj6_id: 52
+rsds_per_obj6_headingang: 1.57
+rsds_per_obj6_existprob: 0.93127999999999989
+rsds_per_obj6_distzstd: 0.2
+rsds_per_obj6_distz: 0.5
+rsds_per_obj6_distystd: 0.2
+rsds_per_obj6_disty: 7.75
+rsds_per_obj6_distxstd: 0.2
+rsds_per_obj6_distx: -1.1875
+rsds_per_obj6_absvelystd: 0.0625
+rsds_per_obj6_absvely: -0.017600000000005875
+rsds_per_obj6_absvelxstd: 0.1875
+rsds_per_obj6_absvelx: -0.017600000000005875
+rsds_per_obj6_absaccelystd: 2.375
+rsds_per_obj6_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 149415 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj7_yawrate: -5.8980598183211441e-17
+rsds_per_obj7_width: 1.5
+rsds_per_obj7_motiontype: 4
+rsds_per_obj7_measstate: 1
+rsds_per_obj7_lifecycle: 246
+rsds_per_obj7_length: 1.5
+rsds_per_obj7_id: 61
+rsds_per_obj7_headingang: 1.57
+rsds_per_obj7_existprob: 0.93127999999999989
+rsds_per_obj7_distzstd: 0.2
+rsds_per_obj7_distz: 1.5
+rsds_per_obj7_distystd: 0.2
+rsds_per_obj7_disty: 11.625
+rsds_per_obj7_distxstd: 0.2
+rsds_per_obj7_distx: 32.6875
+rsds_per_obj7_absvelystd: 0.125
+rsds_per_obj7_absvely: -0.017600000000005875
+rsds_per_obj7_absvelxstd: 0.125
+rsds_per_obj7_absvelx: -0.017600000000005875
+rsds_per_obj7_absaccelystd: 1.6875
+rsds_per_obj7_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 149455 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj8_yawrate: -5.8980598183211441e-17
+rsds_per_obj8_width: 1.5
+rsds_per_obj8_motiontype: 4
+rsds_per_obj8_measstate: 1
+rsds_per_obj8_lifecycle: 157
+rsds_per_obj8_length: 1.5
+rsds_per_obj8_id: 39
+rsds_per_obj8_headingang: 2.726
+rsds_per_obj8_existprob: 0.93127999999999989
+rsds_per_obj8_distzstd: 0.2
+rsds_per_obj8_distystd: 0.1
+rsds_per_obj8_disty: 13
+rsds_per_obj8_distxstd: 0.30000000000000004
+rsds_per_obj8_distx: 2.9375
+rsds_per_obj8_absvelystd: 0.0625
+rsds_per_obj8_absvely: -0.017600000000005875
+rsds_per_obj8_absvelxstd: 0.25
+rsds_per_obj8_absvelx: -0.017600000000005875
+rsds_per_obj8_absaccelystd: 4.75
+rsds_per_obj8_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 149497 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj9_yawrate: -5.8980598183211441e-17
+rsds_per_obj9_width: 1.5
+rsds_per_obj9_motiontype: 4
+rsds_per_obj9_measstate: 1
+rsds_per_obj9_lifecycle: 196
+rsds_per_obj9_length: 1.5
+rsds_per_obj9_id: 40
+rsds_per_obj9_headingang: 3.14
+rsds_per_obj9_existprob: 0.93127999999999989
+rsds_per_obj9_distzstd: 0.2
+rsds_per_obj9_distz: 0.625
+rsds_per_obj9_distystd: 0.1
+rsds_per_obj9_disty: 14.75
+rsds_per_obj9_distxstd: 0.30000000000000004
+rsds_per_obj9_distx: -1.625
+rsds_per_obj9_absvelystd: 0.0625
+rsds_per_obj9_absvely: -0.017600000000005875
+rsds_per_obj9_absvelxstd: 0.25
+rsds_per_obj9_absvelx: -0.017600000000005875
+rsds_per_obj9_absaccelystd: 4.6875
+rsds_per_obj9_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 149853 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj10_yawrate: -5.8980598183211441e-17
+rsds_per_obj10_width: 1.5
+rsds_per_obj10_motiontype: 4
+rsds_per_obj10_measstate: 1
+rsds_per_obj10_lifecycle: 164
+rsds_per_obj10_length: 1.5
+rsds_per_obj10_id: 12
+rsds_per_obj10_headingang: 3.14
+rsds_per_obj10_existprob: 0.93127999999999989
+rsds_per_obj10_distzstd: 0.2
+rsds_per_obj10_distz: 7.25
+rsds_per_obj10_distystd: 0.2
+rsds_per_obj10_disty: 13.625
+rsds_per_obj10_distxstd: 0.2
+rsds_per_obj10_distx: 33.0625
+rsds_per_obj10_absvelystd: 0.125
+rsds_per_obj10_absvely: -0.017600000000005875
+rsds_per_obj10_absvelxstd: 0.125
+rsds_per_obj10_absvelx: -0.017600000000005875
+rsds_per_obj10_absaccelystd: 1.0625
+rsds_per_obj10_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 150595 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj11_yawrate: -5.8980598183211441e-17
+rsds_per_obj11_width: 1.5
+rsds_per_obj11_motiontype: 4
+rsds_per_obj11_measstate: 1
+rsds_per_obj11_lifecycle: 46
+rsds_per_obj11_length: 1.5
+rsds_per_obj11_id: 50
+rsds_per_obj11_headingang: -5.8980598183211441e-17
+rsds_per_obj11_existprob: 0.93127999999999989
+rsds_per_obj11_distzstd: 0.2
+rsds_per_obj11_distz: 0.875
+rsds_per_obj11_distystd: 0.1
+rsds_per_obj11_disty: 17.25
+rsds_per_obj11_distxstd: 0.30000000000000004
+rsds_per_obj11_distx: 2.5625
+rsds_per_obj11_absvelystd: 0.0625
+rsds_per_obj11_absvely: -0.017600000000005875
+rsds_per_obj11_absvelxstd: 0.25
+rsds_per_obj11_absvelx: -0.017600000000005875
+rsds_per_obj11_absaccelystd: 4.6875
+rsds_per_obj11_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 150642 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_MISALIGNMENT for dtc code:9999992, fault code:4
+2026/06/18 15:46:39 150647 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:331->ProcessData] [RADARS_RX] dtc_group1_fl DTC group1 errors: dtc_timestamp: 2863311530
+dtc_number: 11
+dtc_messagetype: 16
+dtc_frame_number: 4914
+dtc_entry5_dtc_num: 9993300
+dtc_entry4_status_mask: 4
+dtc_entry4_dtc_type: 4
+dtc_entry4_dtc_num: 9999992
+dtc_entry3_dtc_num: 15879304
+dtc_entry2_dtc_num: 9992726
+dtc_entry1_dtc_num: 9992727
+
+2026/06/18 15:46:39 151327 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:332->ProcessData] [RADARS_RX] dtc_group2_fl DTC group2 raw data: dtc_entry9_dtc_num: 15879312
+dtc_entry8_status_mask: 12
+dtc_entry8_dtc_type: 7
+dtc_entry8_dtc_num: 15879553
+dtc_entry8_change_ts: 2863311530
+dtc_entry7_dtc_num: 9997462
+dtc_entry6_dtc_num: 9997312
+dtc_entry11_dtc_num: 9991238
+dtc_entry10_status_mask: 6
+dtc_entry10_dtc_type: 4
+dtc_entry10_dtc_num: 9993301
+
+2026/06/18 15:46:39 151359 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE for dtc code:15879553, fault code:12
+2026/06/18 15:46:39 151368 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE; FAULT_CALIBRATION_NOT_OK for dtc code:9993301, fault code:6
+2026/06/18 15:46:39 151390 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj15_yawrate: -5.8980598183211441e-17
+rsds_per_obj15_width: 1.5
+rsds_per_obj15_obstprobabilit: 100
+rsds_per_obj15_motiontype: 4
+rsds_per_obj15_measstate: 1
+rsds_per_obj15_lifecycle: 40
+rsds_per_obj15_length: 1.5
+rsds_per_obj15_id: 66
+rsds_per_obj15_headingang: 0.18399999999999994
+rsds_per_obj15_existprob: 0.93127999999999989
+rsds_per_obj15_distzstd: 0.2
+rsds_per_obj15_distz: 0.875
+rsds_per_obj15_distystd: 0.2
+rsds_per_obj15_disty: 7.125
+rsds_per_obj15_distxstd: 0.2
+rsds_per_obj15_distx: 25.4375
+rsds_per_obj15_classtypeprob: 100
+rsds_per_obj15_classtype: 9
+rsds_per_obj15_absvelystd: 0.125
+rsds_per_obj15_absvely: -0.017600000000005875
+rsds_per_obj15_absvelxstd: 0.125
+rsds_per_obj15_absvelx: -0.017600000000005875
+rsds_per_obj15_absaccelystd: 4.875
+rsds_per_obj15_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 152310 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj16_yawrate: -5.8980598183211441e-17
+rsds_per_obj16_width: 1.5
+rsds_per_obj16_motiontype: 4
+rsds_per_obj16_measstate: 1
+rsds_per_obj16_lifecycle: 74
+rsds_per_obj16_length: 1.5
+rsds_per_obj16_id: 46
+rsds_per_obj16_headingang: -3.0020000000000002
+rsds_per_obj16_existprob: 0.93127999999999989
+rsds_per_obj16_distzstd: 0.2
+rsds_per_obj16_distz: 0.75
+rsds_per_obj16_distystd: 0.2
+rsds_per_obj16_disty: -13.5
+rsds_per_obj16_distxstd: 0.2
+rsds_per_obj16_distx: 32.6875
+rsds_per_obj16_absvelystd: 0.125
+rsds_per_obj16_absvely: -0.017600000000005875
+rsds_per_obj16_absvelxstd: 0.125
+rsds_per_obj16_absvelx: -0.017600000000005875
+rsds_per_obj16_absaccelystd: 4.1875
+rsds_per_obj16_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 152362 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:333->ProcessData] [RADARS_RX] dtc_group1_fr DTC group1 errors: dtc_timestamp: 2863311530
+dtc_number: 11
+dtc_messagetype: 16
+dtc_frame_number: 4915
+dtc_entry5_dtc_num: 9993300
+dtc_entry4_dtc_num: 9999992
+dtc_entry3_dtc_num: 15879304
+dtc_entry2_dtc_num: 9992726
+dtc_entry1_dtc_num: 9992727
+
+2026/06/18 15:46:39 153204 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:334->ProcessData] [RADARS_RX] dtc_group2_fr DTC group2 raw data: dtc_entry9_dtc_num: 15879312
+dtc_entry8_status_mask: 12
+dtc_entry8_dtc_type: 7
+dtc_entry8_dtc_num: 15879553
+dtc_entry8_change_ts: 2863311530
+dtc_entry7_dtc_num: 9997462
+dtc_entry6_dtc_num: 9997312
+dtc_entry11_dtc_num: 9991238
+dtc_entry10_dtc_num: 9993301
+
+2026/06/18 15:46:39 153233 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE for dtc code:15879553, fault code:12
+2026/06/18 15:46:39 198117 [fffeb8af76e0] INFO [component.cc:221->TakeFinish] [RADARS_RX] -- Component DRIVER_RADARS_RX Frame --
+No.92599|0hz|0MBps|50.0839ms.
+Time: 2026-06-18 15:46:39.198110560, ErrorLevel: ERROR, ErrorCode: ERROR_DRIVER_CLASS_DATA_IS_NULL, Message: Driver[radars-rx] data is null.
+2026/06/18 15:46:39 201822 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:244->ProcessData] [RADARS_RX] Parse frameheader_fr for rsds_algoblind: 1
+rsds_calib_finalcalibstate: 7
+rsds_mountposx: 2.66
+rsds_yawmountangle: -0.79577000000000009
+rsds_per_obj_num: 16
+rsds_per_hdr_timestamp: 185
+rsds_per_hdr_rollingcounter: 4
+rsds_mountposz: 0.35000000000000003
+rsds_mountposy: -0.61
+rsds_calib_eleoffset: 0.032299999999999975
+rsds_calib_azioffset: 0.0016999999999999726
+rsds_blind: 1
+
+2026/06/18 15:46:39 201897 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj1_yawrate: -5.8980598183211441e-17
+rsds_per_obj1_width: 1.5
+rsds_per_obj1_obstprobability: 100
+rsds_per_obj1_motiontype: 4
+rsds_per_obj1_measstate: 1
+rsds_per_obj1_lifecycle: 148
+rsds_per_obj1_length: 1.5
+rsds_per_obj1_id: 61
+rsds_per_obj1_headingang: -1.104
+rsds_per_obj1_existprob: 0.93127999999999989
+rsds_per_obj1_distzstd: 0.2
+rsds_per_obj1_distz: 0.5
+rsds_per_obj1_distystd: 0.2
+rsds_per_obj1_disty: -1.125
+rsds_per_obj1_distxstd: 0.2
+rsds_per_obj1_distx: 30.75
+rsds_per_obj1_classtypeprob: 100
+rsds_per_obj1_classtype: 9
+rsds_per_obj1_absvelystd: 0.125
+rsds_per_obj1_absvely: -0.017600000000005875
+rsds_per_obj1_absvelxstd: 0.125
+rsds_per_obj1_absvelx: -0.017600000000005875
+rsds_per_obj1_absaccelystd: 9
+rsds_per_obj1_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 202394 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj2_yawrate: -5.8980598183211441e-17
+rsds_per_obj2_width: 1.5
+rsds_per_obj2_validflag: true
+rsds_per_obj2_obstprobability: 100
+rsds_per_obj2_motiontype: 4
+rsds_per_obj2_measstate: 1
+rsds_per_obj2_lifecycle: 255
+rsds_per_obj2_length: 1.5
+rsds_per_obj2_headingang: -5.8980598183211441e-17
+rsds_per_obj2_existprob: 0.93127999999999989
+rsds_per_obj2_distzstd: 0.30000000000000004
+rsds_per_obj2_distz: 0.5
+rsds_per_obj2_distystd: 0.30000000000000004
+rsds_per_obj2_disty: -3
+rsds_per_obj2_distxstd: 0.4
+rsds_per_obj2_distx: 3.3125
+rsds_per_obj2_classtypeprob: 100
+rsds_per_obj2_classtype: 9
+rsds_per_obj2_absvelystd: 0.1875
+rsds_per_obj2_absvely: -0.017600000000005875
+rsds_per_obj2_absvelxstd: 0.875
+rsds_per_obj2_absvelx: -0.017600000000005875
+rsds_per_obj2_absaccelystd: 4.375
+rsds_per_obj2_absaccelxstd: 0.5625
+
+2026/06/18 15:46:39 202444 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj3_yawrate: -5.8980598183211441e-17
+rsds_per_obj3_width: 1.5
+rsds_per_obj3_validflag: true
+rsds_per_obj3_obstprobability: 100
+rsds_per_obj3_motiontype: 4
+rsds_per_obj3_measstate: 1
+rsds_per_obj3_lifecycle: 111
+rsds_per_obj3_length: 1.5
+rsds_per_obj3_id: 4
+rsds_per_obj3_headingang: 2.856
+rsds_per_obj3_existprob: 0.93127999999999989
+rsds_per_obj3_distzstd: 0.30000000000000004
+rsds_per_obj3_distz: 1.125
+rsds_per_obj3_distystd: 0.4
+rsds_per_obj3_disty: -1.375
+rsds_per_obj3_distxstd: 0.30000000000000004
+rsds_per_obj3_distx: 62
+rsds_per_obj3_classtypeprob: 89
+rsds_per_obj3_classtype: 9
+rsds_per_obj3_absvelystd: 0.625
+rsds_per_obj3_absvely: -0.017600000000005875
+rsds_per_obj3_absvelxstd: 0.1875
+rsds_per_obj3_absvelx: -0.017600000000005875
+rsds_per_obj3_absaccelystd: 6.125
+rsds_per_obj3_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 203628 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj4_yawrate: -5.8980598183211441e-17
+rsds_per_obj4_width: 1.5
+rsds_per_obj4_obstprobability: 100
+rsds_per_obj4_motiontype: 4
+rsds_per_obj4_measstate: 1
+rsds_per_obj4_lifecycle: 44
+rsds_per_obj4_length: 1.5
+rsds_per_obj4_id: 59
+rsds_per_obj4_headingang: 3.056
+rsds_per_obj4_existprob: 0.93127999999999989
+rsds_per_obj4_distzstd: 0.30000000000000004
+rsds_per_obj4_distz: 0.75
+rsds_per_obj4_distystd: 0.70000000000000007
+rsds_per_obj4_disty: 0.625
+rsds_per_obj4_distxstd: 0.4
+rsds_per_obj4_distx: 65.8125
+rsds_per_obj4_classtypeprob: 100
+rsds_per_obj4_classtype: 9
+rsds_per_obj4_absvelystd: 1
+rsds_per_obj4_absvely: -0.017600000000005875
+rsds_per_obj4_absvelxstd: 0.25
+rsds_per_obj4_absvelx: -0.017600000000005875
+rsds_per_obj4_absaccelystd: 10.0625
+rsds_per_obj4_absaccelxstd: 0.625
+
+2026/06/18 15:46:39 203692 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj5_yawrate: -5.8980598183211441e-17
+rsds_per_obj5_width: 1.5
+rsds_per_obj5_obstprobability: 82
+rsds_per_obj5_motiontype: 4
+rsds_per_obj5_measstate: 1
+rsds_per_obj5_lifecycle: 42
+rsds_per_obj5_length: 1.5
+rsds_per_obj5_id: 67
+rsds_per_obj5_headingang: -0.64200000000000013
+rsds_per_obj5_existprob: 0.93127999999999989
+rsds_per_obj5_distzstd: 0.30000000000000004
+rsds_per_obj5_distz: 2.375
+rsds_per_obj5_distystd: 0.60000000000000009
+rsds_per_obj5_disty: -2.75
+rsds_per_obj5_distxstd: 0.4
+rsds_per_obj5_distx: 105.375
+rsds_per_obj5_classtypeprob: 60
+rsds_per_obj5_classtype: 9
+rsds_per_obj5_absvelystd: 0.6875
+rsds_per_obj5_absvely: -0.017600000000005875
+rsds_per_obj5_absvelxstd: 0.25
+rsds_per_obj5_absvelx: -0.017600000000005875
+rsds_per_obj5_absaccelystd: 1.1875
+rsds_per_obj5_absaccelxstd: 0.4375
+
+2026/06/18 15:46:39 204366 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj6_yawrate: -5.8980598183211441e-17
+rsds_per_obj6_width: 1.5
+rsds_per_obj6_validflag: true
+rsds_per_obj6_motiontype: 4
+rsds_per_obj6_measstate: 1
+rsds_per_obj6_lifecycle: 31
+rsds_per_obj6_length: 1.5
+rsds_per_obj6_id: 12
+rsds_per_obj6_headingang: 2.952
+rsds_per_obj6_existprob: 0.93127999999999989
+rsds_per_obj6_distzstd: 0.2
+rsds_per_obj6_distz: 0.375
+rsds_per_obj6_distystd: 0.2
+rsds_per_obj6_disty: -5.5
+rsds_per_obj6_distxstd: 0.30000000000000004
+rsds_per_obj6_distx: 0.25
+rsds_per_obj6_absvelystd: 0.0625
+rsds_per_obj6_absvely: -0.017600000000005875
+rsds_per_obj6_absvelxstd: 0.25
+rsds_per_obj6_absvelx: -0.017600000000005875
+rsds_per_obj6_absaccelystd: 4.875
+rsds_per_obj6_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 204412 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj7_yawrate: -5.8980598183211441e-17
+rsds_per_obj7_width: 1.5
+rsds_per_obj7_motiontype: 4
+rsds_per_obj7_measstate: 1
+rsds_per_obj7_lifecycle: 200
+rsds_per_obj7_length: 1.5
+rsds_per_obj7_id: 56
+rsds_per_obj7_headingang: 2.764
+rsds_per_obj7_existprob: 0.93127999999999989
+rsds_per_obj7_distzstd: 0.30000000000000004
+rsds_per_obj7_distz: 2.625
+rsds_per_obj7_distystd: 0.4
+rsds_per_obj7_disty: 1.25
+rsds_per_obj7_distxstd: 0.30000000000000004
+rsds_per_obj7_distx: 111.375
+rsds_per_obj7_classtypeprob: 53
+rsds_per_obj7_classtype: 9
+rsds_per_obj7_absvelystd: 0.6875
+rsds_per_obj7_absvely: -0.017600000000005875
+rsds_per_obj7_absvelxstd: 0.1875
+rsds_per_obj7_absvelx: -0.017600000000005875
+rsds_per_obj7_absaccelystd: 4.25
+rsds_per_obj7_absaccelxstd: 0.4375
+
+2026/06/18 15:46:39 205083 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj8_yawrate: -5.8980598183211441e-17
+rsds_per_obj8_width: 1.5
+rsds_per_obj8_obstprobability: 100
+rsds_per_obj8_motiontype: 4
+rsds_per_obj8_measstate: 1
+rsds_per_obj8_lifecycle: 182
+rsds_per_obj8_length: 1.5
+rsds_per_obj8_id: 34
+rsds_per_obj8_headingang: 0.32199999999999995
+rsds_per_obj8_existprob: 0.93127999999999989
+rsds_per_obj8_distzstd: 0.2
+rsds_per_obj8_distz: 1.625
+rsds_per_obj8_distystd: 0.30000000000000004
+rsds_per_obj8_disty: -6.125
+rsds_per_obj8_distxstd: 0.2
+rsds_per_obj8_distx: 60.375
+rsds_per_obj8_classtypeprob: 100
+rsds_per_obj8_classtype: 9
+rsds_per_obj8_absvelystd: 0.3125
+rsds_per_obj8_absvely: -0.017600000000005875
+rsds_per_obj8_absvelxstd: 0.125
+rsds_per_obj8_absvelx: -0.017600000000005875
+rsds_per_obj8_absaccelystd: 1.625
+rsds_per_obj8_absaccelxstd: 0.1875
+
+2026/06/18 15:46:39 205126 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj9_yawrate: -5.8980598183211441e-17
+rsds_per_obj9_width: 1.5
+rsds_per_obj9_obstprobability: 100
+rsds_per_obj9_motiontype: 4
+rsds_per_obj9_measstate: 1
+rsds_per_obj9_lifecycle: 223
+rsds_per_obj9_length: 1.5
+rsds_per_obj9_id: 32
+rsds_per_obj9_headingang: -0.094000000000000056
+rsds_per_obj9_existprob: 0.93127999999999989
+rsds_per_obj9_distzstd: 0.2
+rsds_per_obj9_distz: 0.875
+rsds_per_obj9_distystd: 0.2
+rsds_per_obj9_disty: -7.375
+rsds_per_obj9_distxstd: 0.2
+rsds_per_obj9_distx: 13.1875
+rsds_per_obj9_classtypeprob: 100
+rsds_per_obj9_classtype: 9
+rsds_per_obj9_absvelystd: 0.125
+rsds_per_obj9_absvely: -0.017600000000005875
+rsds_per_obj9_absvelxstd: 0.125
+rsds_per_obj9_absvelx: -0.017600000000005875
+rsds_per_obj9_absaccelystd: 5
+rsds_per_obj9_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 205948 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj10_yawrate: -5.8980598183211441e-17
+rsds_per_obj10_width: 1.5
+rsds_per_obj10_motiontype: 4
+rsds_per_obj10_measstate: 1
+rsds_per_obj10_lifecycle: 222
+rsds_per_obj10_length: 1.5
+rsds_per_obj10_id: 36
+rsds_per_obj10_headingang: 0.68199999999999994
+rsds_per_obj10_existprob: 0.93127999999999989
+rsds_per_obj10_distzstd: 0.2
+rsds_per_obj10_distz: 6
+rsds_per_obj10_distystd: 0.2
+rsds_per_obj10_disty: -7.25
+rsds_per_obj10_distxstd: 0.2
+rsds_per_obj10_distx: 47.5625
+rsds_per_obj10_classtypeprob: 100
+rsds_per_obj10_classtype: 7
+rsds_per_obj10_absvelystd: 0.125
+rsds_per_obj10_absvely: -0.017600000000005875
+rsds_per_obj10_absvelxstd: 0.125
+rsds_per_obj10_absvelx: -0.017600000000005875
+rsds_per_obj10_absaccelystd: 5
+rsds_per_obj10_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 205991 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj11_yawrate: -5.8980598183211441e-17
+rsds_per_obj11_width: 1.5
+rsds_per_obj11_obstprobabilit: 100
+rsds_per_obj11_motiontype: 4
+rsds_per_obj11_measstate: 1
+rsds_per_obj11_lifecycle: 249
+rsds_per_obj11_length: 1.5
+rsds_per_obj11_id: 62
+rsds_per_obj11_headingang: -2.842
+rsds_per_obj11_existprob: 0.93127999999999989
+rsds_per_obj11_distzstd: 0.2
+rsds_per_obj11_distz: 0.375
+rsds_per_obj11_distystd: 0.2
+rsds_per_obj11_disty: -7.625
+rsds_per_obj11_distxstd: 0.2
+rsds_per_obj11_distx: 16.8125
+rsds_per_obj11_classtype: 9
+rsds_per_obj11_absvelystd: 0.125
+rsds_per_obj11_absvely: -0.017600000000005875
+rsds_per_obj11_absvelxstd: 0.125
+rsds_per_obj11_absvelx: -0.017600000000005875
+rsds_per_obj11_absaccelystd: 2.375
+rsds_per_obj11_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 206601 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj12_yawrate: -5.8980598183211441e-17
+rsds_per_obj12_width: 1.5
+rsds_per_obj12_motiontype: 4
+rsds_per_obj12_measstate: 2
+rsds_per_obj12_lifecycle: 98
+rsds_per_obj12_length: 1.5
+rsds_per_obj12_id: 41
+rsds_per_obj12_headingang: 2.92
+rsds_per_obj12_existprob: 0.93127999999999989
+rsds_per_obj12_distzstd: 0.30000000000000004
+rsds_per_obj12_distz: 6.375
+rsds_per_obj12_distystd: 0.5
+rsds_per_obj12_disty: -7
+rsds_per_obj12_distxstd: 0.4
+rsds_per_obj12_distx: 90
+rsds_per_obj12_classtypeprob: 96
+rsds_per_obj12_classtype: 7
+rsds_per_obj12_absvelystd: 0.6875
+rsds_per_obj12_absvely: -0.017600000000005875
+rsds_per_obj12_absvelxstd: 0.25
+rsds_per_obj12_absvelx: -0.017600000000005875
+rsds_per_obj12_absaccelystd: 2.5625
+rsds_per_obj12_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 206659 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj13_yawrate: -5.8980598183211441e-17
+rsds_per_obj13_width: 1.5
+rsds_per_obj13_validflag: true
+rsds_per_obj13_motiontype: 4
+rsds_per_obj13_measstate: 1
+rsds_per_obj13_lifecycle: 213
+rsds_per_obj13_length: 1.5
+rsds_per_obj13_id: 1
+rsds_per_obj13_headingang: 0.13799999999999996
+rsds_per_obj13_existprob: 0.93127999999999989
+rsds_per_obj13_distzstd: 0.2
+rsds_per_obj13_distz: 5.75
+rsds_per_obj13_distystd: 0.2
+rsds_per_obj13_disty: 6.25
+rsds_per_obj13_distxstd: 0.2
+rsds_per_obj13_distx: 32.5
+rsds_per_obj13_classtypeprob: 100
+rsds_per_obj13_classtype: 7
+rsds_per_obj13_absvelystd: 0.125
+rsds_per_obj13_absvely: -0.017600000000005875
+rsds_per_obj13_absvelxstd: 0.125
+rsds_per_obj13_absvelx: -0.017600000000005875
+rsds_per_obj13_absaccelystd: 3.8125
+rsds_per_obj13_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 207526 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj14_yawrate: -5.8980598183211441e-17
+rsds_per_obj14_width: 1.5
+rsds_per_obj14_motiontype: 4
+rsds_per_obj14_measstate: 1
+rsds_per_obj14_lifecycle: 171
+rsds_per_obj14_length: 1.5
+rsds_per_obj14_id: 37
+rsds_per_obj14_headingang: 2.454
+rsds_per_obj14_existprob: 0.93127999999999989
+rsds_per_obj14_distzstd: 0.2
+rsds_per_obj14_distz: 3.375
+rsds_per_obj14_distystd: 0.4
+rsds_per_obj14_disty: -8.875
+rsds_per_obj14_distxstd: 0.30000000000000004
+rsds_per_obj14_distx: 69
+rsds_per_obj14_classtypeprob: 100
+rsds_per_obj14_classtype: 7
+rsds_per_obj14_absvelystd: 0.5625
+rsds_per_obj14_absvely: -0.017600000000005875
+rsds_per_obj14_absvelxstd: 0.1875
+rsds_per_obj14_absvelx: -0.017600000000005875
+rsds_per_obj14_absaccelystd: 3.8125
+rsds_per_obj14_absaccelxstd: 0.3125
+
+2026/06/18 15:46:39 207582 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj15_yawrate: -5.8980598183211441e-17
+rsds_per_obj15_width: 1.5
+rsds_per_obj15_obstprobabilit: 100
+rsds_per_obj15_motiontype: 4
+rsds_per_obj15_measstate: 1
+rsds_per_obj15_lifecycle: 41
+rsds_per_obj15_length: 1.5
+rsds_per_obj15_id: 66
+rsds_per_obj15_headingang: 0.18399999999999994
+rsds_per_obj15_existprob: 0.93127999999999989
+rsds_per_obj15_distzstd: 0.2
+rsds_per_obj15_distz: 0.875
+rsds_per_obj15_distystd: 0.2
+rsds_per_obj15_disty: 7.125
+rsds_per_obj15_distxstd: 0.2
+rsds_per_obj15_distx: 25.4375
+rsds_per_obj15_classtypeprob: 100
+rsds_per_obj15_classtype: 9
+rsds_per_obj15_absvelystd: 0.125
+rsds_per_obj15_absvely: -0.017600000000005875
+rsds_per_obj15_absvelxstd: 0.125
+rsds_per_obj15_absvelx: -0.017600000000005875
+rsds_per_obj15_absaccelystd: 4.875
+rsds_per_obj15_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 208100 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj16_yawrate: -5.8980598183211441e-17
+rsds_per_obj16_width: 1.5
+rsds_per_obj16_motiontype: 4
+rsds_per_obj16_measstate: 1
+rsds_per_obj16_lifecycle: 75
+rsds_per_obj16_length: 1.5
+rsds_per_obj16_id: 46
+rsds_per_obj16_headingang: -3.0020000000000002
+rsds_per_obj16_existprob: 0.93127999999999989
+rsds_per_obj16_distzstd: 0.2
+rsds_per_obj16_distz: 0.75
+rsds_per_obj16_distystd: 0.2
+rsds_per_obj16_disty: -13.5
+rsds_per_obj16_distxstd: 0.2
+rsds_per_obj16_distx: 32.6875
+rsds_per_obj16_absvelystd: 0.125
+rsds_per_obj16_absvely: -0.017600000000005875
+rsds_per_obj16_absvelxstd: 0.125
+rsds_per_obj16_absvelx: -0.017600000000005875
+rsds_per_obj16_absaccelystd: 4.1875
+rsds_per_obj16_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 208150 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:333->ProcessData] [RADARS_RX] dtc_group1_fr DTC group1 errors: dtc_timestamp: 2863311530
+dtc_number: 11
+dtc_messagetype: 16
+dtc_frame_number: 4916
+dtc_entry5_dtc_num: 9993300
+dtc_entry4_dtc_num: 9999992
+dtc_entry3_dtc_num: 15879304
+dtc_entry2_dtc_num: 9992726
+dtc_entry1_dtc_num: 9992727
+
+2026/06/18 15:46:39 208614 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:334->ProcessData] [RADARS_RX] dtc_group2_fr DTC group2 raw data: dtc_entry9_dtc_num: 15879312
+dtc_entry8_status_mask: 12
+dtc_entry8_dtc_type: 7
+dtc_entry8_dtc_num: 15879553
+dtc_entry8_change_ts: 2863311530
+dtc_entry7_dtc_num: 9997462
+dtc_entry6_dtc_num: 9997312
+dtc_entry11_dtc_num: 9991238
+dtc_entry10_dtc_num: 9993301
+
+2026/06/18 15:46:39 208634 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE for dtc code:15879553, fault code:12
+2026/06/18 15:46:39 214822 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:243->ProcessData] [RADARS_RX] Parse frameheader_fl for rsds_algoblind: 1
+rsds_calib_finalcalibstate: 7
+rsds_mountposx: 2.66
+rsds_yawmountangle: 0.7939
+rsds_per_obj_num: 11
+rsds_per_hdr_timestamp: 232
+rsds_per_hdr_rollingcounter: 3
+rsds_mountposz: 0.30000000000000004
+rsds_mountposy: 0.6
+rsds_calib_eleoffset: -0.010000000000000026
+rsds_calib_azioffset: -0.033400000000000027
+rsds_blind: 1
+
+2026/06/18 15:46:39 214890 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj1_yawrate: -5.8980598183211441e-17
+rsds_per_obj1_width: 1.5
+rsds_per_obj1_obstprobability: 100
+rsds_per_obj1_motiontype: 4
+rsds_per_obj1_measstate: 1
+rsds_per_obj1_lifecycle: 71
+rsds_per_obj1_length: 1.5
+rsds_per_obj1_id: 36
+rsds_per_obj1_headingang: 1.054
+rsds_per_obj1_existprob: 0.93127999999999989
+rsds_per_obj1_distzstd: 0.2
+rsds_per_obj1_distz: 1.375
+rsds_per_obj1_distystd: 0.2
+rsds_per_obj1_disty: 1.125
+rsds_per_obj1_distxstd: 0.2
+rsds_per_obj1_distx: 31.4375
+rsds_per_obj1_classtypeprob: 100
+rsds_per_obj1_classtype: 9
+rsds_per_obj1_absvelystd: 0.125
+rsds_per_obj1_absvely: -0.017600000000005875
+rsds_per_obj1_absvelxstd: 0.125
+rsds_per_obj1_absvelx: -0.017600000000005875
+rsds_per_obj1_absaccelystd: 6.4375
+rsds_per_obj1_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 215517 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj2_yawrate: -5.8980598183211441e-17
+rsds_per_obj2_width: 1.5
+rsds_per_obj2_validflag: true
+rsds_per_obj2_obstprobability: 100
+rsds_per_obj2_motiontype: 4
+rsds_per_obj2_measstate: 1
+rsds_per_obj2_lifecycle: 32
+rsds_per_obj2_length: 1.5
+rsds_per_obj2_id: 4
+rsds_per_obj2_headingang: 1.15
+rsds_per_obj2_existprob: 0.93127999999999989
+rsds_per_obj2_distzstd: 0.2
+rsds_per_obj2_distz: 1
+rsds_per_obj2_distystd: 0.2
+rsds_per_obj2_disty: -0.5
+rsds_per_obj2_distxstd: 0.2
+rsds_per_obj2_distx: 30.75
+rsds_per_obj2_classtypeprob: 100
+rsds_per_obj2_classtype: 9
+rsds_per_obj2_absvelystd: 0.1875
+rsds_per_obj2_absvely: -0.017600000000005875
+rsds_per_obj2_absvelxstd: 0.125
+rsds_per_obj2_absvelx: -0.017600000000005875
+rsds_per_obj2_absaccelystd: 7.875
+rsds_per_obj2_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 215562 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj3_yawrate: -5.8980598183211441e-17
+rsds_per_obj3_width: 1.5
+rsds_per_obj3_validflag: true
+rsds_per_obj3_motiontype: 4
+rsds_per_obj3_measstate: 1
+rsds_per_obj3_lifecycle: 41
+rsds_per_obj3_length: 1.5
+rsds_per_obj3_id: 8
+rsds_per_obj3_headingang: -1.9180000000000001
+rsds_per_obj3_existprob: 0.93127999999999989
+rsds_per_obj3_distzstd: 0.2
+rsds_per_obj3_distz: 4.5
+rsds_per_obj3_distystd: 0.2
+rsds_per_obj3_disty: 5.75
+rsds_per_obj3_distxstd: 0.2
+rsds_per_obj3_distx: 32.625
+rsds_per_obj3_classtypeprob: 100
+rsds_per_obj3_classtype: 7
+rsds_per_obj3_absvelystd: 0.125
+rsds_per_obj3_absvely: -0.017600000000005875
+rsds_per_obj3_absvelxstd: 0.125
+rsds_per_obj3_absvelx: -0.017600000000005875
+rsds_per_obj3_absaccelystd: 5.1875
+rsds_per_obj3_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 216246 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj4_yawrate: -5.8980598183211441e-17
+rsds_per_obj4_width: 1.5
+rsds_per_obj4_validflag: true
+rsds_per_obj4_obstprobability: 100
+rsds_per_obj4_motiontype: 4
+rsds_per_obj4_measstate: 1
+rsds_per_obj4_lifecycle: 44
+rsds_per_obj4_length: 1.5
+rsds_per_obj4_id: 9
+rsds_per_obj4_headingang: -5.8980598183211441e-17
+rsds_per_obj4_existprob: 0.93127999999999989
+rsds_per_obj4_distzstd: 0.2
+rsds_per_obj4_distystd: 0.2
+rsds_per_obj4_disty: 5.875
+rsds_per_obj4_distxstd: 0.2
+rsds_per_obj4_distx: 26.4375
+rsds_per_obj4_classtypeprob: 100
+rsds_per_obj4_classtype: 9
+rsds_per_obj4_absvelystd: 0.125
+rsds_per_obj4_absvely: -0.017600000000005875
+rsds_per_obj4_absvelxstd: 0.125
+rsds_per_obj4_absvelx: -0.017600000000005875
+rsds_per_obj4_absaccelystd: 4.9375
+rsds_per_obj4_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 216279 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj5_yawrate: -5.8980598183211441e-17
+rsds_per_obj5_width: 1.5
+rsds_per_obj5_validflag: true
+rsds_per_obj5_obstprobability: 100
+rsds_per_obj5_motiontype: 4
+rsds_per_obj5_measstate: 1
+rsds_per_obj5_lifecycle: 255
+rsds_per_obj5_length: 1.5
+rsds_per_obj5_headingang: -5.8980598183211441e-17
+rsds_per_obj5_existprob: 0.93127999999999989
+rsds_per_obj5_distzstd: 0.2
+rsds_per_obj5_distz: 0.25
+rsds_per_obj5_distystd: 0.30000000000000004
+rsds_per_obj5_disty: 7.25
+rsds_per_obj5_distxstd: 0.4
+rsds_per_obj5_distx: 3.6875
+rsds_per_obj5_classtypeprob: 100
+rsds_per_obj5_classtype: 9
+rsds_per_obj5_absvelystd: 0.1875
+rsds_per_obj5_absvely: -0.017600000000005875
+rsds_per_obj5_absvelxstd: 0.5625
+rsds_per_obj5_absvelx: -0.017600000000005875
+rsds_per_obj5_absaccelystd: 15.3125
+rsds_per_obj5_absaccelxstd: 0.3125
+
+2026/06/18 15:46:39 217131 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj6_yawrate: -5.8980598183211441e-17
+rsds_per_obj6_width: 1.5
+rsds_per_obj6_motiontype: 4
+rsds_per_obj6_measstate: 1
+rsds_per_obj6_lifecycle: 190
+rsds_per_obj6_length: 1.5
+rsds_per_obj6_id: 52
+rsds_per_obj6_headingang: 1.57
+rsds_per_obj6_existprob: 0.93127999999999989
+rsds_per_obj6_distzstd: 0.2
+rsds_per_obj6_distz: 0.5
+rsds_per_obj6_distystd: 0.2
+rsds_per_obj6_disty: 7.75
+rsds_per_obj6_distxstd: 0.2
+rsds_per_obj6_distx: -1.1875
+rsds_per_obj6_absvelystd: 0.0625
+rsds_per_obj6_absvely: -0.017600000000005875
+rsds_per_obj6_absvelxstd: 0.1875
+rsds_per_obj6_absvelx: -0.017600000000005875
+rsds_per_obj6_absaccelystd: 2.375
+rsds_per_obj6_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 217174 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj7_yawrate: -5.8980598183211441e-17
+rsds_per_obj7_width: 1.5
+rsds_per_obj7_motiontype: 4
+rsds_per_obj7_measstate: 1
+rsds_per_obj7_lifecycle: 247
+rsds_per_obj7_length: 1.5
+rsds_per_obj7_id: 61
+rsds_per_obj7_headingang: 1.57
+rsds_per_obj7_existprob: 0.93127999999999989
+rsds_per_obj7_distzstd: 0.2
+rsds_per_obj7_distz: 1.5
+rsds_per_obj7_distystd: 0.2
+rsds_per_obj7_disty: 11.625
+rsds_per_obj7_distxstd: 0.2
+rsds_per_obj7_distx: 32.6875
+rsds_per_obj7_absvelystd: 0.125
+rsds_per_obj7_absvely: -0.017600000000005875
+rsds_per_obj7_absvelxstd: 0.125
+rsds_per_obj7_absvelx: -0.017600000000005875
+rsds_per_obj7_absaccelystd: 1.6875
+rsds_per_obj7_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 217758 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj8_yawrate: -5.8980598183211441e-17
+rsds_per_obj8_width: 1.5
+rsds_per_obj8_motiontype: 4
+rsds_per_obj8_measstate: 1
+rsds_per_obj8_lifecycle: 158
+rsds_per_obj8_length: 1.5
+rsds_per_obj8_id: 39
+rsds_per_obj8_headingang: 2.726
+rsds_per_obj8_existprob: 0.93127999999999989
+rsds_per_obj8_distzstd: 0.2
+rsds_per_obj8_distystd: 0.1
+rsds_per_obj8_disty: 13
+rsds_per_obj8_distxstd: 0.30000000000000004
+rsds_per_obj8_distx: 2.9375
+rsds_per_obj8_absvelystd: 0.0625
+rsds_per_obj8_absvely: -0.017600000000005875
+rsds_per_obj8_absvelxstd: 0.25
+rsds_per_obj8_absvelx: -0.017600000000005875
+rsds_per_obj8_absaccelystd: 4.75
+rsds_per_obj8_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 217802 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj9_yawrate: -5.8980598183211441e-17
+rsds_per_obj9_width: 1.5
+rsds_per_obj9_motiontype: 4
+rsds_per_obj9_measstate: 1
+rsds_per_obj9_lifecycle: 197
+rsds_per_obj9_length: 1.5
+rsds_per_obj9_id: 40
+rsds_per_obj9_headingang: 3.14
+rsds_per_obj9_existprob: 0.93127999999999989
+rsds_per_obj9_distzstd: 0.2
+rsds_per_obj9_distz: 0.625
+rsds_per_obj9_distystd: 0.1
+rsds_per_obj9_disty: 14.75
+rsds_per_obj9_distxstd: 0.30000000000000004
+rsds_per_obj9_distx: -1.625
+rsds_per_obj9_absvelystd: 0.0625
+rsds_per_obj9_absvely: -0.017600000000005875
+rsds_per_obj9_absvelxstd: 0.25
+rsds_per_obj9_absvelx: -0.017600000000005875
+rsds_per_obj9_absaccelystd: 4.6875
+rsds_per_obj9_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 218604 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj10_yawrate: -5.8980598183211441e-17
+rsds_per_obj10_width: 1.5
+rsds_per_obj10_motiontype: 4
+rsds_per_obj10_measstate: 1
+rsds_per_obj10_lifecycle: 165
+rsds_per_obj10_length: 1.5
+rsds_per_obj10_id: 12
+rsds_per_obj10_headingang: 3.14
+rsds_per_obj10_existprob: 0.93127999999999989
+rsds_per_obj10_distzstd: 0.2
+rsds_per_obj10_distz: 7.25
+rsds_per_obj10_distystd: 0.2
+rsds_per_obj10_disty: 13.625
+rsds_per_obj10_distxstd: 0.2
+rsds_per_obj10_distx: 33.0625
+rsds_per_obj10_absvelystd: 0.125
+rsds_per_obj10_absvely: -0.017600000000005875
+rsds_per_obj10_absvelxstd: 0.125
+rsds_per_obj10_absvelx: -0.017600000000005875
+rsds_per_obj10_absaccelystd: 1.0625
+rsds_per_obj10_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 218646 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj11_yawrate: -5.8980598183211441e-17
+rsds_per_obj11_width: 1.5
+rsds_per_obj11_motiontype: 4
+rsds_per_obj11_measstate: 1
+rsds_per_obj11_lifecycle: 47
+rsds_per_obj11_length: 1.5
+rsds_per_obj11_id: 50
+rsds_per_obj11_headingang: -5.8980598183211441e-17
+rsds_per_obj11_existprob: 0.93127999999999989
+rsds_per_obj11_distzstd: 0.2
+rsds_per_obj11_distz: 0.875
+rsds_per_obj11_distystd: 0.1
+rsds_per_obj11_disty: 17.25
+rsds_per_obj11_distxstd: 0.30000000000000004
+rsds_per_obj11_distx: 2.5625
+rsds_per_obj11_absvelystd: 0.0625
+rsds_per_obj11_absvely: -0.017600000000005875
+rsds_per_obj11_absvelxstd: 0.25
+rsds_per_obj11_absvelx: -0.017600000000005875
+rsds_per_obj11_absaccelystd: 4.6875
+rsds_per_obj11_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 219265 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_MISALIGNMENT for dtc code:9999992, fault code:4
+2026/06/18 15:46:39 219277 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:331->ProcessData] [RADARS_RX] dtc_group1_fl DTC group1 errors: dtc_timestamp: 2863311530
+dtc_number: 11
+dtc_messagetype: 16
+dtc_frame_number: 4915
+dtc_entry5_dtc_num: 9993300
+dtc_entry4_status_mask: 4
+dtc_entry4_dtc_type: 4
+dtc_entry4_dtc_num: 9999992
+dtc_entry3_dtc_num: 15879304
+dtc_entry2_dtc_num: 9992726
+dtc_entry1_dtc_num: 9992727
+
+2026/06/18 15:46:39 219302 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:332->ProcessData] [RADARS_RX] dtc_group2_fl DTC group2 raw data: dtc_entry9_dtc_num: 15879312
+dtc_entry8_status_mask: 12
+dtc_entry8_dtc_type: 7
+dtc_entry8_dtc_num: 15879553
+dtc_entry8_change_ts: 2863311530
+dtc_entry7_dtc_num: 9997462
+dtc_entry6_dtc_num: 9997312
+dtc_entry11_dtc_num: 9991238
+dtc_entry10_status_mask: 6
+dtc_entry10_dtc_type: 4
+dtc_entry10_dtc_num: 9993301
+
+2026/06/18 15:46:39 219312 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE for dtc code:15879553, fault code:12
+2026/06/18 15:46:39 219316 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE; FAULT_CALIBRATION_NOT_OK for dtc code:9993301, fault code:6
+2026/06/18 15:46:39 248267 [fffeb8af76e0] INFO [component.cc:221->TakeFinish] [RADARS_RX] -- Component DRIVER_RADARS_RX Frame --
+No.92600|0hz|0MBps|50.0973ms.
+Time: 2026-06-18 15:46:39.248258240, ErrorLevel: ERROR, ErrorCode: ERROR_DRIVER_CLASS_DATA_IS_NULL, Message: Driver[radars-rx] data is null.
+2026/06/18 15:46:39 268786 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:244->ProcessData] [RADARS_RX] Parse frameheader_fr for rsds_algoblind: 1
+rsds_calib_finalcalibstate: 7
+rsds_mountposx: 2.66
+rsds_yawmountangle: -0.79577000000000009
+rsds_per_obj_num: 16
+rsds_per_hdr_timestamp: 195
+rsds_per_hdr_rollingcounter: 5
+rsds_mountposz: 0.35000000000000003
+rsds_mountposy: -0.61
+rsds_calib_eleoffset: 0.032299999999999975
+rsds_calib_azioffset: 0.0016999999999999726
+rsds_blind: 1
+
+2026/06/18 15:46:39 269653 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj1_yawrate: -5.8980598183211441e-17
+rsds_per_obj1_width: 1.5
+rsds_per_obj1_obstprobability: 100
+rsds_per_obj1_motiontype: 4
+rsds_per_obj1_measstate: 1
+rsds_per_obj1_lifecycle: 149
+rsds_per_obj1_length: 1.5
+rsds_per_obj1_id: 61
+rsds_per_obj1_headingang: -1.104
+rsds_per_obj1_existprob: 0.93127999999999989
+rsds_per_obj1_distzstd: 0.2
+rsds_per_obj1_distz: 0.5
+rsds_per_obj1_distystd: 0.2
+rsds_per_obj1_disty: -1.125
+rsds_per_obj1_distxstd: 0.2
+rsds_per_obj1_distx: 30.75
+rsds_per_obj1_classtypeprob: 100
+rsds_per_obj1_classtype: 9
+rsds_per_obj1_absvelystd: 0.125
+rsds_per_obj1_absvely: -0.017600000000005875
+rsds_per_obj1_absvelxstd: 0.125
+rsds_per_obj1_absvelx: -0.017600000000005875
+rsds_per_obj1_absaccelystd: 9
+rsds_per_obj1_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 269708 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj2_yawrate: -5.8980598183211441e-17
+rsds_per_obj2_width: 1.5
+rsds_per_obj2_validflag: true
+rsds_per_obj2_obstprobability: 100
+rsds_per_obj2_motiontype: 4
+rsds_per_obj2_measstate: 1
+rsds_per_obj2_lifecycle: 255
+rsds_per_obj2_length: 1.5
+rsds_per_obj2_headingang: -5.8980598183211441e-17
+rsds_per_obj2_existprob: 0.93127999999999989
+rsds_per_obj2_distzstd: 0.30000000000000004
+rsds_per_obj2_distz: 0.5
+rsds_per_obj2_distystd: 0.30000000000000004
+rsds_per_obj2_disty: -3
+rsds_per_obj2_distxstd: 0.4
+rsds_per_obj2_distx: 3.3125
+rsds_per_obj2_classtypeprob: 100
+rsds_per_obj2_classtype: 9
+rsds_per_obj2_absvelystd: 0.1875
+rsds_per_obj2_absvely: -0.017600000000005875
+rsds_per_obj2_absvelxstd: 0.875
+rsds_per_obj2_absvelx: -0.017600000000005875
+rsds_per_obj2_absaccelystd: 4.375
+rsds_per_obj2_absaccelxstd: 0.5625
+
+2026/06/18 15:46:39 269743 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj3_yawrate: -5.8980598183211441e-17
+rsds_per_obj3_width: 1.5
+rsds_per_obj3_validflag: true
+rsds_per_obj3_obstprobability: 100
+rsds_per_obj3_motiontype: 4
+rsds_per_obj3_measstate: 1
+rsds_per_obj3_lifecycle: 112
+rsds_per_obj3_length: 1.5
+rsds_per_obj3_id: 4
+rsds_per_obj3_headingang: 2.856
+rsds_per_obj3_existprob: 0.93127999999999989
+rsds_per_obj3_distzstd: 0.30000000000000004
+rsds_per_obj3_distz: 1.125
+rsds_per_obj3_distystd: 0.4
+rsds_per_obj3_disty: -1.375
+rsds_per_obj3_distxstd: 0.30000000000000004
+rsds_per_obj3_distx: 62
+rsds_per_obj3_classtypeprob: 89
+rsds_per_obj3_classtype: 9
+rsds_per_obj3_absvelystd: 0.625
+rsds_per_obj3_absvely: -0.017600000000005875
+rsds_per_obj3_absvelxstd: 0.1875
+rsds_per_obj3_absvelx: -0.017600000000005875
+rsds_per_obj3_absaccelystd: 6.125
+rsds_per_obj3_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 270225 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj4_yawrate: -5.8980598183211441e-17
+rsds_per_obj4_width: 1.5
+rsds_per_obj4_obstprobability: 100
+rsds_per_obj4_motiontype: 4
+rsds_per_obj4_measstate: 1
+rsds_per_obj4_lifecycle: 45
+rsds_per_obj4_length: 1.5
+rsds_per_obj4_id: 59
+rsds_per_obj4_headingang: 3.056
+rsds_per_obj4_existprob: 0.93127999999999989
+rsds_per_obj4_distzstd: 0.30000000000000004
+rsds_per_obj4_distz: 0.75
+rsds_per_obj4_distystd: 0.70000000000000007
+rsds_per_obj4_disty: 0.625
+rsds_per_obj4_distxstd: 0.4
+rsds_per_obj4_distx: 65.8125
+rsds_per_obj4_classtypeprob: 100
+rsds_per_obj4_classtype: 9
+rsds_per_obj4_absvelystd: 1
+rsds_per_obj4_absvely: -0.017600000000005875
+rsds_per_obj4_absvelxstd: 0.25
+rsds_per_obj4_absvelx: -0.017600000000005875
+rsds_per_obj4_absaccelystd: 10.0625
+rsds_per_obj4_absaccelxstd: 0.625
+
+2026/06/18 15:46:39 270266 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj5_yawrate: -5.8980598183211441e-17
+rsds_per_obj5_width: 1.5
+rsds_per_obj5_obstprobability: 84
+rsds_per_obj5_motiontype: 4
+rsds_per_obj5_measstate: 1
+rsds_per_obj5_lifecycle: 43
+rsds_per_obj5_length: 1.5
+rsds_per_obj5_id: 67
+rsds_per_obj5_headingang: -0.64200000000000013
+rsds_per_obj5_existprob: 0.93127999999999989
+rsds_per_obj5_distzstd: 0.30000000000000004
+rsds_per_obj5_distz: 2.25
+rsds_per_obj5_distystd: 0.70000000000000007
+rsds_per_obj5_disty: -2.75
+rsds_per_obj5_distxstd: 0.4
+rsds_per_obj5_distx: 105.375
+rsds_per_obj5_classtypeprob: 60
+rsds_per_obj5_classtype: 9
+rsds_per_obj5_absvelystd: 0.6875
+rsds_per_obj5_absvely: -0.017600000000005875
+rsds_per_obj5_absvelxstd: 0.25
+rsds_per_obj5_absvelx: -0.017600000000005875
+rsds_per_obj5_absaccelystd: 1.1875
+rsds_per_obj5_absaccelxstd: 0.4375
+
+2026/06/18 15:46:39 270947 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj6_yawrate: -5.8980598183211441e-17
+rsds_per_obj6_width: 1.5
+rsds_per_obj6_validflag: true
+rsds_per_obj6_motiontype: 4
+rsds_per_obj6_measstate: 1
+rsds_per_obj6_lifecycle: 32
+rsds_per_obj6_length: 1.5
+rsds_per_obj6_id: 12
+rsds_per_obj6_headingang: 2.952
+rsds_per_obj6_existprob: 0.93127999999999989
+rsds_per_obj6_distzstd: 0.2
+rsds_per_obj6_distz: 0.375
+rsds_per_obj6_distystd: 0.2
+rsds_per_obj6_disty: -5.5
+rsds_per_obj6_distxstd: 0.30000000000000004
+rsds_per_obj6_distx: 0.25
+rsds_per_obj6_absvelystd: 0.0625
+rsds_per_obj6_absvely: -0.017600000000005875
+rsds_per_obj6_absvelxstd: 0.25
+rsds_per_obj6_absvelx: -0.017600000000005875
+rsds_per_obj6_absaccelystd: 4.875
+rsds_per_obj6_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 270989 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj7_yawrate: -5.8980598183211441e-17
+rsds_per_obj7_width: 1.5
+rsds_per_obj7_motiontype: 4
+rsds_per_obj7_measstate: 1
+rsds_per_obj7_lifecycle: 201
+rsds_per_obj7_length: 1.5
+rsds_per_obj7_id: 56
+rsds_per_obj7_headingang: 2.764
+rsds_per_obj7_existprob: 0.93127999999999989
+rsds_per_obj7_distzstd: 0.30000000000000004
+rsds_per_obj7_distz: 2.625
+rsds_per_obj7_distystd: 0.5
+rsds_per_obj7_disty: 1.25
+rsds_per_obj7_distxstd: 0.4
+rsds_per_obj7_distx: 111.3125
+rsds_per_obj7_classtypeprob: 53
+rsds_per_obj7_classtype: 9
+rsds_per_obj7_absvelystd: 0.75
+rsds_per_obj7_absvely: -0.017600000000005875
+rsds_per_obj7_absvelxstd: 0.25
+rsds_per_obj7_absvelx: -0.017600000000005875
+rsds_per_obj7_absaccelystd: 4.25
+rsds_per_obj7_absaccelxstd: 0.4375
+
+2026/06/18 15:46:39 271722 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj8_yawrate: -5.8980598183211441e-17
+rsds_per_obj8_width: 1.5
+rsds_per_obj8_obstprobability: 100
+rsds_per_obj8_motiontype: 4
+rsds_per_obj8_measstate: 1
+rsds_per_obj8_lifecycle: 183
+rsds_per_obj8_length: 1.5
+rsds_per_obj8_id: 34
+rsds_per_obj8_headingang: 0.32199999999999995
+rsds_per_obj8_existprob: 0.93127999999999989
+rsds_per_obj8_distzstd: 0.2
+rsds_per_obj8_distz: 1.625
+rsds_per_obj8_distystd: 0.30000000000000004
+rsds_per_obj8_disty: -6.125
+rsds_per_obj8_distxstd: 0.2
+rsds_per_obj8_distx: 60.3125
+rsds_per_obj8_classtypeprob: 100
+rsds_per_obj8_classtype: 9
+rsds_per_obj8_absvelystd: 0.3125
+rsds_per_obj8_absvely: -0.017600000000005875
+rsds_per_obj8_absvelxstd: 0.125
+rsds_per_obj8_absvelx: -0.017600000000005875
+rsds_per_obj8_absaccelystd: 1.625
+rsds_per_obj8_absaccelxstd: 0.1875
+
+2026/06/18 15:46:39 271779 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj9_yawrate: -5.8980598183211441e-17
+rsds_per_obj9_width: 1.5
+rsds_per_obj9_obstprobability: 100
+rsds_per_obj9_motiontype: 4
+rsds_per_obj9_measstate: 1
+rsds_per_obj9_lifecycle: 224
+rsds_per_obj9_length: 1.5
+rsds_per_obj9_id: 32
+rsds_per_obj9_headingang: -0.094000000000000056
+rsds_per_obj9_existprob: 0.93127999999999989
+rsds_per_obj9_distzstd: 0.2
+rsds_per_obj9_distz: 0.875
+rsds_per_obj9_distystd: 0.2
+rsds_per_obj9_disty: -7.375
+rsds_per_obj9_distxstd: 0.2
+rsds_per_obj9_distx: 13.1875
+rsds_per_obj9_classtypeprob: 100
+rsds_per_obj9_classtype: 9
+rsds_per_obj9_absvelystd: 0.125
+rsds_per_obj9_absvely: -0.017600000000005875
+rsds_per_obj9_absvelxstd: 0.125
+rsds_per_obj9_absvelx: -0.017600000000005875
+rsds_per_obj9_absaccelystd: 5
+rsds_per_obj9_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 272429 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj10_yawrate: -5.8980598183211441e-17
+rsds_per_obj10_width: 1.5
+rsds_per_obj10_motiontype: 4
+rsds_per_obj10_measstate: 1
+rsds_per_obj10_lifecycle: 223
+rsds_per_obj10_length: 1.5
+rsds_per_obj10_id: 36
+rsds_per_obj10_headingang: 0.68199999999999994
+rsds_per_obj10_existprob: 0.93127999999999989
+rsds_per_obj10_distzstd: 0.2
+rsds_per_obj10_distz: 6
+rsds_per_obj10_distystd: 0.2
+rsds_per_obj10_disty: -7.25
+rsds_per_obj10_distxstd: 0.2
+rsds_per_obj10_distx: 47.5625
+rsds_per_obj10_classtypeprob: 100
+rsds_per_obj10_classtype: 7
+rsds_per_obj10_absvelystd: 0.125
+rsds_per_obj10_absvely: -0.017600000000005875
+rsds_per_obj10_absvelxstd: 0.125
+rsds_per_obj10_absvelx: -0.017600000000005875
+rsds_per_obj10_absaccelystd: 5
+rsds_per_obj10_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 272988 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj11_yawrate: -5.8980598183211441e-17
+rsds_per_obj11_width: 1.5
+rsds_per_obj11_obstprobabilit: 100
+rsds_per_obj11_motiontype: 4
+rsds_per_obj11_measstate: 1
+rsds_per_obj11_lifecycle: 250
+rsds_per_obj11_length: 1.5
+rsds_per_obj11_id: 62
+rsds_per_obj11_headingang: -2.842
+rsds_per_obj11_existprob: 0.93127999999999989
+rsds_per_obj11_distzstd: 0.2
+rsds_per_obj11_distz: 0.375
+rsds_per_obj11_distystd: 0.2
+rsds_per_obj11_disty: -7.625
+rsds_per_obj11_distxstd: 0.2
+rsds_per_obj11_distx: 16.8125
+rsds_per_obj11_classtype: 9
+rsds_per_obj11_absvelystd: 0.125
+rsds_per_obj11_absvely: -0.017600000000005875
+rsds_per_obj11_absvelxstd: 0.125
+rsds_per_obj11_absvelx: -0.017600000000005875
+rsds_per_obj11_absaccelystd: 2.375
+rsds_per_obj11_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 273038 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj12_yawrate: -5.8980598183211441e-17
+rsds_per_obj12_width: 1.5
+rsds_per_obj12_motiontype: 4
+rsds_per_obj12_measstate: 1
+rsds_per_obj12_lifecycle: 99
+rsds_per_obj12_length: 1.5
+rsds_per_obj12_id: 41
+rsds_per_obj12_headingang: 2.92
+rsds_per_obj12_existprob: 0.93127999999999989
+rsds_per_obj12_distzstd: 0.30000000000000004
+rsds_per_obj12_distz: 6.5
+rsds_per_obj12_distystd: 0.5
+rsds_per_obj12_disty: -7
+rsds_per_obj12_distxstd: 0.4
+rsds_per_obj12_distx: 90
+rsds_per_obj12_classtypeprob: 96
+rsds_per_obj12_classtype: 7
+rsds_per_obj12_absvelystd: 0.6875
+rsds_per_obj12_absvely: -0.017600000000005875
+rsds_per_obj12_absvelxstd: 0.25
+rsds_per_obj12_absvelx: -0.017600000000005875
+rsds_per_obj12_absaccelystd: 2.5625
+rsds_per_obj12_absaccelxstd: 0.375
+
+2026/06/18 15:46:39 273566 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj13_yawrate: -5.8980598183211441e-17
+rsds_per_obj13_width: 1.5
+rsds_per_obj13_validflag: true
+rsds_per_obj13_motiontype: 4
+rsds_per_obj13_measstate: 1
+rsds_per_obj13_lifecycle: 214
+rsds_per_obj13_length: 1.5
+rsds_per_obj13_id: 1
+rsds_per_obj13_headingang: 0.13799999999999996
+rsds_per_obj13_existprob: 0.93127999999999989
+rsds_per_obj13_distzstd: 0.2
+rsds_per_obj13_distz: 5.75
+rsds_per_obj13_distystd: 0.2
+rsds_per_obj13_disty: 6.25
+rsds_per_obj13_distxstd: 0.2
+rsds_per_obj13_distx: 32.5
+rsds_per_obj13_classtypeprob: 100
+rsds_per_obj13_classtype: 7
+rsds_per_obj13_absvelystd: 0.125
+rsds_per_obj13_absvely: -0.017600000000005875
+rsds_per_obj13_absvelxstd: 0.125
+rsds_per_obj13_absvelx: -0.017600000000005875
+rsds_per_obj13_absaccelystd: 3.8125
+rsds_per_obj13_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 274306 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj14_yawrate: -5.8980598183211441e-17
+rsds_per_obj14_width: 1.5
+rsds_per_obj14_motiontype: 4
+rsds_per_obj14_measstate: 1
+rsds_per_obj14_lifecycle: 172
+rsds_per_obj14_length: 1.5
+rsds_per_obj14_id: 37
+rsds_per_obj14_headingang: 2.454
+rsds_per_obj14_existprob: 0.93127999999999989
+rsds_per_obj14_distzstd: 0.2
+rsds_per_obj14_distz: 3.5
+rsds_per_obj14_distystd: 0.30000000000000004
+rsds_per_obj14_disty: -8.875
+rsds_per_obj14_distxstd: 0.30000000000000004
+rsds_per_obj14_distx: 69.0625
+rsds_per_obj14_classtypeprob: 100
+rsds_per_obj14_classtype: 7
+rsds_per_obj14_absvelystd: 0.5625
+rsds_per_obj14_absvely: -0.017600000000005875
+rsds_per_obj14_absvelxstd: 0.1875
+rsds_per_obj14_absvelx: -0.017600000000005875
+rsds_per_obj14_absaccelystd: 3.8125
+rsds_per_obj14_absaccelxstd: 0.3125
+
+2026/06/18 15:46:39 274349 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj15_yawrate: -5.8980598183211441e-17
+rsds_per_obj15_width: 1.5
+rsds_per_obj15_obstprobabilit: 100
+rsds_per_obj15_motiontype: 4
+rsds_per_obj15_measstate: 1
+rsds_per_obj15_lifecycle: 42
+rsds_per_obj15_length: 1.5
+rsds_per_obj15_id: 66
+rsds_per_obj15_headingang: 0.18399999999999994
+rsds_per_obj15_existprob: 0.93127999999999989
+rsds_per_obj15_distzstd: 0.2
+rsds_per_obj15_distz: 0.875
+rsds_per_obj15_distystd: 0.2
+rsds_per_obj15_disty: 7.125
+rsds_per_obj15_distxstd: 0.2
+rsds_per_obj15_distx: 25.375
+rsds_per_obj15_classtypeprob: 100
+rsds_per_obj15_classtype: 9
+rsds_per_obj15_absvelystd: 0.125
+rsds_per_obj15_absvely: -0.017600000000005875
+rsds_per_obj15_absvelxstd: 0.125
+rsds_per_obj15_absvelx: -0.017600000000005875
+rsds_per_obj15_absaccelystd: 4.875
+rsds_per_obj15_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 275066 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:431->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj16_yawrate: -5.8980598183211441e-17
+rsds_per_obj16_width: 1.5
+rsds_per_obj16_motiontype: 4
+rsds_per_obj16_measstate: 1
+rsds_per_obj16_lifecycle: 76
+rsds_per_obj16_length: 1.5
+rsds_per_obj16_id: 46
+rsds_per_obj16_headingang: -3.0020000000000002
+rsds_per_obj16_existprob: 0.93127999999999989
+rsds_per_obj16_distzstd: 0.2
+rsds_per_obj16_distz: 0.75
+rsds_per_obj16_distystd: 0.2
+rsds_per_obj16_disty: -13.5
+rsds_per_obj16_distxstd: 0.2
+rsds_per_obj16_distx: 32.6875
+rsds_per_obj16_absvelystd: 0.125
+rsds_per_obj16_absvely: -0.017600000000005875
+rsds_per_obj16_absvelxstd: 0.125
+rsds_per_obj16_absvelx: -0.017600000000005875
+rsds_per_obj16_absaccelystd: 4.1875
+rsds_per_obj16_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 275105 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:333->ProcessData] [RADARS_RX] dtc_group1_fr DTC group1 errors: dtc_timestamp: 2863311530
+dtc_number: 11
+dtc_messagetype: 16
+dtc_frame_number: 4917
+dtc_entry5_dtc_num: 9993300
+dtc_entry4_dtc_num: 9999992
+dtc_entry3_dtc_num: 15879304
+dtc_entry2_dtc_num: 9992726
+dtc_entry1_dtc_num: 9992727
+
+2026/06/18 15:46:39 275764 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:334->ProcessData] [RADARS_RX] dtc_group2_fr DTC group2 raw data: dtc_entry9_dtc_num: 15879312
+dtc_entry8_status_mask: 12
+dtc_entry8_dtc_type: 7
+dtc_entry8_dtc_num: 15879553
+dtc_entry8_change_ts: 2863311530
+dtc_entry7_dtc_num: 9997462
+dtc_entry6_dtc_num: 9997312
+dtc_entry11_dtc_num: 9991238
+dtc_entry10_dtc_num: 9993301
+
+2026/06/18 15:46:39 275786 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_TIMESYNC_FAILURE for dtc code:15879553, fault code:12
+2026/06/18 15:46:39 275794 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:243->ProcessData] [RADARS_RX] Parse frameheader_fl for rsds_algoblind: 1
+rsds_calib_finalcalibstate: 7
+rsds_mountposx: 2.66
+rsds_yawmountangle: 0.7939
+rsds_per_obj_num: 11
+rsds_per_hdr_timestamp: 171
+rsds_per_hdr_rollingcounter: 4
+rsds_mountposz: 0.30000000000000004
+rsds_mountposy: 0.6
+rsds_calib_eleoffset: -0.010000000000000026
+rsds_calib_azioffset: -0.033400000000000027
+rsds_blind: 1
+
+2026/06/18 15:46:39 276514 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj1_yawrate: -5.8980598183211441e-17
+rsds_per_obj1_width: 1.5
+rsds_per_obj1_obstprobability: 100
+rsds_per_obj1_motiontype: 4
+rsds_per_obj1_measstate: 1
+rsds_per_obj1_lifecycle: 72
+rsds_per_obj1_length: 1.5
+rsds_per_obj1_id: 36
+rsds_per_obj1_headingang: 1.054
+rsds_per_obj1_existprob: 0.93127999999999989
+rsds_per_obj1_distzstd: 0.2
+rsds_per_obj1_distz: 1.375
+rsds_per_obj1_distystd: 0.2
+rsds_per_obj1_disty: 1.125
+rsds_per_obj1_distxstd: 0.2
+rsds_per_obj1_distx: 31.4375
+rsds_per_obj1_classtypeprob: 100
+rsds_per_obj1_classtype: 9
+rsds_per_obj1_absvelystd: 0.125
+rsds_per_obj1_absvely: -0.017600000000005875
+rsds_per_obj1_absvelxstd: 0.125
+rsds_per_obj1_absvelx: -0.017600000000005875
+rsds_per_obj1_absaccelystd: 6.4375
+rsds_per_obj1_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 277178 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj2_yawrate: -5.8980598183211441e-17
+rsds_per_obj2_width: 1.5
+rsds_per_obj2_validflag: true
+rsds_per_obj2_obstprobability: 100
+rsds_per_obj2_motiontype: 4
+rsds_per_obj2_measstate: 1
+rsds_per_obj2_lifecycle: 33
+rsds_per_obj2_length: 1.5
+rsds_per_obj2_id: 4
+rsds_per_obj2_headingang: 1.15
+rsds_per_obj2_existprob: 0.93127999999999989
+rsds_per_obj2_distzstd: 0.2
+rsds_per_obj2_distz: 1
+rsds_per_obj2_distystd: 0.2
+rsds_per_obj2_disty: -0.5
+rsds_per_obj2_distxstd: 0.2
+rsds_per_obj2_distx: 30.75
+rsds_per_obj2_classtypeprob: 100
+rsds_per_obj2_classtype: 9
+rsds_per_obj2_absvelystd: 0.1875
+rsds_per_obj2_absvely: -0.017600000000005875
+rsds_per_obj2_absvelxstd: 0.125
+rsds_per_obj2_absvelx: -0.017600000000005875
+rsds_per_obj2_absaccelystd: 7.875
+rsds_per_obj2_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 277219 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj3_yawrate: -5.8980598183211441e-17
+rsds_per_obj3_width: 1.5
+rsds_per_obj3_validflag: true
+rsds_per_obj3_motiontype: 4
+rsds_per_obj3_measstate: 1
+rsds_per_obj3_lifecycle: 42
+rsds_per_obj3_length: 1.5
+rsds_per_obj3_id: 8
+rsds_per_obj3_headingang: -1.9180000000000001
+rsds_per_obj3_existprob: 0.93127999999999989
+rsds_per_obj3_distzstd: 0.2
+rsds_per_obj3_distz: 4.5
+rsds_per_obj3_distystd: 0.2
+rsds_per_obj3_disty: 5.75
+rsds_per_obj3_distxstd: 0.2
+rsds_per_obj3_distx: 32.625
+rsds_per_obj3_classtypeprob: 100
+rsds_per_obj3_classtype: 7
+rsds_per_obj3_absvelystd: 0.125
+rsds_per_obj3_absvely: -0.017600000000005875
+rsds_per_obj3_absvelxstd: 0.125
+rsds_per_obj3_absvelx: -0.017600000000005875
+rsds_per_obj3_absaccelystd: 5.1875
+rsds_per_obj3_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 277250 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj4_yawrate: -5.8980598183211441e-17
+rsds_per_obj4_width: 1.5
+rsds_per_obj4_validflag: true
+rsds_per_obj4_obstprobability: 100
+rsds_per_obj4_motiontype: 4
+rsds_per_obj4_measstate: 1
+rsds_per_obj4_lifecycle: 45
+rsds_per_obj4_length: 1.5
+rsds_per_obj4_id: 9
+rsds_per_obj4_headingang: -5.8980598183211441e-17
+rsds_per_obj4_existprob: 0.93127999999999989
+rsds_per_obj4_distzstd: 0.2
+rsds_per_obj4_distystd: 0.2
+rsds_per_obj4_disty: 5.875
+rsds_per_obj4_distxstd: 0.2
+rsds_per_obj4_distx: 26.4375
+rsds_per_obj4_classtypeprob: 100
+rsds_per_obj4_classtype: 9
+rsds_per_obj4_absvelystd: 0.125
+rsds_per_obj4_absvely: -0.017600000000005875
+rsds_per_obj4_absvelxstd: 0.125
+rsds_per_obj4_absvelx: -0.017600000000005875
+rsds_per_obj4_absaccelystd: 4.9375
+rsds_per_obj4_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 278036 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj5_yawrate: -5.8980598183211441e-17
+rsds_per_obj5_width: 1.5
+rsds_per_obj5_validflag: true
+rsds_per_obj5_obstprobability: 100
+rsds_per_obj5_motiontype: 4
+rsds_per_obj5_measstate: 1
+rsds_per_obj5_lifecycle: 255
+rsds_per_obj5_length: 1.5
+rsds_per_obj5_headingang: -5.8980598183211441e-17
+rsds_per_obj5_existprob: 0.93127999999999989
+rsds_per_obj5_distzstd: 0.2
+rsds_per_obj5_distz: 0.25
+rsds_per_obj5_distystd: 0.2
+rsds_per_obj5_disty: 7.25
+rsds_per_obj5_distxstd: 0.4
+rsds_per_obj5_distx: 3.625
+rsds_per_obj5_classtypeprob: 100
+rsds_per_obj5_classtype: 9
+rsds_per_obj5_absvelystd: 0.1875
+rsds_per_obj5_absvely: -0.017600000000005875
+rsds_per_obj5_absvelxstd: 0.5625
+rsds_per_obj5_absvelx: -0.017600000000005875
+rsds_per_obj5_absaccelystd: 15.3125
+rsds_per_obj5_absaccelxstd: 0.3125
+
+2026/06/18 15:46:39 278068 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj6_yawrate: -5.8980598183211441e-17
+rsds_per_obj6_width: 1.5
+rsds_per_obj6_motiontype: 4
+rsds_per_obj6_measstate: 1
+rsds_per_obj6_lifecycle: 191
+rsds_per_obj6_length: 1.5
+rsds_per_obj6_id: 52
+rsds_per_obj6_headingang: 1.57
+rsds_per_obj6_existprob: 0.93127999999999989
+rsds_per_obj6_distzstd: 0.2
+rsds_per_obj6_distz: 0.5
+rsds_per_obj6_distystd: 0.2
+rsds_per_obj6_disty: 7.75
+rsds_per_obj6_distxstd: 0.2
+rsds_per_obj6_distx: -1.1875
+rsds_per_obj6_absvelystd: 0.0625
+rsds_per_obj6_absvely: -0.017600000000005875
+rsds_per_obj6_absvelxstd: 0.1875
+rsds_per_obj6_absvelx: -0.017600000000005875
+rsds_per_obj6_absaccelystd: 2.375
+rsds_per_obj6_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 278747 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj7_yawrate: -5.8980598183211441e-17
+rsds_per_obj7_width: 1.5
+rsds_per_obj7_motiontype: 4
+rsds_per_obj7_measstate: 1
+rsds_per_obj7_lifecycle: 248
+rsds_per_obj7_length: 1.5
+rsds_per_obj7_id: 61
+rsds_per_obj7_headingang: 1.57
+rsds_per_obj7_existprob: 0.93127999999999989
+rsds_per_obj7_distzstd: 0.2
+rsds_per_obj7_distz: 1.5
+rsds_per_obj7_distystd: 0.2
+rsds_per_obj7_disty: 11.625
+rsds_per_obj7_distxstd: 0.2
+rsds_per_obj7_distx: 32.6875
+rsds_per_obj7_absvelystd: 0.125
+rsds_per_obj7_absvely: -0.017600000000005875
+rsds_per_obj7_absvelxstd: 0.125
+rsds_per_obj7_absvelx: -0.017600000000005875
+rsds_per_obj7_absaccelystd: 1.6875
+rsds_per_obj7_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 278782 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj8_yawrate: -5.8980598183211441e-17
+rsds_per_obj8_width: 1.5
+rsds_per_obj8_motiontype: 4
+rsds_per_obj8_measstate: 1
+rsds_per_obj8_lifecycle: 159
+rsds_per_obj8_length: 1.5
+rsds_per_obj8_id: 39
+rsds_per_obj8_headingang: 2.726
+rsds_per_obj8_existprob: 0.93127999999999989
+rsds_per_obj8_distzstd: 0.2
+rsds_per_obj8_distystd: 0.1
+rsds_per_obj8_disty: 13
+rsds_per_obj8_distxstd: 0.30000000000000004
+rsds_per_obj8_distx: 2.9375
+rsds_per_obj8_absvelystd: 0.0625
+rsds_per_obj8_absvely: -0.017600000000005875
+rsds_per_obj8_absvelxstd: 0.25
+rsds_per_obj8_absvelx: -0.017600000000005875
+rsds_per_obj8_absaccelystd: 4.75
+rsds_per_obj8_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 279502 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj9_yawrate: -5.8980598183211441e-17
+rsds_per_obj9_width: 1.5
+rsds_per_obj9_motiontype: 4
+rsds_per_obj9_measstate: 1
+rsds_per_obj9_lifecycle: 198
+rsds_per_obj9_length: 1.5
+rsds_per_obj9_id: 40
+rsds_per_obj9_headingang: 3.14
+rsds_per_obj9_existprob: 0.93127999999999989
+rsds_per_obj9_distzstd: 0.2
+rsds_per_obj9_distz: 0.625
+rsds_per_obj9_distystd: 0.1
+rsds_per_obj9_disty: 14.75
+rsds_per_obj9_distxstd: 0.30000000000000004
+rsds_per_obj9_distx: -1.625
+rsds_per_obj9_absvelystd: 0.0625
+rsds_per_obj9_absvely: -0.017600000000005875
+rsds_per_obj9_absvelxstd: 0.25
+rsds_per_obj9_absvelx: -0.017600000000005875
+rsds_per_obj9_absaccelystd: 4.6875
+rsds_per_obj9_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 279537 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj10_yawrate: -5.8980598183211441e-17
+rsds_per_obj10_width: 1.5
+rsds_per_obj10_motiontype: 4
+rsds_per_obj10_measstate: 2
+rsds_per_obj10_lifecycle: 166
+rsds_per_obj10_length: 1.5
+rsds_per_obj10_id: 12
+rsds_per_obj10_headingang: 3.14
+rsds_per_obj10_existprob: 0.93127999999999989
+rsds_per_obj10_distzstd: 0.2
+rsds_per_obj10_distz: 7.25
+rsds_per_obj10_distystd: 0.2
+rsds_per_obj10_disty: 13.625
+rsds_per_obj10_distxstd: 0.2
+rsds_per_obj10_distx: 33.0625
+rsds_per_obj10_absvelystd: 0.125
+rsds_per_obj10_absvely: -0.017600000000005875
+rsds_per_obj10_absvelxstd: 0.125
+rsds_per_obj10_absvelx: -0.017600000000005875
+rsds_per_obj10_absaccelystd: 1.0625
+rsds_per_obj10_absaccelxstd: 0.0625
+
+2026/06/18 15:46:39 280254 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:430->ProcessData] [RADARS_RX] objectlist_obj##INDEX##_##SUFFIX: rsds_per_obj11_yawrate: -5.8980598183211441e-17
+rsds_per_obj11_width: 1.5
+rsds_per_obj11_motiontype: 4
+rsds_per_obj11_measstate: 1
+rsds_per_obj11_lifecycle: 48
+rsds_per_obj11_length: 1.5
+rsds_per_obj11_id: 50
+rsds_per_obj11_headingang: -5.8980598183211441e-17
+rsds_per_obj11_existprob: 0.93127999999999989
+rsds_per_obj11_distzstd: 0.2
+rsds_per_obj11_distz: 0.875
+rsds_per_obj11_distystd: 0.1
+rsds_per_obj11_disty: 17.25
+rsds_per_obj11_distxstd: 0.30000000000000004
+rsds_per_obj11_distx: 2.5625
+rsds_per_obj11_absvelystd: 0.0625
+rsds_per_obj11_absvely: -0.017600000000005875
+rsds_per_obj11_absvelxstd: 0.25
+rsds_per_obj11_absvelx: -0.017600000000005875
+rsds_per_obj11_absaccelystd: 4.6875
+rsds_per_obj11_absaccelxstd: 0.125
+
+2026/06/18 15:46:39 280300 [fffeb65fb6e0] ERROR [weifu_3d_radars_rx_assembler.cc:167->AppendDtcFault] [RADARS_RX] AppendDtcFault: FAULT_MISALIGNMENT for dtc code:9999992, fault code:4
+2026/06/18 15:46:39 280305 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:331->ProcessData] [RADARS_RX] dtc_group1_fl DTC group1 errors: dtc_timestamp: 2863311530
+dtc_number: 11
+dtc_messagetype: 16
+dtc_frame_number: 4916
+dtc_entry5_dtc_num: 9993300
+dtc_entry4_status_mask: 4
+dtc_entry4_dtc_type: 4
+dtc_entry4_dtc_num: 9999992
+dtc_entry3_dtc_num: 15879304
+dtc_entry2_dtc_num: 9992726
+dtc_entry1_dtc_num: 9992727
+
+2026/06/18 15:46:39 281557 [fffeb65fb6e0] INFO [weifu_3d_radars_rx_assembler.cc:332->ProcessData] [RADARS_RX] dtc_group2_fl DTC group2 raw data: dtc_entry9_dtc_num: 15879312
+dtc_entry8_status_mask: 12
+dtc_entry8_dtc_type: 7
+dtc_entry8_dtc_num: 15879553
+dtc_entry8_change_ts: 2863311530
+dtc_entry7_dtc_num: 9997462
+dtc_entry6_dtc_num: 9997312
+dtc_entry11_dtc_num: 9991238
+dtc_entry10_status_mask: 6
+dtc_entry10_dtc_type: 4
+dtc_entry10_dtc_num: 9993301
