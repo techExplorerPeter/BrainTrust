@@ -201,6 +201,117 @@ MSS_L2 近满载且碎片化(详见仓库 CLAUDE.md),新增代码易触发 `GROU
 
 ---
 
-## 附:对外开关
+## 附录 A:字节偏移表(解析权威 spec)
+
+> 所有偏移为**帧内绝对字节**(0–63),小端。固件真相源是 `wf_debug_info.c` 的 `wf_dbg_build_pageN()`;**改固件 schema 时先改本表,解析脚本(`tools/debuginfo_parser.py`)照本表实现**。`schemaVer` 当前 = 1,字段变更需 +1。
+
+### 公共头(每页 Byte 0–5 + 帧尾)
+
+| 偏移 | 类型 | 字段 | 说明 |
+|---|---|---|---|
+| 0 | u8 | `schemaVer`(bit7:4) \| `pageId`(bit3:0) | ver=1 |
+| 1 | u8 | `rollingCounter` | 每帧 +1,断续=丢帧 |
+| 2 | u16 | `faultSummary` | 12 粘滞位,见下 |
+| 4 | u8 | `sensorState`(bit3:0) \| `timeSyncState`(bit7:4) | 枚举值见 `mmw_mss.h`/`wf_time_sync.h` |
+| 5 | u8 | `taskAliveBitmap` | bit0 RSP,1 CANOUT,2 CANREC,3 TIMESYNC,4 CTRL |
+| 62 | u16 | `CRC16-CCITT-FALSE` | poly 0x1021,init 0xFFFF,覆盖 Byte 0–61 |
+
+**`faultSummary` 位**:0 OVERRUN｜1 FRAME_DROP｜2 SYNC_LOST｜3 CAN_ERR｜4 OVER_TEMP｜5 DTC_ACTIVE｜6 TASK_DEAD｜7 STACK_LOW｜8 BLACKBOX｜9 VEHICLE_TIMEOUT｜10 ASSERT｜11 CAN_TX_STALL
+
+### Page0 — 时序/超时(`pageId`=0)
+
+| 偏移 | 类型 | 字段 |
+|---|---|---|
+| 6 | u16 | `tMax0` CM4 解调 max-hold (0.1ms) |
+| 8 | u16 | `tMax1` DOA/DSP |
+| 10 | u16 | `tMax2` 后处理 |
+| 12 | u16 | `tMax3` CAN-TX |
+| 14 | u16 | `tMax4` Enet-TX |
+| 16 | u16 | `tMax5` 总耗时 |
+| 18 | u16 | `tTotalCur` 当前帧总耗时 |
+| 20 | **i16** | `marginMin` 余量最小值(=660−总耗时,负即超时) |
+| 22 | u16 | `overrunCount` 超时累计 |
+| 24 | u32 | `lastOverrunFrame` 上次超时帧号 |
+| 28 | u8 | `lastStage` 最后到达阶段(卡死指认) |
+| 29 | u8 | (保留) |
+| 30 | u16 | `framePeriodCur` 帧周期实测 |
+| 32 | u16 | `framePeriodMaxDev` 帧周期最大偏差 |
+| 34 | u32 | `resultCount` 处理完成帧数 |
+
+`lastStage` 枚举:1 RANGE_START｜2 DOPPLER_START｜3 CFAR_START｜4 DPC_RESULT｜5 DOA_DONE｜6 POSTPROC_DONE
+
+### Page1 — 数据通路/RF(`pageId`=1)
+
+| 偏移 | 类型 | 字段 |
+|---|---|---|
+| 6 | u32 | `frameTriggerReady`(低 32) BSS 触发计数 |
+| 10 | u32 | `resultCount` 处理完成计数 |
+| 14 | u16 | `cfarNumCur` 当前检测点数 |
+| 16 | u16 | `cfarNumMin` 窗口最小 |
+| 18 | u16 | `cfarNumMax` 窗口最大 |
+| 20 | u16 | `trcNum` 航迹数 |
+| 22 | u16 | `intfNumCur` 干扰数 |
+| 24 | u16 | `waveIdCur` 波形 ID |
+| 26 | i8 | `tmpRx0` (°C) |
+| 27 | i8 | `tmpTx0` |
+| 28 | i8 | `tmpPm` |
+| 29 | i8 | `tmpDig0` |
+| 30 | u8 | `tempValid`(1=温度有效) |
+| 31 | u8 | (保留) |
+| 32 | u16 | `failedTimingReports` |
+| 34 | u16 | `calibrationReports` |
+| 36 | u16 | `vehAgeMs` 车身报文距上次接收(ms,0xFFFF=从未) |
+| 38 | u32 | `vehicleRxCount` |
+
+### Page2 — TimeSync/CAN(`pageId`=2)
+
+| 偏移 | 类型 | 字段 |
+|---|---|---|
+| 6 | i32 | `offsetUs` 时钟偏移 |
+| 10 | u32 | `validFrameCount` |
+| 14 | u16 | `crcErrorCount` |
+| 16 | u16 | `invalidFrameCount` |
+| 18 | u16 | `offsetJumpCount` |
+| 20 | u8 | `dtcActive` |
+| 21 | u8 | `dtcReason` |
+| 22 | u8 | `lastSequenceCounter` |
+| 23 | u8 | `tec` CAN-A 发送错误计数 |
+| 24 | u8 | `rec` CAN-A 接收错误计数 |
+| 25 | u8 | `canFlags` bit0 busOff,1 errPassive,2 warning |
+| 26 | u16 | `busOffEverCount` |
+| 28 | u16 | `canTxStallCount` |
+| 30 | u16 | `dtcReportCount` |
+| 32 | u32 | `canErrLogCnt` |
+
+### Page3 — 黑匣子/资源(`pageId`=3)
+
+| 偏移 | 类型 | 字段 |
+|---|---|---|
+| 6 | u8 | `resetCause` (`SOC_rcmGetResetCause`) |
+| 7 | u8 | `warmResetCause` (`SOC_getWarmResetCause`) |
+| 8 | u16 | `bootCount` |
+| 10 | u32 | `uptimeMs` |
+| 14 | u8 | `bbRecValid`(1=黑匣子有记录) |
+| 15 | u8 | `bbFromPrevBoot`(1=记录来自上一次启动) |
+| 16 | u16 | `bbLine` 死机行号 |
+| 18 | u16 | `bbFileHash` 文件名 djb2 hash |
+| 20 | u16 | `bbAssertCount` |
+| 22 | 8×u8 | `stackFree16[0..7]` 各任务栈底剩余/16B(0xFF=未注册) |
+| 30 | i32 | `lastErrorCode` |
+| 34 | u8 | `sensorStartCount` |
+| 35 | u8 | `sensorStopCount` |
+| 36 | u16 | `assertCountLive` 本次运行 assert 计数 |
+
+`stackFree16` 注册顺序:0 ctrl,1 rsp,2 canout,3 canrec,4 tsync,5 wfdbg(见 `mss_main.c` 注册序)。
+
+---
+
+## 附录 B:对外开关
 
 `wf_debug_info.h` 顶部 `WF_DEBUG_INFO_ENABLE`:置 0 时所有采集 API 编译为空宏,量产可一键关闭。
+
+---
+
+## 附录 C:解析脚本
+
+`tools/debuginfo_parser.py` —— 按附录 A 实现:4 页重组、粘滞位/状态解名、rollingCounter 连续性检查、CRC 校验、trigger/result 趋势告警。输入支持 CANoe `.asc`(经典/CANFD)与十六进制行,详见脚本头注释。

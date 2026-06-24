@@ -1,0 +1,1818 @@
+ ▐▛███▜▌   Claude Code v2.1.187
+▝▜█████▛▘  Opus 4.8 · Claude Pro
+  ▘▘ ▝▝    D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_0…
+
+
+> 在历史对话中 有让帮忙增加debug info功能还记得么，我把debug                    
+  info的功能移植到这里来了                                                      
+
+● 我没有之前对话的记忆，但我可以从代码里看到 debug info 的痕迹（CLAUDE.md 里就把
+  mss/wf_debug_info.c 列为 TCMA/TCMB 内存重定位的范例）。让我先加载这个仓库的专
+  属上下文，再看看你移植过来的实际代码。
+
+● Skill(zelos-radar-expert)
+  ⎿  Successfully loaded skill
+
+● 我看到了 — skill 里已经把这套东西记录下来了：mss/wf_debug_info.c/h，0x200
+  调试报文，64 字节、66ms、4 页轮播（Page0 时序 max-hold / Page1 数据通路·RF /
+  Page2 TimeSync·CAN 健康 / Page3 黑匣子·栈水位·复位原因），帧尾
+  CRC16-CCITT-FALSE，并且代码/数据按对象文件路由到
+  TCMA/TCMB（.bss.wfDbgStack、.bss.wfNoInit）。
+
+  让我看一下你移植过来后这边的实际状态，确认是否完整落地。
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo" && git status --short |
+      head -50)
+  ⎿   M mmwave_mcuplus_sdk_04_07_00_01/build/appimage/mss_dss_rss_h.hex
+      M mmwave_mcuplus_sdk_04_07_00_01/build/appimage/mss_dss_rss_h_1M_padd
+     ing.hex
+     … +47 lines (ctrl+o to expand)
+
+● 文件已经在了（wf_debug_info.c/h 是未跟踪的新文件
+  ??）。关键是看「移植」是否接线完整 ——
+  光有源文件不够，还得确认三处接入点：makefile 编译、linker.cmd
+  段路由、mss_main.c 里的初始化与调用。让我核对一下。
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== mak ===" && grep -n
+      "wf_debug" mss/mmw_mss…)
+  ⎿  === mak ===
+     130:                           wf_debug_info.c \
+     === linker ===
+     … +21 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && echo "=== send/pack call sites ==="
+      && grep -rn…)
+  ⎿  === send/pack call sites ===
+     mcan_process.c:112:#define APP_MCAN_CAR_ID_LEFT                     (0
+     x200U)
+     … +15 lines (ctrl+o to expand)
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && echo "=== tasks/send in
+      wf_debug_info.c ===" &&…)
+  ⎿  === tasks/send in wf_debug_info.c ===
+     17:#include <drivers/mcan.h>
+     22:#include "task.h"
+     … +22 lines (ctrl+o to expand)
+
+● 移植看起来接线是完整的，三处接入点都到位了：
+
+  ┌─────────────────────────┬───────────────────────────────────────────────┐
+  │         接入点          │                     状态                      │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ mss/mmw_mss.mak:130     │ ✅ 编译 wf_debug_info.c                       │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │ mss/mmw_mss_linker.cmd: │ ✅ .bss.wfNoInit (NOLOAD) + .bss.wfDbgStack → │
+  │ 14-15                   │  TCMB_RAM                                     │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │                         │ ✅ init / register_stack×5 / mark_stage /     │
+  │ mss/mss_main.c          │ task_alive / frame_snapshot / blackbox_assert │
+  │                         │  全部埋点                                     │
+  ├─────────────────────────┼───────────────────────────────────────────────┤
+  │                         │ ✅ 自带 FreeRTOS 任务，66ms 周期，mcanA_trans │
+  │ wf_debug_info.c:655     │ fer_FIFO(WF_DEBUG_INFO_CAN_ID=0x200, ...)     │
+  │                         │ 发送                                          │
+  └─────────────────────────┴───────────────────────────────────────────────┘
+
+  黑匣子用 .bss.wfNoInit (NOLOAD) 跨复位保留，复位后在 mss_main.c:975 读 fault
+  位置 —— 和 skill 里记录的设计一致。
+
+  有一处值得确认的风险点：linker.cmd 只把 .bss.* 路由到了 TCMB，但
+  wf_debug_info.oer5f 的 .text/.rodata 没有做对象级路由，会被平台 catch-all
+  收进几乎满载的 MSS_L2。737 行代码大概几 KB，正是最容易触发那个 GROUP_6
+  碎片化链接错误的地方。按 skill 的范式应该补一条：
+
+  .wfDbgCode: { wf_debug_info.oer5f(.text) wf_debug_info.oer5f(.text.*)
+  wf_debug_info.oer5f(.rodata) wf_debug_info.oer5f(.rodata.*) } > TCMA_RAM
+
+  那么，你想让我接下来做什么？
+
+● User answered Claude's questions:
+  ⎿  · debug info 已移植接线完整,下一步想让我做什么? → 代码审查
+
+● 好，做代码审查。我通读 wf_debug_info.c/h，重点核对 skill 里点过的几个坑：4
+  页字段填充、CRC、死字段（mssTimeRecord[5] vs 660 的超时判定）、跨复位 noinit
+  正确性。
+
+  Read 2 files (ctrl+o to expand)
+
+● 通读完了。整体质量很高——锁的使用、clip 防溢出、max-hold
+  读后清零、noinit/runtime
+  状态的拆分都很规范。但我要核对几处跨文件的集成假设和潜在 
+  bug,先做几个针对性检查:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01" && echo "=== wf_debug_task_alive 全部调用点 (确认
+      CANOUT/CANREC/TIMESYNC 都有埋 tick) ==="…)
+  ⎿  === wf_debug_task_alive 全部调用点 (确认 CANOUT/CANREC/TIMESYNC 都有埋
+      tick) ===
+     ti/demo/awr2x44P/mmw_ddm/mss/mss_can_output.c:227:            wf_debug
+     … +29 lines (ctrl+o to expand)
+
+● 集成假设全部成立,先把好消息说清楚:
+
+  - 5 个任务存活 tick 全部接好:CANOUT(mss_can_output.c:227)、CTRL/RSP(mss_main.c
+  )、CANREC(mss_mcan.c:1032)、TIMESYNC(wf_time_sync.c:118)→ 不会误报
+  TASK_DEAD。✅
+  - tempReportValid==0 表示"有效"——mss_main.c:340 注释证实是这个反直觉语义,所以
+  line 466 的过温判定和 line 584 的 validFlag 都是对的,不是 bug。✅
+  - SOC_rcmGetResetCause / SOC_getWarmResetCause 在 SDK 里确实存在。✅
+
+  下面是审查发现,按严重度排:
+
+  ---
+  🔴 必须处理
+
+  1. .text/.rodata 未路由,落进几乎满载的 MSS_L2(链接风险)
+  linker.cmd 只路由了 .bss.wfNoInit 和 .bss.wfDbgStack。wf_debug_info.oer5f
+  的代码段(~几 KB)和 gWfDbg(~250B)、frame[64] 都被平台 catch-all 收进
+  MSS_L2。这正是触发 GROUP_6 碎片化链接错误的典型场景。建议补:
+  .wfDbgCode: { wf_debug_info.oer5f(.text)  wf_debug_info.oer5f(.text.*)
+                wf_debug_info.oer5f(.rodata) wf_debug_info.oer5f(.rodata.*) } >
+  TCMA_RAM
+  .wfDbgData: { wf_debug_info.oer5f(.bss)   wf_debug_info.oer5f(.bss.*)
+                wf_debug_info.oer5f(.data)  wf_debug_info.oer5f(.data.*) }  >
+  TCMB_RAM
+  注意 .wfDbgData 的 .bss.* 通配会和已有的 .bss.wfNoInit/.bss.wfDbgStack
+  重叠——TI 链接器按最具体匹配,已命名段会优先,但稳妥起见把 .wfDbgData
+  放在那两行之后,或改用 EXCLUDE。这点编译时要盯一下。
+
+  ---
+  🟡 真实但低概率的缺陷
+
+  2. wf_debug_mark_can_tx_stall 对 faultSummary 的 |= 
+  没有临界区保护(wf_debug_info.c:321-325)
+  gWfDbg.faultSummary |= WF_DBG_FAULT_CAN_TX_STALL;   // 裸 RMW
+  文件里已有现成的 wf_dbg_set_fault()(带 HwiP_disable)。这个函数从 CAN
+  路径调用,可能与 RSP 任务里 snapshot 的 faultSummary |= 并发,丢位。直接改成
+  wf_dbg_set_fault(WF_DBG_FAULT_CAN_TX_STALL) 即可。
+
+  3. framePeriodMaxDev100us 写无锁、page0 读后清零有锁——非对称,可能丢一个采样
+  wf_debug_mark_stage(可能在 DPM report/SWI 上下文)裸写 max,wf_dbg_build_page0
+  在 HwiP_disable 内读取并清零。若两者交错,会丢一次峰值更新。影响是"少记一帧抖动
+  ",可接受,但若要严谨,mark_stage 的 max 更新也应进临界区。
+
+  ---
+  🔵 设计注记(非 bug,确认是否符合预期)
+
+  4. 黑匣子记录直到 POR 才清。recType 在 noinit RAM,一旦命中 assert,之后每次 
+  warm boot 都会 bbFromPrevBoot=1 + 置 BLACKBOX
+  故障位,即使那次崩溃已经过去很多个启动周期。bbFromPrevBoot 能区分"本次 vs
+  往次",但没有"读取 N
+  次后清除"机制。如果你想要的是"上一次启动是否崩溃",当前逻辑是"自上次 POR
+  以来是否崩溃过"。
+
+  5. noinit 跨复位保留能力 = 硬件待验证(最高优先级验证项)。.bss.wfNoInit 
+  (NOLOAD) 能否真的不被启动清零,取决于 TI Arm-Clang autoinit 是否把它并入 BSS
+  清零、以及 SBL 是否对 TCM 做 ECC 清零。代码注释和 skill
+  都已标注。上板第一件事:故意触发一次 assert → warm reset → 看 Page3 的
+  bbFromPrevBoot/line/fileHash 是否还在。如果被清了,黑匣子整套就是哑的。
+
+  6. WF_DBG_TASK_COUNT=6 但只有 5 个任务(bit5 预留)。无害,bit5 不在 expect
+  掩码里,不会误判死。
+
+  ---
+  整体评价:逻辑扎实、可以上板。阻塞项只有 #1(链接)和 #5 的硬件验证;#2
+  是一行修复,建议顺手改掉。
+
+  要我现在动手吗?我可以:(a) 补 #1 的 linker 路由 + 改 #2 的一行 →
+  然后跑增量编译验证;或者你先只要我改 linker/锁、编译留给你。你定。
+
+✻ Worked for 4m 32s
+
+> 你帮我都改好，编译留给我就行                                                  
+  ⎿  1 skill available
+● 明白,我只改代码,不编译。动手做 #1(linker 路由)、#2(mark_can_tx_stall
+  临界区)、#3(mark_stage 非对称锁)。#4/#5/#6 是设计/硬件验证项,不动代码。
+
+  先改 linker —— 关键点:把新段放在已命名的 .bss.wfNoInit/.bss.wfDbgStack
+  之后,这样 TI 链接器的"最具体优先 + 同级先列先得"会保证那两个段(尤其 NOLOAD
+  黑匣子)不被 .wfDbgData 的 .bss.* 通配抢走:
+
+● Update(mss\mmw_mss_linker.cmd)
+  ⎿  Added 8 lines, removed 1 line
+      12      .ota_data: {} > TCMB_RAM
+      13      .ota_text: {} > TCMA_RAM   
+      14      .bss.wfNoInit (NOLOAD) : {} > TCMB_RAM
+      15 -    .bss.wfDbgStack: {} > TCMB_RAM                             
+      15 +    .bss.wfDbgStack: {} > TCMB_RAM                             
+      16 +    /* MSS_L2 已满: 把 wf_debug_info 的代码/只读放 TCMA, 其余 d
+         +ata/bss 放 TCMB。                                              
+      17 +     * 必须列在上面两条已命名段之后: .bss.wfNoInit(NOLOAD)/.bss
+         +.wfDbgStack 更具体且先列,                                      
+      18 +     * 优先认领, 不会被下面的 .bss.* 通配抢走 (否则 NOLOAD 黑匣
+         +子会被并入普通 bss 而遭清零)。 */                              
+      19 +    .wfDbgCode: { wf_debug_info.oer5f(.text)   wf_debug_info.oe
+         +r5f(.text.*)                                                   
+      20 +                  wf_debug_info.oer5f(.rodata) wf_debug_info.oe
+         +r5f(.rodata.*) } > TCMA_RAM                                    
+      21 +    .wfDbgData: { wf_debug_info.oer5f(.data)   wf_debug_info.oe
+         +r5f(.data.*)                                                   
+      22 +                  wf_debug_info.oer5f(.bss)    wf_debug_info.oe
+         +r5f(.bss.*) }  > TCMB_RAM                                      
+      23  }
+      24  /*-------------------------------------------------------------
+          ---------------*/
+      25  
+
+● Now #2 — mark_can_tx_stall 裸 RMW 加锁:
+
+● Update(mss\wf_debug_info.c)
+  ⎿  Added 4 lines
+      320  
+      321  void wf_debug_mark_can_tx_stall(void)
+      322  {
+      323 +    /* 可能从 CAN 发送路径(任务/ISR)调用, 与 RspTask 的 faultS
+          +ummary 写入并发,                                              
+      324 +     * 须临界区保护这两个 RMW。 */                            
+      325 +    uintptr_t key = HwiP_disable();                           
+      326      gWfDbg.canTxStallCount++;
+      327      gWfDbg.faultSummary |= WF_DBG_FAULT_CAN_TX_STALL;
+      328 +    HwiP_restore(key);                                        
+      329  }
+      330  
+      331  void wf_debug_set_last_error(int32_t errCode)
+
+● Now #3 — mark_stage 的 framePeriodMaxDev/lastRangeStartUs 更新加锁,与 page0
+  的读后清零对称:
+
+● Update(mss\wf_debug_info.c)
+  ⎿  Added 4 lines
+      239      if (stage == WF_DBG_STAGE_RANGE_START)
+      240      {
+      241          uint64_t now = ClockP_getTimeUsec();
+      242 +        /* 与 wf_dbg_build_page0 的 framePeriodMaxDev 读后清零
+          +对称加锁, 避免丢峰值更新。                                    
+      243 +         * ClockP_getTimeUsec 放临界区外, 不必要地延长关中断。
+          + */                                                           
+      244 +        uintptr_t key = HwiP_disable();                       
+      245          if (gWfDbg.lastRangeStartUs != 0ULL)
+      246          {
+      247              uint32_t period100us = (uint32_t)((now - gWfDbg.la
+           stRangeStartUs) / 100ULL);
+     ...
+      256              }
+      257          }
+      258          gWfDbg.lastRangeStartUs = now;
+      259 +        HwiP_restore(key);                                    
+      260      }
+      261  }
+      262  
+
+● 三处都改好了,编译你来跑。改动汇总:
+
+  #: 1
+  文件: mss/mmw_mss_linker.cmd
+  改动: 新增 .wfDbgCode → TCMA_RAM、.wfDbgData → TCMB_RAM,把 wf_debug_info.oer5f
+
+    的代码/只读/数据移出满载的 MSS_L2。列在 .bss.wfNoInit/.bss.wfDbgStack
+    之后,保证那两段优先认领。
+  ────────────────────────────────────────
+  #: 2
+  文件: mss/wf_debug_info.c
+  改动: wf_debug_mark_can_tx_stall 的 canTxStallCount++ 和 faultSummary |= 包进
+    HwiP_disable/restore。
+  ────────────────────────────────────────
+  #: 3
+  文件: mss/wf_debug_info.c
+  改动: wf_debug_mark_stage 的 RANGE_START 分支(period/maxDev/lastRangeStart
+    更新)加锁,与 page0 读后清零对称;ClockP_getTimeUsec 留在临界区外。
+
+  编译时请重点盯两件事(都在 .map 文件里,在 mss/ 编译输出目录):
+
+  1. 链接是否还报 GROUP_6 碎片化错误 —— 如果没有了,说明 #1 起效、MSS_L2
+  压力解除。
+  2. .bss.wfNoInit 是否仍是独立 NOLOAD 段、落在 TCMB_RAM —— 在 .map 里搜
+  wfNoInit,确认它没被并进 .wfDbgData。如果它出现在 .wfDbgData 里,说明你这版 TI
+  链接器的最具体匹配判定和我预期不同,黑匣子会被当普通 bss
+  清零;那种情况告诉我,我改用更窄的 .bss.gWfDbg 显式列举来替掉 .bss.* 通配。
+
+  顺带确认下:.wfDbgCode 进了 TCMA 后,链接器会在 MSS_L2 自动生成几个 ~8B 的
+  veneer(因为 TCMA 离 MSS_L2 调用点 >32MB),这是正常的,和 .ota_text 一样,不用管。
+
+  编完有任何 link error 或 .map 异常,贴给我。
+
+✻ Worked for 3m 24s
+
+> 帮我把和debuginfo相关的注释 都改成英文的，不要动到其他的代码部分              
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● 先说明:那些 diagnostic 报错是 linter 找不到 SDK
+  头文件路径导致的误报(drivers/uart.h、HwiP_* 等),不是我改出来的,实际编译用的是
+  makefile 的 include 路径,忽略即可。
+
+  我来把 debuginfo 相关的中文注释全部译成英文,只动注释。先读一下两个文件的当前完
+  整状态,确保精确匹配:
+
+  Read 1 file (ctrl+o to expand)
+
+● 文件较多注释,我用整文件重写的方式翻译(代码逐字保持不变,只改注释)。先写
+  wf_debug_info.c:
+
+● Write(mss\wf_debug_info.c)
+  ⎿  Added 54 lines, removed 46 lines
+      2   * @file    wf_debug_info.c
+      3   * @brief   This file is to 0x200 debug log message implementati
+         on (paged rotation, 66ms)
+      4   * @author  Peter Zhu
+      5 - * @par     Modify:                                             
+      6 - * @date    2026-06-24                                          
+      5 + * @par     Modify:                                             
+      6 + * @date    2026-06-24                                          
+      7   * @par Copyright (C) 2023 by personal, Inc.
+      8   */
+      9  #include "wf_debug_info.h"
+     ...
+      47                                  uint32_t size, uint32_t dlc);
+      48  
+      49  /* ------------------------------------------------------------
+          ------ */
+      50 -/* 黑匣子 (noinit RAM, warm reset 后保留; 仅 POR 丢失)         
+         -         */                                                    
+      50 +/* Black box (noinit RAM, retained across warm reset; lost only
+         + on POR) */                                                    
+      51  /* ------------------------------------------------------------
+          ------ */
+      52  typedef struct
+      53  {
+     ...
+      60      uint16_t assertCount;
+      61  } WFDbgBlackBox_s;
+      62  
+      63 -/* (NOLOAD) 段: 启动不清零, warm reset 后内容保留 (与 SDK IPC  
+         -共享内存同一惯用法)。                                          
+      64 - * 放 TCMB (MSS_L2 已满); 若 SBL 对 TCM 做 ECC 初始化清零, 黑匣
+         -子跨复位能力需上硬件确认。 */                                  
+      63 +/* (NOLOAD) section: not zeroed at startup, content retained ac
+         +ross warm reset                                                
+      64 + * (same idiom as the SDK IPC shared memory). Placed in TCMB (M
+         +SS_L2 is full);                                                
+      65 + * if the SBL ECC-initializes/clears TCM, the cross-reset capab
+         +ility of the black                                             
+      66 + * box needs to be confirmed on hardware. */                   
+      67  static WFDbgBlackBox_s gWfDbgBlackBox __attribute__((section(".
+          bss.wfNoInit")));
+      68  
+      69  /* ------------------------------------------------------------
+          ------ */
+      68 -/* 运行时状态                                                  
+         -        */                                                     
+      70 +/* Runtime state                                               
+         +        */                                                     
+      71  /* ------------------------------------------------------------
+          ------ */
+      72  typedef struct
+      73  {
+     ...
+       77  
+       78  typedef struct
+       79  {
+       78 -    /* 发送 */                                                
+       80 +    /* Transmit */                                            
+       81      TaskHandle_t        task;
+       82      StaticTask_t        taskObj;
+       83      uint8_t             rollingCounter;
+       84      uint8_t             pageId;
+       83 -    volatile uint16_t   faultSummary;       /* 粘滞位 */      
+       85 +    volatile uint16_t   faultSummary;       /* Sticky bits */ 
+       86  
+       85 -    /* 流水阶段 / 帧周期 */                                   
+       87 +    /* Pipeline stage / frame period */                       
+       88      volatile uint8_t    lastStage;
+       89      uint64_t            lastRangeStartUs;
+       90      volatile uint16_t   framePeriodCur100us;
+       91      volatile uint16_t   framePeriodMaxDev100us;
+       92  
+       91 -    /* 耗时 max-hold (0.1ms) */                               
+       92 -    volatile uint16_t   tMax[6];            /* mssTimeRecord[0
+          -..5] 窗口最大值 */                                            
+       93 +    /* Processing time max-hold (0.1ms) */                    
+       94 +    volatile uint16_t   tMax[6];            /* Window max of m
+          +ssTimeRecord[0..5] */                                         
+       95      volatile uint16_t   tTotalCur;
+       96      volatile int16_t    marginMin100us;
+       97      volatile uint16_t   overrunCount;
+       98      volatile uint32_t   lastOverrunFrame;
+       99  
+       98 -    /* 帧/检测统计 */                                         
+      100 +    /* Frame / detection statistics */                        
+      101      volatile uint32_t   resultCount;
+      102      uint32_t            lastDropCheckDiff;
+      103      volatile uint16_t   cfarNumCur;
+     ...
+      107      volatile uint16_t   waveIdCur;
+      108      volatile uint16_t   trcNum;
+      109  
+      108 -    /* 车身信息 */                                            
+      110 +    /* Vehicle info */                                        
+      111      volatile uint64_t   lastVehicleRxUs;
+      112      volatile uint32_t   vehicleRxCount;
+      113  
+      112 -    /* CAN-A 健康 */                                          
+      114 +    /* CAN-A health */                                        
+      115      uint8_t             busOffPrev;
+      116      uint16_t            busOffEverCount;
+      117      volatile uint16_t   canTxStallCount;
+      118  
+      117 -    /* 任务存活 */                                            
+      119 +    /* Task liveness */                                       
+      120      volatile uint32_t   aliveTicks[WF_DBG_TASK_COUNT];
+      121      uint32_t            aliveSeen[WF_DBG_TASK_COUNT];
+      122      uint8_t             aliveAge[WF_DBG_TASK_COUNT];
+      123      uint8_t             aliveBitmap;
+      124  
+      123 -    /* 栈水位 */                                              
+      125 +    /* Stack watermark */                                     
+      126      WFDbgStackReg_s     stacks[WF_DEBUG_MAX_STACKS];
+      127      uint8_t             stackCount;
+      126 -    uint8_t             stackFree16[WF_DEBUG_MAX_STACKS]; /*  
+          -栈底剩余/16字节 */                                            
+      128 +    uint8_t             stackFree16[WF_DEBUG_MAX_STACKS]; /* F
+          +ree at stack bottom / 16 bytes */                             
+      129  
+      128 -    /* 复位原因 / 错误码 */                                   
+      130 +    /* Reset cause / error code */                            
+      131      uint8_t             resetCause;
+      132      uint8_t             warmResetCause;
+      133      uint8_t             bbFromPrevBoot;
+     ...
+      136  } WFDbgObj_s;
+      137  
+      138  static WFDbgObj_s gWfDbg;
+      137 -/* 任务栈放 TCMB (MSS_L2 已满, TCMB 对 R5F 是零等待 TCM); 保持
+          -零初始化以支持栈水位扫描 */                                   
+      139 +/* Task stack placed in TCMB (MSS_L2 is full, TCMB is zero-wai
+          +t TCM for R5F);                                               
+      140 + * kept zero-initialized to support stack watermark scanning. 
+          +*/                                                            
+      141  static StackType_t gWfDbgTskStack[WF_DEBUG_TASK_STACK_SIZE]
+      142      __attribute__((aligned(32), section(".bss.wfDbgStack")));
+      143  
+      144  /* -----------------------------------------------------------
+           ------- */
+      142 -/* 工具                                                       
+          -         */                                                   
+      145 +/* Helpers                                                    
+          +         */                                                   
+      146  /* -----------------------------------------------------------
+           ------- */
+      147  static void wf_dbg_put_u16(uint8_t *p, uint16_t v)
+      148  {
+     ...
+      175      return (int8_t)v;
+      176  }
+      177  
+      175 -/* CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF (与 TimeSync 0
+          -x040 同参数) */                                               
+      178 +/* CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF (same params a
+          +s TimeSync 0x040) */                                          
+      179  static uint16_t wf_dbg_crc16(const uint8_t *data, uint32_t len
+           )
+      180  {
+      181      uint16_t crc = 0xFFFFU;
+     ...
+      200      return crc;
+      201  }
+      202  
+      200 -/* 16-bit djb2, 仅取文件名 (去路径) */                        
+      203 +/* 16-bit djb2, file name only (path stripped) */             
+      204  static uint16_t wf_dbg_file_hash(const char *file)
+      205  {
+      206      uint32_t hash = 5381U;
+     ...
+      233  }
+      234  
+      235  /* -----------------------------------------------------------
+           ------- */
+      233 -/* 采集 API                                                   
+          -         */                                                   
+      236 +/* Collection API                                             
+          +         */                                                   
+      237  /* -----------------------------------------------------------
+           ------- */
+      238  void wf_debug_mark_stage(WFDbgStage_e stage)
+      239  {
+     ...
+      242      if (stage == WF_DBG_STAGE_RANGE_START)
+      243      {
+      244          uint64_t now = ClockP_getTimeUsec();
+      242 -        /* 与 wf_dbg_build_page0 的 framePeriodMaxDev 读后清零
+          -对称加锁, 避免丢峰值更新。                                    
+      243 -         * ClockP_getTimeUsec 放临界区外, 不必要地延长关中断。
+          - */                                                           
+      245 +        /* Locked symmetrically with the read-then-clear of fr
+          +amePeriodMaxDev in                                            
+      246 +         * wf_dbg_build_page0, to avoid losing a peak update. 
+          +ClockP_getTimeUsec is                                         
+      247 +         * kept outside the critical section to avoid needless
+          +ly extending the                                              
+      248 +         * interrupt-disabled window. */                      
+      249          uintptr_t key = HwiP_disable();
+      250          if (gWfDbg.lastRangeStartUs != 0ULL)
+      251          {
+     ...
+      329  
+      330  void wf_debug_mark_can_tx_stall(void)
+      331  {
+      327 -    /* 可能从 CAN 发送路径(任务/ISR)调用, 与 RspTask 的 faultS
+          -ummary 写入并发,                                              
+      328 -     * 须临界区保护这两个 RMW。 */                            
+      332 +    /* May be called from the CAN transmit path (task/ISR), co
+          +ncurrently with the                                           
+      333 +     * faultSummary write in RspTask; the two RMWs must be pro
+          +tected by a critical                                          
+      334 +     * section. */                                            
+      335      uintptr_t key = HwiP_disable();
+      336      gWfDbg.canTxStallCount++;
+      337      gWfDbg.faultSummary |= WF_DBG_FAULT_CAN_TX_STALL;
+     ...
+      353      gWfDbgBlackBox.assertCount++;
+      354  
+      355      gWfDbg.assertCountLive++;
+      350 -    gWfDbg.bbFromPrevBoot = 0U;     /* 最新记录来自本次运行 */
+      356 +    gWfDbg.bbFromPrevBoot = 0U;     /* Latest record is from t
+          +he current run */                                             
+      357      gWfDbg.faultSummary  |= WF_DBG_FAULT_ASSERT;
+      358  
+      359      HwiP_restore(key);
+     ...
+      371  }
+      372  
+      373  /* -----------------------------------------------------------
+           ------- */
+      368 -/* 周期评估 (发送任务上下文)                                  
+          -          */                                                  
+      374 +/* Periodic evaluation (send-task context)                    
+          +         */                                                   
+      375  /* -----------------------------------------------------------
+           ------- */
+      376  
+      371 -/* 栈底剩余: 静态栈为 .bss 清零, FreeRTOS 填充模式为 0xA5A5A5A
+          -5;                                                            
+      372 - * 从栈底(数组首)向上数连续的 0x00000000/0xA5A5A5A5 字。 */   
+      377 +/* Free at stack bottom: static stacks are zeroed .bss, FreeRT
+          +OS fill pattern is                                            
+      378 + * 0xA5A5A5A5; count the run of consecutive 0x00000000/0xA5A5A
+          +5A5 words from the                                            
+      379 + * stack bottom (array start) upward. */                      
+      380  static void wf_dbg_scan_stacks(void)
+      381  {
+      382      uint32_t s, w;
+     ...
+      430      }
+      431      gWfDbg.aliveBitmap = bitmap;
+      432  
+      426 -    /* 失活判死: 仅对真正周期性的任务 (CANOUT 5ms 循环 / TIMES
+          -YNC 10ms 轮询);                                               
+      427 -     * CANREC 事件驱动 (无总线流量时不 tick), 只进位图不判死; 
+      428 -     * RSP 仅在 sensor 运行时应当周期活动。 */                
+      433 +    /* Dead-task judgement: only for the truly periodic tasks 
+          +(CANOUT 5ms loop /                                            
+      434 +     * TIMESYNC 10ms poll); CANREC is event-driven (no tick wh
+          +en there is no bus                                            
+      435 +     * traffic), so it only feeds the bitmap and is not judged
+          + dead; RSP should be                                          
+      436 +     * periodically active only while the sensor is running. *
+          +/                                                             
+      437      {
+      438          uint8_t expect = (1U << WF_DBG_TASK_CANOUT) |
+      439                           (1U << WF_DBG_TASK_TIMESYNC);
+     ...
+      450  
+      451  static void wf_dbg_eval_health(void)
+      452  {
+      445 -    /* 丢帧: BSS 触发数与处理完成数差值增大且超阈值 */        
+      453 +    /* Frame drop: BSS trigger count vs processing-complete co
+          +unt diff grows and exceeds threshold */                       
+      454      {
+      455          uintptr_t key = HwiP_disable();
+      456          uint64_t trigger = gMmwMssMCB.stats.frameTriggerReady;
+     ...
+      478          wf_dbg_set_fault(WF_DBG_FAULT_DTC_ACTIVE);
+      479      }
+      480  
+      473 -    /* 过温 */                                                
+      481 +    /* Over-temperature */                                    
+      482      if (gMmwMssMCB.temperatureStats.tempReportValid == 0)
+      483      {
+      484          const rlRfTempData_t *t = &gMmwMssMCB.temperatureStats
+           .temperatureReport;
+     ...
+      491          }
+      492      }
+      493  
+      486 -    /* 车身信息超时 (sensor 运行中才判) */                    
+      494 +    /* Vehicle info timeout (only judged while the sensor is r
+          +unning) */                                                    
+      495      if ((gMmwMssMCB.sensorState == MmwDemo_SensorState_STARTED
+           ) &&
+      496          (gWfDbg.lastVehicleRxUs != 0ULL))
+      497      {
+     ...
+      503      }
+      504  }
+      505  
+      498 -/* CAN-A 健康主动读取 (bus-off 时收发中断都停, 必须轮询) */   
+      506 +/* CAN-A health active read (on bus-off both TX/RX interrupts 
+          +stop, must poll) */                                           
+      507  static void wf_dbg_read_cana(uint8_t *tec, uint8_t *rec, uint8
+           _t *flags, uint32_t *errLog)
+      508  {
+      509      MCAN_ErrCntStatus   errCnt;
+     ...
+      534  }
+      535  
+      536  /* -----------------------------------------------------------
+           ------- */
+      529 -/* 页构建                                                     
+          -         */                                                   
+      537 +/* Page builders                                              
+          +         */                                                   
+      538  /* -----------------------------------------------------------
+           ------- */
+      539  static void wf_dbg_build_page0(uint8_t *p)
+      540  {
+     ...
+      555      wf_dbg_put_u16(&p[26], gWfDbg.framePeriodMaxDev100us);
+      556      wf_dbg_put_u32(&p[28], gWfDbg.resultCount);
+      557  
+      550 -    /* max-hold 读后清零, 捕捉下一窗口的尖峰 */               
+      558 +    /* max-hold read-then-clear, to capture the peak of the ne
+          +xt window */                                                  
+      559      for (i = 0U; i < 6U; i++)
+      560      {
+      561          gWfDbg.tMax[i] = 0U;
+     ...
+      588      wf_dbg_put_u16(&p[16], gWfDbg.intfNumCur);
+      589      wf_dbg_put_u16(&p[18], gWfDbg.waveIdCur);
+      590  
+      583 -    /* cfar min/max 窗口读后复位 */                           
+      591 +    /* cfar min/max window read-then-reset */                 
+      592      gWfDbg.cfarNumMin = 0xFFFFU;
+      593      gWfDbg.cfarNumMax = 0U;
+      594      HwiP_restore(key);
+     ...
+      666  }
+      667  
+      668  /* -----------------------------------------------------------
+           ------- */
+      661 -/* 发送任务                                                   
+          -         */                                                   
+      669 +/* Send task                                                  
+          +         */                                                   
+      670  /* -----------------------------------------------------------
+           ------- */
+      671  static void wf_debug_info_task(void *args)
+      672  {
+     ...
+      709  }
+      710  
+      711  /* -----------------------------------------------------------
+           ------- */
+      704 -/* 初始化                                                     
+          -         */                                                   
+      712 +/* Initialization                                             
+          +         */                                                   
+      713  /* -----------------------------------------------------------
+           ------- */
+      714  void wf_debug_info_init(void)
+      715  {
+     ...
+      717      gWfDbg.marginMin100us = 0x7FFF;
+      718      gWfDbg.cfarNumMin = 0xFFFFU;
+      719  
+      712 -    /* 复位原因 (POR / warm / WDT 区分) */                    
+      720 +    /* Reset cause (distinguish POR / warm / WDT) */          
+      721      gWfDbg.resetCause     = (uint8_t)SOC_rcmGetResetCause();
+      722      gWfDbg.warmResetCause = (uint8_t)SOC_getWarmResetCause();
+      723  
+      716 -    /* 黑匣子: magic 有效说明经历的是 warm reset, 保留死前记录
+          - */                                                           
+      724 +    /* Black box: a valid magic means this was a warm reset, r
+          +etain the pre-crash record */                                 
+      725      if (gWfDbgBlackBox.magic == WF_DEBUG_BB_MAGIC)
+      726      {
+      727          gWfDbgBlackBox.bootCount++;
+     ...
+      746                                      gWfDbgTskStack,
+      747                                      &gWfDbg.taskObj);
+      748  
+      741 -    /* 自身栈也纳入水位监测 */                                
+      749 +    /* Include its own stack in the watermark monitoring as we
+          +ll */                                                         
+      750      wf_debug_register_stack("wfdbg", gWfDbgTskStack, sizeof(gW
+           fDbgTskStack));
+      751  }
+      752  
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● include 报错仍是 linter 找不到 SDK 头路径的误报,实际无影响。现在翻译头文件
+  wf_debug_info.h 的中文注释:
+
+  Read 1 file (ctrl+o to expand)
+
+● Write(mss\wf_debug_info.h)
+  ⎿  Added 45 lines, removed 44 lines
+       3   * @file    wf_debug_info.h
+       4   * @brief   This file
+       5   * @author  Peter Zhu
+       6 - * @par     Modify:                                            
+       7 - * @date    2026-06-24                                         
+       6 + * @par     Modify:                                            
+       7 + * @date    2026-06-24                                         
+       8   * @par Copyright (C) 2023 by personal, Inc.
+       9   */
+      10  #include <stdint.h>
+     ...
+       17  #define WF_DEBUG_INFO_DLC               (15U)   /* CANFD DLC c
+           ode for 64 bytes */
+       18  #define WF_DEBUG_INFO_SCHEMA_VER        (1U)
+       19  #define WF_DEBUG_INFO_NUM_PAGES         (4U)
+       20 -/* 帧周期预算, 0.1ms 单位 (66ms)。超过即记一次 overrun。 */   
+       20 +/* Frame period budget, unit 0.1ms (66ms). Exceeding it record
+          +s one overrun. */                                             
+       21  #define WF_DEBUG_FRAME_BUDGET_100US     (660U)
+       22 -/* 任务存活判定窗口: N 个发送周期内无 tick 视为失活。 */      
+       22 +/* Task liveness window: no tick within N send periods is trea
+          +ted as dead. */                                               
+       23  #define WF_DEBUG_ALIVE_WINDOW           (4U)
+       24  
+       25 -/* faultSummary 粘滞位 (Byte2..3, 本上电周期只置不清) */      
+       26 -#define WF_DBG_FAULT_OVERRUN            (1U << 0)   /* 帧处理 
+          -总耗时超 66ms 预算 */                                         
+       27 -#define WF_DBG_FAULT_FRAME_DROP         (1U << 1)   /* BSS 触 
+          -发数与处理完成数差值增大 */                                   
+       28 -#define WF_DBG_FAULT_SYNC_LOST          (1U << 2)   /* TimeSyn
+          -c 进入 SYNC_LOST */                                           
+       29 -#define WF_DBG_FAULT_CAN_ERR            (1U << 3)   /* CAN-A e
+          -rror passive / bus-off 出现过 */                              
+       30 -#define WF_DBG_FAULT_OVER_TEMP          (1U << 4)   /* 前端温 
+          -度超阈值 */                                                   
+       31 -#define WF_DBG_FAULT_DTC_ACTIVE         (1U << 5)   /* TimeSyn
+          -c DTC 锁存中 */                                               
+       32 -#define WF_DBG_FAULT_TASK_DEAD          (1U << 6)   /* 周期性 
+          -任务存活检测失败 */                                           
+       33 -#define WF_DBG_FAULT_STACK_LOW          (1U << 7)   /* 某任务 
+          -栈底剩余 < 阈值 */                                            
+       34 -#define WF_DBG_FAULT_BLACKBOX           (1U << 8)   /* 黑匣子 
+          -有上次死机记录 */                                             
+       35 -#define WF_DBG_FAULT_VEHICLE_TIMEOUT    (1U << 9)   /* 车身信 
+          -息报文超时 */                                                 
+       36 -#define WF_DBG_FAULT_ASSERT             (1U << 10)  /* 本周期 
+          -内 MmwDemo_debugAssert 命中过 */                              
+       37 -#define WF_DBG_FAULT_CAN_TX_STALL       (1U << 11)  /* CAN-A T
+          -X FIFO 满等待发生过 */                                        
+       25 +/* faultSummary sticky bits (Byte2..3, set-only / never cleare
+          +d within a power cycle) */                                    
+       26 +#define WF_DBG_FAULT_OVERRUN            (1U << 0)   /* Total f
+          +rame processing time exceeded the 66ms budget */              
+       27 +#define WF_DBG_FAULT_FRAME_DROP         (1U << 1)   /* Gap bet
+          +ween BSS trigger count and processing-complete count grew */  
+       28 +#define WF_DBG_FAULT_SYNC_LOST          (1U << 2)   /* TimeSyn
+          +c entered SYNC_LOST */                                        
+       29 +#define WF_DBG_FAULT_CAN_ERR            (1U << 3)   /* CAN-A e
+          +rror passive / bus-off has occurred */                        
+       30 +#define WF_DBG_FAULT_OVER_TEMP          (1U << 4)   /* Front-e
+          +nd temperature exceeded threshold */                          
+       31 +#define WF_DBG_FAULT_DTC_ACTIVE         (1U << 5)   /* TimeSyn
+          +c DTC latched */                                              
+       32 +#define WF_DBG_FAULT_TASK_DEAD          (1U << 6)   /* Periodi
+          +c task liveness check failed */                               
+       33 +#define WF_DBG_FAULT_STACK_LOW          (1U << 7)   /* Some ta
+          +sk's stack-bottom free < threshold */                         
+       34 +#define WF_DBG_FAULT_BLACKBOX           (1U << 8)   /* Black b
+          +ox holds a record of a previous crash */                      
+       35 +#define WF_DBG_FAULT_VEHICLE_TIMEOUT    (1U << 9)   /* Vehicle
+          + info message timed out */                                    
+       36 +#define WF_DBG_FAULT_ASSERT             (1U << 10)  /* MmwDemo
+          +_debugAssert was hit this cycle */                            
+       37 +#define WF_DBG_FAULT_CAN_TX_STALL       (1U << 11)  /* CAN-A T
+          +X FIFO full wait has occurred */                              
+       38  
+       39 -/* 过温阈值 (摄氏度, 对照 rlRfTempData_t 各传感器) */         
+       39 +/* Over-temperature threshold (degrees C, compared against eac
+          +h rlRfTempData_t sensor) */                                   
+       40  #define WF_DEBUG_OVER_TEMP_C            (115)
+       41 -/* 车身信息超时阈值 (ms) */                                   
+       41 +/* Vehicle info timeout threshold (ms) */                     
+       42  #define WF_DEBUG_VEHICLE_TIMEOUT_MS     (200U)
+       43 -/* 栈底剩余告警阈值 (字节) */                                 
+       43 +/* Stack-bottom free warning threshold (bytes) */             
+       44  #define WF_DEBUG_STACK_LOW_BYTES        (64U)
+       45  
+       46 -/* 处理流水阶段标记: 卡死时该值冻结在最后到达的阶段, 直接指认 
+          -卡点。 */                                                     
+       46 +/* Processing pipeline stage marker: on a hang this value free
+          +zes at the last stage                                         
+       47 + * reached, directly pinpointing where it stuck. */           
+       48  typedef enum
+       49  {
+       50      WF_DBG_STAGE_IDLE = 0,
+       50 -    WF_DBG_STAGE_RANGE_START   = 1,  /* MMWDEMO_RANGE_START   
+          - (1D 开始)        */                                          
+       51 -    WF_DBG_STAGE_DOPPLER_START = 2,  /* MMWDEMO_DOPPLER_START 
+          - (2D/CM4 开始)    */                                          
+       51 +    WF_DBG_STAGE_RANGE_START   = 1,  /* MMWDEMO_RANGE_START   
+          + (1D start)        */                                         
+       52 +    WF_DBG_STAGE_DOPPLER_START = 2,  /* MMWDEMO_DOPPLER_START 
+          + (2D/CM4 start)    */                                         
+       53      WF_DBG_STAGE_CFAR_START    = 3,  /* MMWDEMO_RANGECFAR_STAR
+           T                 */
+       53 -    WF_DBG_STAGE_DPC_RESULT    = 4,  /* MMWDEMO_DPC_RESULT    
+          - (DPC 结果上报)   */                                          
+       54 -    WF_DBG_STAGE_DOA_DONE      = 5,  /* signal_process (DOA)  
+          -完成               */                                         
+       55 -    WF_DBG_STAGE_POSTPROC_DONE = 6,  /* perception 后处理完成 
+          -(帧闭环)          */                                          
+       54 +    WF_DBG_STAGE_DPC_RESULT    = 4,  /* MMWDEMO_DPC_RESULT    
+          + (DPC result report) */                                       
+       55 +    WF_DBG_STAGE_DOA_DONE      = 5,  /* signal_process (DOA) d
+          +one               */                                          
+       56 +    WF_DBG_STAGE_POSTPROC_DONE = 6,  /* perception post-proces
+          +sing done (frame closed) */                                   
+       57  } WFDbgStage_e;
+       58  
+       58 -/* 任务存活位图 bit 编号 */                                   
+       59 +/* Task liveness bitmap bit indices */                        
+       60  typedef enum
+       61  {
+       61 -    WF_DBG_TASK_RSP      = 0,   /* mmwDemo_mssRspTask (帧处理 
+          -主循环)     */                                                
+       62 +    WF_DBG_TASK_RSP      = 0,   /* mmwDemo_mssRspTask (frame p
+          +rocessing main loop) */                                       
+       63      WF_DBG_TASK_CANOUT   = 1,   /* mss_canoutput_task         
+                      */
+       64      WF_DBG_TASK_CANREC   = 2,   /* mss_canreceive_task        
+                      */
+       65      WF_DBG_TASK_TIMESYNC = 3,   /* wf_time_sync_task          
+                      */
+       65 -    WF_DBG_TASK_CTRL     = 4,   /* MmwDemo_mmWaveCtrlTask (事 
+          -件驱动)     */                                                
+       66 +    WF_DBG_TASK_CTRL     = 4,   /* MmwDemo_mmWaveCtrlTask (eve
+          +nt driven) */                                                 
+       67      WF_DBG_TASK_COUNT    = 6
+       68  } WFDbgTaskId_e;
+       69  
+       69 -/* 栈水位监测注册表容量 */                                    
+       70 +/* Stack watermark monitoring registry capacity */            
+       71  #define WF_DEBUG_MAX_STACKS             (8U)
+       72  
+       73  #if (WF_DEBUG_INFO_ENABLE == 1U)
+       74  
+       74 -/* 初始化: 读复位原因/黑匣子, 创建 66ms 发送任务。在 wf_time_s
+          -ync_init 之后调用。 */                                        
+       75 +/* Init: read reset cause/black box, create the 66ms send task
+          +. Call after wf_time_sync_init. */                            
+       76  void wf_debug_info_init(void);
+       77  
+       77 -/* 注册一个静态任务栈用于水位监测 (在 wf_debug_info_init 后调 
+          -用)。                                                         
+       78 - * stackBase 为 xTaskCreateStatic 传入的栈数组首地址 (栈底, 最
+          -深端)。 */                                                    
+       78 +/* Register one static task stack for watermark monitoring (ca
+          +ll after wf_debug_info_init).                                 
+       79 + * stackBase is the stack array base address passed to xTaskCr
+          +eateStatic (stack bottom, deepest end). */                    
+       80  void wf_debug_register_stack(const char *name, const void *sta
+           ckBase, uint32_t sizeBytes);
+       81  
+       81 -/* 流水阶段标记 (DPM reportFxn 及 RspTask 中调用)。           
+       82 - * RANGE_START 时内部顺带统计帧周期抖动。ISR/回调安全。 */    
+       82 +/* Pipeline stage marker (call from DPM reportFxn and RspTask)
+          +.                                                             
+       83 + * On RANGE_START it also measures frame period jitter. ISR/ca
+          +llback safe. */                                               
+       84  void wf_debug_mark_stage(WFDbgStage_e stage);
+       85  
+       85 -/* 帧处理闭环快照 (RspTask 末尾调用): 读取 mssTimeRecord 更新 
+          -max-hold,                                                     
+       86 - * 判定 overrun, 自增 resultCount。 */                        
+       86 +/* Frame processing close-out snapshot (call at end of RspTask
+          +): reads mssTimeRecord to update                              
+       87 + * max-hold, judges overrun, increments resultCount. */       
+       88  void wf_debug_frame_snapshot(uint16_t cfarNum, uint16_t intfNu
+           m, uint16_t waveId);
+       89  
+       89 -/* 航迹数记录 (canoutput task 打包处调用) */                  
+       90 +/* Track count record (call at the canoutput task packing site
+          +) */                                                          
+       91  void wf_debug_set_track_num(uint16_t trcNum);
+       92  
+       92 -/* 任务存活 tick (各任务主循环中调用) */                      
+       93 +/* Task liveness tick (call from each task's main loop) */    
+       94  void wf_debug_task_alive(WFDbgTaskId_e taskId);
+       95  
+       95 -/* 车身信息报文接收标记 (CAN 接收解析处调用) */               
+       96 +/* Vehicle info message reception marker (call at the CAN rece
+          +ive parse site) */                                            
+       97  void wf_debug_mark_vehicle_rx(void);
+       98  
+       98 -/* CAN-A TX FIFO 满等待事件 (mcanA_transfer_FIFO 中调用) */   
+       99 +/* CAN-A TX FIFO full wait event (call inside mcanA_transfer_F
+          +IFO) */                                                       
+      100  void wf_debug_mark_can_tx_stall(void);
+      101  
+      101 -/* 最近一次模块错误码记录 (负数错误码体系, 任意出错路径可调) *
+          -/                                                             
+      102 +/* Record the most recent module error code (negative error-co
+          +de scheme, callable on any error path) */                     
+      103  void wf_debug_set_last_error(int32_t errCode);
+      104  
+      104 -/* 黑匣子: assert 命中记录 (写 noinit RAM, 复位后仍可读出)。  
+      105 - * 由 _MmwDemo_debugAssert 钩子调用。 */                      
+      105 +/* Black box: record an assert hit (writes noinit RAM, still r
+          +eadable after reset).                                         
+      106 + * Called by the _MmwDemo_debugAssert hook. */                
+      107  void wf_debug_blackbox_assert(const char *file, int32_t line);
+      108  
+      109  #else
+
+● 头文件也翻译好了。现在处理我在 linker.cmd 加的中文注释,以及其他文件里
+  debuginfo 埋点的中文注释。先定位其他文件里还有哪些中文:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && grep -rn
+      "wf_debug\|debugInfo\|debug_info\|wfDbg…)
+  ⎿  Error: Exit code 2
+     grep: -P supports only unibyte and UTF-8 locales
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Grep 工具的 rg 不可用,我直接读相关行确认。先看已知的中文点和各埋点附近:
+
+  Read 2 files (ctrl+o to expand)
+
+● 埋点处的 debuginfo 注释基本已是英文,只有 mss_can_output.c:262 和我加在
+  linker.cmd 的注释是中文(2253/2688/2701 等中文注释是"车身信息"相关、非
+  debuginfo,按你要求不动)。改这两处:
+● Update(mss\mss_can_output.c)
+  ⎿  Added 1 line, removed 1 line
+      259                                  mssTimeRecord);
+      260                  cnt++;
+      261                  pTrackOutPutAddr2 = pTrackOutPutAddr;
+      262 -                wf_debug_set_track_num(obj_header_fl_t.rsds_fl
+          -_per_obj_num); /* 航迹数 → debugInfo */                       
+      262 +                wf_debug_set_track_num(obj_header_fl_t.rsds_fl
+          +_per_obj_num); /* track count -> debugInfo */                 
+      263                  tx_can_dbc_frame_header_fl_pack((uint8_t *)snd
+           _buf, &obj_header_fl_t, TX_CAN_DBC_FRAME_HEADER_FL_LENGTH);
+      264  #ifdef FRONT_RIGHT
+      265                  mcanA_transfer_FIFO(TX_CAN_DBC_FRAME_HEADER_FR
+           _FRAME_ID, (uint8_t *)snd_buf, TX_CAN_DBC_FRAME_HEADER_FR_LENG
+           TH, 15);
+
+● Update(mss\mmw_mss_linker.cmd)
+  ⎿  Added 5 lines, removed 3 lines
+      13      .ota_text: {} > TCMA_RAM   
+      14      .bss.wfNoInit (NOLOAD) : {} > TCMB_RAM
+      15      .bss.wfDbgStack: {} > TCMB_RAM
+      16 -    /* MSS_L2 已满: 把 wf_debug_info 的代码/只读放 TCMA, 其余 d
+         -ata/bss 放 TCMB。                                              
+      17 -     * 必须列在上面两条已命名段之后: .bss.wfNoInit(NOLOAD)/.bss
+         -.wfDbgStack 更具体且先列,                                      
+      18 -     * 优先认领, 不会被下面的 .bss.* 通配抢走 (否则 NOLOAD 黑匣
+         -子会被并入普通 bss 而遭清零)。 */                              
+      16 +    /* MSS_L2 is full: put wf_debug_info code/rodata in TCMA, t
+         +he rest of data/bss in TCMB.                                   
+      17 +     * Must be listed after the two named sections above: .bss.
+         +wfNoInit(NOLOAD)/.bss.wfDbgStack                               
+      18 +     * are more specific and listed first, so they claim their 
+         +input first and are not grabbed                                
+      19 +     * by the .bss.* wildcard below (otherwise the NOLOAD black
+         + box would be merged into plain                                
+      20 +     * bss and get zeroed). */                                 
+      21      .wfDbgCode: { wf_debug_info.oer5f(.text)   wf_debug_info.oe
+          r5f(.text.*)
+      22                    wf_debug_info.oer5f(.rodata) wf_debug_info.oe
+          r5f(.rodata.*) } > TCMA_RAM
+      23      .wfDbgData: { wf_debug_info.oer5f(.data)   wf_debug_info.oe
+          r5f(.data.*)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● linter 报错依旧是头文件路径噪声,无影响。做最后一次扫描,确认 debuginfo
+  相关行没有遗漏的中文:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && python -c "
+      import re,glob…)
+  ⎿  (No output)
+
+● debuginfo 行已无中文。两个核心文件整体都属于
+  debuginfo,再整文件扫一遍确保没有任何遗漏的中文字符:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && python -c "
+      import re…)
+  ⎿  wf_debug_info.c Chinese lines: 0
+     wf_debug_info.h Chinese lines: 0
+
+● 全部翻译完成,代码逐字未动。
+
+  改动汇总(仅注释):
+
+  ┌────────────────────────┬────────────────────────────────────────────────┐
+  │          文件          │                      改动                      │
+  ├────────────────────────┼────────────────────────────────────────────────┤
+  │                        │ 全部中文注释 →                                 │
+  │ mss/wf_debug_info.h    │ 英文(故障位定义、阈值、stage/task 枚举说明、各 │
+  │                        │  API 文档注释)                                 │
+  ├────────────────────────┼────────────────────────────────────────────────┤
+  │                        │ 全部中文注释 → 英文(黑匣子/NOLOAD 说明、结构体 │
+  │ mss/wf_debug_info.c    │ 字段注释、各函数内联注释、锁说明、page         │
+  │                        │ 构建注释、init 说明)                           │
+  ├────────────────────────┼────────────────────────────────────────────────┤
+  │ mss/mss_can_output.c:2 │ /* 航迹数 → debugInfo */ → /* track count ->   │
+  │ 62                     │ debugInfo */                                   │
+  ├────────────────────────┼────────────────────────────────────────────────┤
+  │ mss/mmw_mss_linker.cmd │ 我上轮加的段路由中文注释 → 英文                │
+  └────────────────────────┴────────────────────────────────────────────────┘
+
+  说明:
+  - 两个核心文件已用 Python 全文件扫描确认无任何中文字符残留;其余文件按
+  debuginfo 相关行扫描确认无遗漏。
+  - mss_main.c 里 debuginfo 埋点附近的中文注释(如 // DOPPLER_START 在第一车身信
+  息同步失败时进行、//车身信息在这里同步给网口帧头)是车身信息同步相关、非
+  debuginfo,按你"不要动到其他代码"的要求保留未动。
+  - 编译期那些 'drivers/uart.h' file not found / HwiP_disable undeclared 的
+  diagnostic 是 linter 缺少 SDK include 路径的误报,实际 makefile 编译不受影响。
+
+  编译你来跑即可。
+
+✻ Cooked for 4m 32s
+
+> D:\Weifu\Docs\BrainTrust\claude\zelos_repo\debuginfo.txt是这样的，这个txt文件 
+  是我和你对话记录export出来的，你刚刚的修改和对这个的理解是一致的把            
+
+● 让我读一下那份导出的对话记录,和我刚才的改动/理解做核对。
+
+  Read 1 file (ctrl+o to expand)
+
+● 读完了,这份记录就是这套 debugInfo 的完整设计与落地过程。核对结论:我对设计的理
+  解和你这份记录完全一致,而且能逐条对上:
+
+  设计要点(原始记录): 0x200 CANFD 标准帧,64B,66ms,4 页轮播
+  我审查/移植版的代码:
+  WF_DEBUG_INFO_CAN_ID=0x200/FRAME_LEN=64/PERIOD_MS=66/NUM_PAGES=4
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): 公共头:ver/page + rolling + 粘滞 faultSummary + state +
+    alive 位图
+  我审查/移植版的代码: wf_debug_info_task 填头逻辑
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): 粘滞位上电周期只置不清
+  我审查/移植版的代码: wf_dbg_set_fault 只 OR
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): max-hold 读后清零捕捉尖峰
+  我审查/移植版的代码: page0 读后清 tMax/marginMin/maxDev
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): margin 死字段 → 派生 660 − mssTimeRecord[5]
+  我审查/移植版的代码: frame_snapshot 正是这样算
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): CRC16-CCITT-FALSE,范围 Byte0..61,与 TimeSync 同参
+  我审查/移植版的代码: wf_dbg_crc16(frame, 62)
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): lastStageReached 指认卡点
+  我审查/移植版的代码: wf_debug_mark_stage / lastStage
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): MCAN 主动读 + protocolStatus(bus-off)
+  我审查/移植版的代码: wf_dbg_read_cana
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): noinit 黑匣子 .bss.wfNoInit (NOLOAD) → TCMB
+  我审查/移植版的代码: 一致
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): 栈水位、车身 age、TimeSync 全套
+  我审查/移植版的代码: page1/2/3
+  一致?: ✅
+  ────────────────────────────────────────
+  设计要点(原始记录): WDT 第④步未做
+  我审查/移植版的代码: 仍未做
+  一致?: ✅(一致)
+
+  但有一处我必须如实指出 —— 我上一轮的 fix #1 超出了原始已验证的范围:
+
+  原始记录里(第 1028-1030、1051-1052 行),最终的 linker
+  改动只把黑匣子和任务栈放进了 TCMB,wf_debug_info 的代码段 .text 是留在 MSS_L2 
+  的,而且那次编译通过了,map 显示 MSS_L2 还剩
+  0x11f0≈4.5KB。也就是说:原始工程并不需要把 .text 挪到 TCMA。
+
+  而我这轮加的 .wfDbgCode → TCMA_RAM / .wfDbgData → TCMB_RAM
+  是额外的余量优化,不是修复原本就存在的链接错误。这带来两个后果:
+
+  1. 它能进一步释放 MSS_L2(把几 KB 代码也挪走),在你这个 NotimeSync
+  分支(DBC、车型代码都和原始 compare 分支不同,MSS_L2
+  占用未必一样)如果更紧,这是好事;
+  2. 但它引入了我之前提示的 .bss.* 通配与 .bss.wfNoInit/.bss.wfDbgStack
+  的匹配优先级风险 —— 这是原始版本没有的。
+
+  所以给你两个选择:
+
+  - 保守(贴近已验证原版):删掉我加的 .wfDbgCode/.wfDbgData 两段,只保留
+  .bss.wfNoInit (NOLOAD) → TCMB + .bss.wfDbgStack → TCMB(和原始记录第 1028-1030
+  行完全一致)。前提是你这分支编译时 MSS_L2 不报 GROUP_6。
+  - 激进(我这轮的版本):保留 TCMA 路由,换取更多 MSS_L2 余量,但编译后务必查 .map
+  确认 .bss.wfNoInit 仍是独立 NOLOAD 段、没被 .wfDbgData 吞掉。
+
+  fix #2、#3(两处加锁)是纯增益,原始版本那两个写入点确实没保护,加锁与原设计"采集
+  点短临界区快照"的原则一致,可以放心留着。
+
+  我的建议:先按保守方案编一次(最贴近你已验证过的原版),如果 MSS_L2
+  报碎片化错误,再启用 TCMA 路由。要我把 linker 回退成保守版吗?
+
+✻ Crunched for 1m 41s
+
+> 是这样的，原版我也没有验证，都还是在设计阶段                                  
+
+● 啊,这点很关键 —— 那我之前"贴近已验证原版"的说法本身就站不住了,因为没有"已验证
+  原版"可贴。原始记录里那次编译只是编过(link 成功),没上过硬件;而且那是在 compare
+  分支,MSS_L2 占用和你这个 NotimeSync 分支也不一样。
+
+  既然都在设计阶段、一切以工程正确性为准,那就不该再纠结"和原版一致",而该选对这个
+  仓库最对的方案。而这个仓库自己的 CLAUDE.md 写得很明确:MSS_L2
+  ~5KB、碎片化、新增代码"经常 link 失败报 GROUP_6",规定的解法就是按对象文件把 
+  code/rodata 拆到 TCMA、data/bss 拆到 TCMB —— 我 fix #1 做的正是这件事。所以
+  fix #1 应该保留,它符合本仓库既定的内存策略,而不是多余。
+
+  唯一真正的风险是我提过的:.wfDbgData 的 .bss.* 通配可能和
+  .bss.wfNoInit/.bss.wfDbgStack 抢段,而 TI 链接器"精确段名 vs
+  对象内通配段名"谁更具体存在歧义。既然没有 .map
+  可以事后验证(都还没跑),我直接从构造上消除这个歧义——给两个已命名段也加上对象限
+  定,让它们严格比通配更具体,无论顺序都赢:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mss\mmw_mss_linker.cmd)
+  ⎿  Added 10 lines, removed 7 lines
+      11      .doa_l2Heap:  {} > MSS_L2
+      12      .ota_data: {} > TCMB_RAM
+      13      .ota_text: {} > TCMA_RAM   
+      14 -    .bss.wfNoInit (NOLOAD) : {} > TCMB_RAM                     
+      15 -    .bss.wfDbgStack: {} > TCMB_RAM                             
+      16 -    /* MSS_L2 is full: put wf_debug_info code/rodata in TCMA, t
+         -he rest of data/bss in TCMB.                                   
+      17 -     * Must be listed after the two named sections above: .bss.
+         -wfNoInit(NOLOAD)/.bss.wfDbgStack                               
+      18 -     * are more specific and listed first, so they claim their 
+         -input first and are not grabbed                                
+      19 -     * by the .bss.* wildcard below (otherwise the NOLOAD black
+         - box would be merged into plain                                
+      20 -     * bss and get zeroed). */                                 
+      14 +    /* debugInfo black box (NOLOAD, retained across warm reset)
+         + and send-task stack.                                          
+      15 +     * Qualified with the object file AND the exact section nam
+         +e, so they are strictly                                        
+      16 +     * more specific than the wf_debug_info.oer5f(.bss.*) wildc
+         +ard in .wfDbgData below                                        
+      17 +     * and are guaranteed to claim these inputs regardless of o
+         +rdering (otherwise the                                         
+      18 +     * NOLOAD black box could be merged into plain bss and get 
+         +zeroed). */                                                    
+      19 +    .bss.wfNoInit (NOLOAD) : { wf_debug_info.oer5f(.bss.wfNoIni
+         +t) }  > TCMB_RAM                                               
+      20 +    .bss.wfDbgStack:         { wf_debug_info.oer5f(.bss.wfDbgSt
+         +ack) } > TCMB_RAM                                              
+      21 +    /* MSS_L2 is full (see CLAUDE.md): put wf_debug_info code/r
+         +odata in TCMA, the rest                                        
+      22 +     * of its data/bss in TCMB. .text in TCMA is >32MB from MSS
+         +_L2 callers, so the linker                                     
+      23 +     * auto-generates small veneers in MSS_L2 (harmless). */   
+      24      .wfDbgCode: { wf_debug_info.oer5f(.text)   wf_debug_info.oe
+          r5f(.text.*)
+      25                    wf_debug_info.oer5f(.rodata) wf_debug_info.oe
+          r5f(.rodata.*) } > TCMA_RAM
+      26      .wfDbgData: { wf_debug_info.oer5f(.data)   wf_debug_info.oe
+          r5f(.data.*)
+
+● 现在 linker 是构造上无歧义了:.bss.wfNoInit/.bss.wfDbgStack 都加了
+  wf_debug_info.oer5f(...) 对象限定 + 精确段名,严格比 .wfDbgData 里的
+  wf_debug_info.oer5f(.bss.*) 通配更具体,无论列序都稳赢,黑匣子不会被并进普通 bss
+  清零。这样就不依赖"事后查 .map"来兜底了。
+
+  当前定位(重新校准后):
+
+  - 既然都在设计阶段、没有"已验证原版",决策按工程正确性走。
+  - fix #1 保留 —— 它正是本仓库 CLAUDE.md 规定的 MSS_L2 解法(code/rodata→TCMA,da
+  ta/bss→TCMB),不是多余。我刚把它的唯一风险点(通配抢段)从构造上消除了。
+  - fix #2 / #3(两处加锁)保留 —— 纯增益,原设计两个写入点确实漏了保护。
+
+  仍需上硬件验证的两件事(和原设计一致,代码改不掉):
+  1. 黑匣子跨 warm reset 存活 —— .bss.wfNoInit (NOLOAD) 是否真不被启动清零、SBL
+  是否对 TCM 做 ECC 清零。原设计也标了这条,是头号验证项(触发 assert → 复位 → 看
+  Page3 的 line/fileHash 还在不在)。
+  2. WDT 第④步 —— 仍未做,是"挂死→WDT 复位→Page3 报 MSS_WDT"闭环的最后一块,要动
+  syscfg,建议黑匣子验证通过后单独做。
+
+  一个 FYI(设计阶段你可能想补):原始设计文档 Page3 列了
+  minEverFreeHeap(堆最小余量),但落地代码里 Page3 没放堆字段,只有栈水位。如果你用
+  FreeRTOS heap 且关心堆耗尽,可以在 Page3 补一个
+  xPortGetMinimumEverFreeHeapSize()/64B 的 u16 —— 不是
+  bug,是设计文档和实现之间的一处取舍,要不要补你定。
+
+  整体结论:我对设计的理解和你这份记录一致,三处改动方向正确且已收敛。现在可以编译
+  了。
+
+✻ Baked for 1m 50s
+
+> 你能帮我整体讲一下这个设计的原理或者说方法是怎么样的，我需要快速的去了解怎么  
+  做的                                                                          
+
+● 好,我把这套 debugInfo
+  的设计从"为什么这么做"到"怎么运转"讲清楚,你看完就能掌握方法论。
+
+  ---
+  一、一切设计的出发点:一个硬约束
+
+  实车上只有一条 CAN 总线,接不了调试器。 出了问题你看不到内存、看不到栈、打不了
+  断点。所以唯一的办法是:让固件自己定期把"体检报告"通过 CAN 播出来,你在总线上用
+  CANoe/CANalyzer 收。
+
+  这条报文(0x200)就成了你唯一的眼睛。它本身的设计质量,直接决定了出问题时你能不能
+  定位。
+
+  ---
+  二、核心矛盾:信息太多,带宽太小
+
+  - 想监测的东西几十项(各阶段耗时、丢帧、温度、CAN 健康、栈、复位原因……)。
+  - 但 CAN FD 单帧最大只有 64 字节(DLC=15),装不下。
+
+  解法 = 分页轮播(multiplexing)。 Byte0 低 4 位当"页号",每 66ms 发一页,4 页一轮:
+
+  t=0ms   发 Page0(时序)
+  t=66ms  发 Page1(数据通路/RF)
+  t=132ms 发 Page2(TimeSync/CAN)
+  t=198ms 发 Page3(黑匣子/栈)
+  t=264ms 又回 Page0 ...
+
+  264ms 拿到一张完整快照,总线上只占一条周期报文,负载不变。这是 debug
+  日志的理想形态。
+
+  ---
+  三、五条"立规矩"的设计原则(方法论精华)
+
+  这几条是把"实时状态"变成"可靠日志"的关键,也是这套东西和普通打印 log
+  的本质区别:
+
+  原则: ① 粘滞位(sticky)
+  为什么: 两次报文间隔
+    66ms,中间发生的瞬态故障(比如一次超时尖峰)如果只报"此刻状态"就漏了。所以故障
+  位用"或累加",只置不清,只要本上电周期发生过就一直为
+      1
+  代码体现: faultSummary |= bit,整个 wf_dbg_set_fault()
+  ────────────────────────────────────────
+  原则: ② 峰值锁存 + 读后清零(max-hold)
+  为什么: 算法超时是偶发尖峰,报平均值会被抹平。所以各阶段耗时报"这个窗口内的最大
+  值",发出去后清零,重新抓下一窗口的尖峰
+  代码体现: tMax[i],page0 发完 tMax[i]=0
+  ────────────────────────────────────────
+  原则: ③ 滚动计数器 + CRC
+  为什么: rolling counter 每帧 +1 → 丢帧/总线阻塞一眼可见;帧尾 CRC16 →
+    防误码。和你的 TimeSync 帧同一套路
+  代码体现: rollingCounter,wf_dbg_crc16
+  ────────────────────────────────────────
+  原则: ④ 公共头每页都带
+  为什么: rolling
+    counter、故障摘要这种"一眼定生死"的信息,每一页都要带。否则带它的那一页一丢你
+  就瞎了
+  代码体现: 每帧 Byte0–5 固定头
+  ────────────────────────────────────────
+  原则: ⑤ 采集/发送解耦
+  为什么: 采集点(算法流水里)绝不能做阻塞发送;发送放独立任务。这样即使 canoutput 
+    任务挂了,这条报文照样能发出来并报告"它挂了"
+  代码体现: 独立 wf_debug_info_task,66ms 自己跑
+
+  ---
+  四、架构:数据怎么流动
+
+     算法流水线(RspTask / DPM reportFxn)          独立发送任务(66ms)
+     ┌─────────────────────────────┐            ┌──────────────────────┐
+     │ 每帧/每阶段调用"采集 API":   │            │ 1. 评估存活/健康      │
+     │  mark_stage()  ← 走到哪一阶段│  写入全局   │ 2. 填公共头           │
+     │  frame_snapshot() ← 耗时快照 │ ─────────► │ 3. 按当前页号填载荷    │
+     │  task_alive()  ← 任务心跳    │  gWfDbg    │ 4. 算 CRC             │
+     │  mark_vehicle_rx() 等        │            │ 5. 发 0x200,翻页      │
+     └─────────────────────────────┘            └──────────────────────┘
+          (短临界区,不阻塞)                       (HwiP 临界区读全局快照)
+
+  - 采集端:散落在各处的单行埋点,只更新内存里的全局结构 gWfDbg,极轻量。
+  - 发送端:一个独立 FreeRTOS 任务,66ms 醒一次,把 gWfDbg 打包发出。
+  - 中间用 HwiP_disable/restore(关中断临界区)保证读写一致 ——
+  这就是你刚让我加锁的 fix #2/#3 在补的地方。
+
+  ---
+  五、帧格式
+
+  公共头(每页 Byte0–5 都一样):
+  [0]   schemaVer(高4位) | pageId(低4位)
+  [1]   rollingCounter         ← 每帧+1
+  [2-3] faultSummary           ← 12 个粘滞故障位,一眼定生死
+  [4]   sensorState | timeSyncState
+  [5]   taskAliveBitmap        ← 各任务存活位
+  ...载荷 Byte6–61...
+  [62-63] CRC16
+
+  故障摘要 12 位(WF_DBG_FAULT_*):超时、丢帧、SyncLost、CAN
+  错误、过温、DTC、任务挂死、栈低、黑匣子有记录、车身超时、assert 命中、CAN-TX
+  阻塞。收报文第一眼只看这 2 字节,哪一位亮了再去翻对应那一页看细节。
+
+  4 页载荷:
+
+  ┌───────┬───────────────────────────────────────────────┬──────────────────┐
+  │  页   │                     内容                      │    答什么问题    │
+  ├───────┼───────────────────────────────────────────────┼──────────────────┤
+  │ Page0 │ 各阶段耗时                                    │ 慢不慢?卡哪一段? │
+  │       │ max-hold、margin、超时计数、lastStage         │                  │
+  ├───────┼───────────────────────────────────────────────┼──────────────────┤
+  │ Page1 │ frameTrigger/result                           │ 断流没?致盲没?   │
+  │       │ 计数、cfar/航迹/干扰数、温度                  │                  │
+  ├───────┼───────────────────────────────────────────────┼──────────────────┤
+  │ Page2 │ TimeSync offset/CRC/DTC、CAN TEC/REC/bus-off  │ 同步/总线健康?   │
+  ├───────┼───────────────────────────────────────────────┼──────────────────┤
+  │ Page3 │ 复位原因、黑匣子(死在哪行)、栈水位、uptime    │ 死过没?死在哪?   │
+  └───────┴───────────────────────────────────────────────┴──────────────────┘
+
+  ---
+  六、几个巧妙的检测手法(值得记住)
+
+  1. 死字段改派生计算:TI 自带的 interFrameProcessingMargin
+  全工程没人填(死字段)。改成自己算:margin = 660 − mssTimeRecord[5](0.1ms
+  单位,66ms=660)。教训:用一个字段前先确认它真被填充。
+  2. lastStage 指认卡点:每个流水阶段写一个枚举值。一旦卡死,这个字节冻结在最后到
+  达的阶段,直接告诉你卡在 CM4 还是 DOA
+  还是后处理。一行代码,解决"只知道没出结果、不知道卡哪"的盲区。
+  3. CAN 健康要主动轮询:MCAN_getErrCounters 原本只在"收到报文时"读 —— 可 bus-off
+  时根本收不到报文,永远读不到。所以改在 66ms 发送任务里主动读 + 读
+  protocolStatus(bus-off 标志在那)。
+  4. 任务存活位图:每个任务在自己主循环里 task_alive() 自增一个
+  tick,发送任务检查"这个 tick
+  有没有在涨"。某个任务挂了但系统没崩,这是唯一能看出来的方式。
+  注意区分:周期性任务(canout/timesync)才判死,事件驱动的(canrec)只进位图不判死。
+  5. 栈水位扫描:静态栈数组从栈底往上数连续的
+  0x00/0xA5A5A5A5,数到第一个非空字就是用过的最深处 → 算出剩余余量。
+
+  ---
+  七、黑匣子(noinit 段技巧)—— 最精彩的一招
+
+  问题:release 下 assert 命中 = 死循环 → 雷达静默消失,什么都留不下。
+
+  手法:
+  1. 链接脚本里开一小块 .bss.wfNoInit (NOLOAD) —— warm reset 后不被清零的 RAM。
+  2. 自定义 assert 钩子 wf_debug_blackbox_assert() 把 文件名hash + 行号 + magic
+  写进去。
+  3. 复位重启后,init 检查 magic 有效 → 说明上次是崩溃复位 → 把"上次死在哪行"通过
+  Page3 发出来。
+
+  配合 WDT(挂死→看门狗复位→Page3 报 MSS_WDT
+  复位原因)就闭环了:没有任何"永久静默且无痕"的故障模式(唯一物理无解的是 bus-off
+  进行中的那个窗口,靠恢复后的粘滞计数补侦)。
+
+  ▎ ⚠️ 这招的前提是 noinit RAM 真不被清零 —— 这正是要上硬件验证的头号项,也是 WDT
+  ▎ 第④步还没做的原因。
+
+  ---
+  八、你怎么用它定位问题(实战流程)
+
+  收到 0x200 → 看 faultSummary 哪位亮
+    ├ 超时位亮      → 等 Page0,看哪段 max-hold 爆了
+    ├ 丢帧位亮      → 等 Page1,看 trigger 涨但 result 停 = DSP 挂了
+    ├ 任务挂死位亮  → 看 aliveBitmap 哪个任务的位灭了
+    ├ 黑匣子位亮    → 等 Page3,fileHash+line = 上次死在哪行
+    └ rollingCounter 不连续 → 丢帧或总线阻塞
+
+  一句话总结方法论:用一条周期 CAN 报文当"飞行记录仪",靠粘滞位抓瞬态、max-hold 
+  抓尖峰、分页换带宽、心跳测存活、noinit 
+  留遗言,把一个没有调试器的实车系统变成可观测的。
+
+  ---
+  需要的话,我可以挑任意一页/任意一个机制,带你过一遍对应的具体代码,或者把这套原理
+  整理成一份 design note 存进项目文档。
+
+✻ Sautéed for 1m 14s
+
+> 把这套原理整理成 design note 存进项目文档                                     
+
+● 我先看一下项目里现有文档放在哪、有没有惯例,再决定 design note 放哪。
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== md/txt docs under mmw_ddm
+      ===" && find . -…)
+  ⎿  === md/txt docs under mmw_ddm ===
+     === docs dirs ===
+     ./docs
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/docs" && ls -la)
+  ⎿  total 78
+     drwxr-xr-x 1 Administrator 197121     0 Jun 13 17:36 .
+     drwxr-xr-x 1 Administrator 197121     0 Jun 24 19:01 ..
+     … +4 lines (ctrl+o to expand)
+
+● docs/ 是 TI 的 doxygen 工程目录。我把 design note 作为独立 markdown
+  放进去,既不干扰 doxygen 又便于查阅。
+
+● Write(docs\debugInfo_design_note.md)
+  ⎿  Wrote 206 lines to docs\debugInfo_design_note.md
+      1 # 0x200 debugInfo 设计说明 (Design Note)
+      2 
+      3 > 运行时调试报文 — 实车无调试器环境下的"飞行记录仪"
+      4 > 模块代码:`mss/wf_debug_info.c` / `mss/wf_debug_info.h`
+      5 > 作者:Peter Zhu ｜ 状态:设计/落地阶段(未上硬件验证)
+      6 
+      7 ---
+      8 
+      9 ## 1. 出发点:一个硬约束
+     … +253 lines (ctrl+o to expand)
+
+● 已创建:ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md
+
+  放在项目自带的 docs/ 目录(TI doxygen 工程旁),独立 markdown,不干扰 doxygen
+  构建。
+
+  文档结构(10 节 + 附录):
+  1. 出发点:实车无调试器的硬约束
+  2. 核心矛盾与分页轮播解法
+  3. 五条设计原则(粘滞位 / max-hold / rolling+CRC / 公共头 / 采集发送解耦)
+  4. 架构与数据流图
+  5. 帧格式(公共头 + 12 故障位表 + 4 页载荷表)
+  6. 关键检测手法(死字段派生、lastStage 指认卡点、CAN
+  主动轮询、存活位图、栈水位)
+  7. 黑匣子 noinit 段技巧
+  8. 内存布局(TCMA/TCMB 路由,含段匹配防抢说明)
+  9. 实战定位流程 + 12 个故障场景覆盖表
+  10. 待办与硬件验证项
+
+  文档里都对应到了真实文件/函数名(wf_debug_info.c、wf_dbg_read_cana、mmw_mss_lin
+  ker.cmd 等),后人或你自己回看时能直接落到代码。这份是未跟踪新文件,提交时记得
+  git add docs/debugInfo_design_note.md。
+
+  需要的话我可以再加一节 DBC mux 信号定义(把 4 页布局写成可导入 CANoe 的
+  multiplexed message),那样总线侧解析就能直接出来 —— 要不要补?
+
+✻ Worked for 1m 53s
+
+> DBC mux信号有必要加么，我本来是想写一个python脚本来解析的                     
+
+● 不必须,而且对你这个场景,Python 
+  脚本反而是更对的选择。理由是这条报文的核心价值在 DBC 恰好做不到的地方:
+
+  DBC mux 的天花板
+
+  DBC(CANoe/CANalyzer)本质是单帧解码器 ——
+  它能把"这一帧的这几个字节"翻成带名字的信号,但它不会跨帧、跨时间推理。而你这套
+  debugInfo 最关键的诊断恰恰是跨帧的:
+
+  - "trigger 在涨但 result 停了" → 要对比两个计数器的变化趋势
+  - "rollingCounter 不连续" → 要看帧间连续性
+  - max-hold、粘滞位的语义是"这段时间内发生过" → 要在时间轴上看
+  - 4 页轮播 → 要把 4 帧重组成一张完整快照(DBC 每页只能各管各的,拼不起来)
+
+  这些 DBC 全做不了,得靠脚本。
+
+  各自真正适合的场景
+
+  ┌──────────────────────────────────┬────────────────┬────────────────────┐
+  │                                  │    DBC mux     │    Python 脚本     │
+  ├──────────────────────────────────┼────────────────┼────────────────────┤
+  │ 单帧字段解码                     │ ✅ 原生        │ 要自己写           │
+  ├──────────────────────────────────┼────────────────┼────────────────────┤
+  │ 跨页重组 / 趋势 / 连续性         │ ❌ 做不到      │ ✅ 强项            │
+  ├──────────────────────────────────┼────────────────┼────────────────────┤
+  │ 粘滞位 → 可读名、黑匣子 fileHash │ ❌ 只给原始值  │ ✅ 任意加工        │
+  │  反查                            │                │                    │
+  ├──────────────────────────────────┼────────────────┼────────────────────┤
+  │ 在 CANoe GUI 实时看              │ ✅             │ ❌(需先抓 asc/blf  │
+  │                                  │                │ 再跑)              │
+  ├──────────────────────────────────┼────────────────┼────────────────────┤
+  │ 给域控/他人用标准工具看          │ ✅             │ 要分发脚本         │
+  ├──────────────────────────────────┼────────────────┼────────────────────┤
+  │ 跟固件 schema 同步维护成本       │ 高(手写 mux    │ 中                 │
+  │                                  │ 很烦)          │                    │
+  └──────────────────────────────────┴────────────────┴────────────────────┘
+
+  结论:除非别人(域控团队、测试)要在他们的标准 CAN 工具里直接看,否则 DBC
+  不值得手写。自己 debug,Python 完胜。这条 4 页 × 几十字段、还混了 i8
+  温度/位域/max-hold 的报文,手写 mux DBC 会非常痛苦。
+
+  所以 design note 里那节 DBC不用加。
+
+  一个建议:给 Python 脚本一份"权威字节表"
+
+  Python 解析唯一的风险是 magic number 漂移 —— 脚本里硬编码 frame[8:10]
+  这种偏移,固件 schema 一改,脚本和固件就对不上了。固件这边的真相源是
+  wf_debug_info.c 里那些 wf_dbg_put_u16(&p[N], ...)。
+
+  要降低这个风险,我可以在 design note 里补一节
+  精确字节偏移表(offset/type/字段名,逐页),让脚本照着它写、固件改了先改表 ——
+  一处真相、两边对齐。这比 DBC 轻得多,也正好喂给你的脚本。
+
+  要我做哪个?
+  1. 补字节偏移表进 design note(给脚本当 spec)
+  2. 直接帮你写 Python 解析脚本(4 页重组 + 粘滞位/状态解名 + rollingCounter
+  连续性检查 + CRC 校验),你说一下输入格式(CANoe .asc?.blf?还是
+  socketcan/串口转发?)
+  3. 两个都做
+
+✻ Worked for 42s
+
+> 两个都做                                                                      
+
+● 好,两个都做。我先从 wf_debug_info.c
+  的页构建函数逐字段提取绝对字节偏移(这是脚本要照着写的权威 spec),补进 design
+  note;再写 Python 解析脚本。
+
+  先把偏移表加进 design note:
+
+● Update(docs\debugInfo_design_note.md)
+  ⎿  Added 112 lines, removed 1 line
+      201  
+      202  ---
+      203  
+      204 -## 附:对外开关                                                
+      204 +## 附录 A:字节偏移表(解析权威 spec)                           
+      205  
+      206 +> 所有偏移为**帧内绝对字节**(0–63),小端。固件真相源是 `wf_debu
+          +g_info.c` 的 `wf_dbg_build_pageN()`;**改固件 schema 时先改本表
+          +,解析脚本(`tools/debuginfo_parser.py`)照本表实现**。`schemaVer
+          +` 当前 = 1,字段变更需 +1。                                    
+      207 +                                                              
+      208 +### 公共头(每页 Byte 0–5 + 帧尾)                              
+      209 +                                                              
+      210 +| 偏移 | 类型 | 字段 | 说明 |                                 
+      211 +|---|---|---|---|                                             
+      212 +| 0 | u8 | `schemaVer`(bit7:4) \| `pageId`(bit3:0) | ver=1 |  
+      213 +| 1 | u8 | `rollingCounter` | 每帧 +1,断续=丢帧 |             
+      214 +| 2 | u16 | `faultSummary` | 12 粘滞位,见下 |                 
+      215 +| 4 | u8 | `sensorState`(bit3:0) \| `timeSyncState`(bit7:4) | 
+          +枚举值见 `mmw_mss.h`/`wf_time_sync.h` |                       
+      216 +| 5 | u8 | `taskAliveBitmap` | bit0 RSP,1 CANOUT,2 CANREC,3 TI
+          +MESYNC,4 CTRL |                                               
+      217 +| 62 | u16 | `CRC16-CCITT-FALSE` | poly 0x1021,init 0xFFFF,覆 
+          +盖 Byte 0–61 |                                                
+      218 +                                                              
+      219 +**`faultSummary` 位**:0 OVERRUN｜1 FRAME_DROP｜2 SYNC_LOST｜3 
+          +CAN_ERR｜4 OVER_TEMP｜5 DTC_ACTIVE｜6 TASK_DEAD｜7 STACK_LOW｜
+          +8 BLACKBOX｜9 VEHICLE_TIMEOUT｜10 ASSERT｜11 CAN_TX_STALL     
+      220 +                                                              
+      221 +### Page0 — 时序/超时(`pageId`=0)                             
+      222 +                                                              
+      223 +| 偏移 | 类型 | 字段 |                                        
+      224 +|---|---|---|                                                 
+      225 +| 6 | u16 | `tMax0` CM4 解调 max-hold (0.1ms) |               
+      226 +| 8 | u16 | `tMax1` DOA/DSP |                                 
+      227 +| 10 | u16 | `tMax2` 后处理 |                                 
+      228 +| 12 | u16 | `tMax3` CAN-TX |                                 
+      229 +| 14 | u16 | `tMax4` Enet-TX |                                
+      230 +| 16 | u16 | `tMax5` 总耗时 |                                 
+      231 +| 18 | u16 | `tTotalCur` 当前帧总耗时 |                       
+      232 +| 20 | **i16** | `marginMin` 余量最小值(=660−总耗时,负即超时) 
+          +|                                                             
+      233 +| 22 | u16 | `overrunCount` 超时累计 |                        
+      234 +| 24 | u32 | `lastOverrunFrame` 上次超时帧号 |                
+      235 +| 28 | u8 | `lastStage` 最后到达阶段(卡死指认) |              
+      236 +| 29 | u8 | (保留) |                                          
+      237 +| 30 | u16 | `framePeriodCur` 帧周期实测 |                    
+      238 +| 32 | u16 | `framePeriodMaxDev` 帧周期最大偏差 |             
+      239 +| 34 | u32 | `resultCount` 处理完成帧数 |                     
+      240 +                                                              
+      241 +`lastStage` 枚举:1 RANGE_START｜2 DOPPLER_START｜3 CFAR_START 
+          +｜4 DPC_RESULT｜5 DOA_DONE｜6 POSTPROC_DONE                   
+      242 +                                                              
+      243 +### Page1 — 数据通路/RF(`pageId`=1)                           
+      244 +                                                              
+      245 +| 偏移 | 类型 | 字段 |                                        
+      246 +|---|---|---|                                                 
+      247 +| 6 | u32 | `frameTriggerReady`(低 32) BSS 触发计数 |         
+      248 +| 10 | u32 | `resultCount` 处理完成计数 |                     
+      249 +| 14 | u16 | `cfarNumCur` 当前检测点数 |                      
+      250 +| 16 | u16 | `cfarNumMin` 窗口最小 |                          
+      251 +| 18 | u16 | `cfarNumMax` 窗口最大 |                          
+      252 +| 20 | u16 | `trcNum` 航迹数 |                                
+      253 +| 22 | u16 | `intfNumCur` 干扰数 |                            
+      254 +| 24 | u16 | `waveIdCur` 波形 ID |                            
+      255 +| 26 | i8 | `tmpRx0` (°C) |                                   
+      256 +| 27 | i8 | `tmpTx0` |                                        
+      257 +| 28 | i8 | `tmpPm` |                                         
+      258 +| 29 | i8 | `tmpDig0` |                                       
+      259 +| 30 | u8 | `tempValid`(1=温度有效) |                         
+      260 +| 31 | u8 | (保留) |                                          
+      261 +| 32 | u16 | `failedTimingReports` |                          
+      262 +| 34 | u16 | `calibrationReports` |                           
+      263 +| 36 | u16 | `vehAgeMs` 车身报文距上次接收(ms,0xFFFF=从未) |  
+      264 +| 38 | u32 | `vehicleRxCount` |                               
+      265 +                                                              
+      266 +### Page2 — TimeSync/CAN(`pageId`=2)                          
+      267 +                                                              
+      268 +| 偏移 | 类型 | 字段 |                                        
+      269 +|---|---|---|                                                 
+      270 +| 6 | i32 | `offsetUs` 时钟偏移 |                             
+      271 +| 10 | u32 | `validFrameCount` |                              
+      272 +| 14 | u16 | `crcErrorCount` |                                
+      273 +| 16 | u16 | `invalidFrameCount` |                            
+      274 +| 18 | u16 | `offsetJumpCount` |                              
+      275 +| 20 | u8 | `dtcActive` |                                     
+      276 +| 21 | u8 | `dtcReason` |                                     
+      277 +| 22 | u8 | `lastSequenceCounter` |                           
+      278 +| 23 | u8 | `tec` CAN-A 发送错误计数 |                        
+      279 +| 24 | u8 | `rec` CAN-A 接收错误计数 |                        
+      280 +| 25 | u8 | `canFlags` bit0 busOff,1 errPassive,2 warning |   
+      281 +| 26 | u16 | `busOffEverCount` |                              
+      282 +| 28 | u16 | `canTxStallCount` |                              
+      283 +| 30 | u16 | `dtcReportCount` |                               
+      284 +| 32 | u32 | `canErrLogCnt` |                                 
+      285 +                                                              
+      286 +### Page3 — 黑匣子/资源(`pageId`=3)                           
+      287 +                                                              
+      288 +| 偏移 | 类型 | 字段 |                                        
+      289 +|---|---|---|                                                 
+      290 +| 6 | u8 | `resetCause` (`SOC_rcmGetResetCause`) |            
+      291 +| 7 | u8 | `warmResetCause` (`SOC_getWarmResetCause`) |       
+      292 +| 8 | u16 | `bootCount` |                                     
+      293 +| 10 | u32 | `uptimeMs` |                                     
+      294 +| 14 | u8 | `bbRecValid`(1=黑匣子有记录) |                    
+      295 +| 15 | u8 | `bbFromPrevBoot`(1=记录来自上一次启动) |          
+      296 +| 16 | u16 | `bbLine` 死机行号 |                              
+      297 +| 18 | u16 | `bbFileHash` 文件名 djb2 hash |                  
+      298 +| 20 | u16 | `bbAssertCount` |                                
+      299 +| 22 | 8×u8 | `stackFree16[0..7]` 各任务栈底剩余/16B(0xFF=未注
+          +册) |                                                         
+      300 +| 30 | i32 | `lastErrorCode` |                                
+      301 +| 34 | u8 | `sensorStartCount` |                              
+      302 +| 35 | u8 | `sensorStopCount` |                               
+      303 +| 36 | u16 | `assertCountLive` 本次运行 assert 计数 |         
+      304 +                                                              
+      305 +`stackFree16` 注册顺序:0 ctrl,1 rsp,2 canout,3 canrec,4 tsync,
+          +5 wfdbg(见 `mss_main.c` 注册序)。                             
+      306 +                                                              
+      307 +---                                                           
+      308 +                                                              
+      309 +## 附录 B:对外开关                                            
+      310 +                                                              
+      311  `wf_debug_info.h` 顶部 `WF_DEBUG_INFO_ENABLE`:置 0 时所有采集 
+           API 编译为空宏,量产可一键关闭。
+      312 +                                                              
+      313 +---                                                           
+      314 +                                                              
+      315 +## 附录 C:解析脚本                                            
+      316 +                                                              
+      317 +`tools/debuginfo_parser.py` —— 按附录 A 实现:4 页重组、粘滞位/
+          +状态解名、rollingCounter 连续性检查、CRC 校验、trigger/result 
+          +趋势告警。输入支持 CANoe `.asc`(经典/CANFD)与十六进制行,详见脚
+          +本头注释。                                                    
+
+● Now the Python parser, implemented strictly against that offset table:
+
+● Write(tools\debuginfo_parser.py)
+  ⎿  Wrote 362 lines to tools\debuginfo_parser.py
+       2 """usr/bin/env python3
+       3 0x200 debugInfo parser  ——  AWR2x44P mmw_ddm radar runtime debug
+       4  frame decoder
+       5 Decodes the 64-byte, 4-page-rotating 0x200 CAN-FD frame defined 
+         in
+       7   docs/debugInfo_design_note.md  附录A  (byte-offset spec — keep
+          this script in sync with it)
+       9 Features
+      10   - decode one 64-byte frame -> structured dict (common header +
+          page payload)
+     … +415 lines (ctrl+o to expand)
+
+● 脚本写好了。我跑个自测,用 Python 按固件逻辑造几帧(含正确 CRC、4
+  页轮播)喂给解析器,验证 CRC 校验、解码、连续性、趋势告警都正常:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python -c "
+      import struct, importlib.util…)
+  ⎿  built 5 frames
+     ===== RUN =====
+     [    0.0010] p0 roll= 10 sensor=OPENED sync=SYNCED alive=RSP,CANOUT,CA
+     … +73 lines (ctrl+o to expand)
+
+● 自测全过,逻辑验证无误:
+
+  - ✅ CRC 全部校验通过(无 mismatch 告警)
+  - ✅ 字段解码正确:marginMin=-40(有符号 i16
+  超时)、lastStage=POSTPROC_DONE、栈余量 ×16
+  还原(canout=3200B、未注册=None)、bbFileHash、温度 i8 等
+  - ✅ 4 页重组成完整快照
+  - ✅ rollingCounter gap=2 连续性告警触发(13→15)
+  - ✅ trigger 涨 / result 停 → DSP/DPM hang 趋势告警触发
+
+  交付汇总
+
+  1. design note 补了三个附录(docs/debugInfo_design_note.md):
+  - 附录 A:逐页字节偏移表(绝对偏移/类型/字段名),从 wf_dbg_build_pageN()
+  逐字段提取,作为固件与脚本的唯一真相源
+  - 附录 B:对外开关 ｜ 附录 C:指向解析脚本
+
+  2. Python 解析脚本(tools/debuginfo_parser.py,纯 stdlib,Python 3.7+):
+  - 单帧解码 → 结构化 dict(公共头 + 页载荷)
+  - 4 页重组 + CRC16 校验 + rollingCounter 连续性 + 粘滞位/存活位/CAN flag 解名
+  - 跨帧趋势告警(trigger 涨但 result 停 = DSP 挂)
+  - 输入支持 CANoe .asc(经典 + CAN-FD)、十六进制行、stdin
+
+  用法:
+  python debuginfo_parser.py capture.asc --full      # CANoe 抓包,每轮 dump 
+  完整快照
+  python debuginfo_parser.py frames.hex --format hex # 串口转发/手动粘贴
+
+  两处需你按真实工程校准的地方
+
+  脚本里有两个枚举名映射我只能给最佳猜测,标了注释,建议你对一下头文件确认数值:
+
+  1. SENSOR_STATE(mmw_mss.h 的 MmwDemo_SensorState)—— 我假设
+  INIT=0/OPENED=1/STARTED=2/STOPPED=3
+  2. TIMESYNC_STATE(wf_time_sync.h 的状态枚举)—— 我假设
+  INIT=0/SILENT_WAIT=1/SYNCED=2/SYNC_LOST=3
+
+  数值对不上不影响解析(会原样打印数字),只影响状态名是否可读。
+
+  要我现在去 mmw_mss.h / wf_time_sync.h
+  把这两个枚举的真实数值查出来、填进脚本吗?
+
+✻ Cogitated for 3m 41s
+
+> 要的 你帮忙枚举并且填进脚本                                                   
+
+● I'll find the two enums' real values.
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== MmwDemo_SensorState ===" &&
+      grep -rn "MmwD…)
+  ⎿  === MmwDemo_SensorState ===
+     mss/mmw_mss.h:131:typedef enum MmwDemo_SensorState_e
+     mss/mmw_mss.h:135:    MmwDemo_SensorState_INIT = 0,
+     … +3 lines (ctrl+o to expand)
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== timesync state enum ===" &&
+      grep -rn "WF_T…)
+  ⎿  === timesync state enum ===
+     77:    WF_TIME_SYNC_STATE_INIT = 0,
+     78:    WF_TIME_SYNC_STATE_SILENT_WAIT,
+     … +2 lines (ctrl+o to expand)
+
+● 两个枚举的真实值和我之前的猜测完全一致:
+
+  - MmwDemo_SensorState(mmw_mss.h:131):INIT=0, OPENED=1, STARTED=2, STOPPED=3 ✓
+  - WF_TIME_SYNC_STATE(wf_time_sync.h:77):INIT=0, SILENT_WAIT=1, SYNCED=2,
+  SYNC_LOST=3 ✓
+
+  所以映射表数值已经对了,只需把注释从"最佳猜测、待核对"改成"已对照头文件确认":
+
+● Update(tools\debuginfo_parser.py)
+  ⎿  Added 3 lines, removed 2 lines
+      54  }
+      55  STACK_NAMES = ["ctrl", "rsp", "canout", "canrec", "tsync", "wfd
+          bg", "reg6", "reg7"]
+      56  
+      57 -# Enum value->name maps below are best-effort. If your build di
+         -ffers, fill them                                               
+      58 -# in from mmw_mss.h (MmwDemo_SensorState) and wf_time_sync.h (W
+         -FTimeSyncState).                                               
+      57 +# Enum value->name maps, verified against the firmware headers:
+      58 +#   mmw_mss.h:131    MmwDemo_SensorState_e                     
+      59 +#   wf_time_sync.h:77 WFTimeSyncState                          
+      60  SENSOR_STATE = {0: "INIT", 1: "OPENED", 2: "STARTED", 3: "STOPP
+          ED"}
+      61  TIMESYNC_STATE = {0: "INIT", 1: "SILENT_WAIT", 2: "SYNCED", 3: 
+          "SYNC_LOST"}
+      62  
+
+● Done。两个枚举已对照头文件确认并固化到脚本里:
+
+  ┌────────────────┬────────────────────────────┬───────────────────────────┐
+  │      枚举      │           头文件           │           数值            │
+  ├────────────────┼────────────────────────────┼───────────────────────────┤
+  │ SENSOR_STATE   │ mmw_mss.h:131              │ INIT=0 / OPENED=1 /       │
+  │                │ MmwDemo_SensorState_e      │ STARTED=2 / STOPPED=3     │
+  ├────────────────┼────────────────────────────┼───────────────────────────┤
+  │ TIMESYNC_STATE │ wf_time_sync.h:77          │ INIT=0 / SILENT_WAIT=1 /  │
+  │                │                            │ SYNCED=2 / SYNC_LOST=3    │
+  └────────────────┴────────────────────────────┴───────────────────────────┘
+
+  值和原先猜测一致(自测里 sensor=OPENED sync=SYNCED
+  的输出本就是对的),这次只是把注释从"待核对"改成"已确认 +
+  标注头文件行号",后人维护时知道来源、改 schema 时知道去哪核对。
+
+  解析脚本现在是完整可用状态:tools/debuginfo_parser.py —— 4 页重组、CRC
+  校验、连续性/趋势告警、状态全部解名。整套 debugInfo 的交付(固件三处修复 +
+  design note + 偏移表 spec + 解析脚本)到此闭环。
+
+  剩下的就是你那边的硬件验证三件事(0x200 基本收发、黑匣子跨复位、台架耗时对照)和
+  WDT 第④步,代码侧没有未决项了。提交时记得把这几个未跟踪新文件一起 add:
+  docs/debugInfo_design_note.md
+  tools/debuginfo_parser.py
+  mss/wf_debug_info.c
+  mss/wf_debug_info.h
+✻ Cogitated for 38s
