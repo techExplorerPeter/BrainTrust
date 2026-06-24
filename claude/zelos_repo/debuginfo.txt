@@ -1,0 +1,1108 @@
+ ▐▛███▜▌   Claude Code v2.1.173
+▝▜█████▛▘  Opus 4.8 · Claude Pro
+  ▘▘ ▝▝    D:\Weifu\git\compare\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\t…
+
+ ▎ Meet Fable 5, our newest model for complex, long-running work. Try anytime with /model.
+ ▎ Included in your plan limits until Jun 22, then switch to usage credits to continue.
+
+> 是这样的，这个工程现在是TI的SDK工程，一旦实车后只有一个can网络，不能接调试器d 
+  ebug，调试手段非常有限制，我现在有一个设计想法，就是增加了一个报文，定周期66m 
+  s，报文是canfd标准帧的canid是0x200，字节长度的debugInfo，我暂定的长度128个字  
+  节，我想通过这个can输出当作日志，来当成出现问题的时候的调试手段，你根据我现在 
+  的工程，帮我看看有哪些信息需要检测的，主要是针对于运行时监测，比如算法是否超  
+  时，一些重要的标记能帮助我定位问题，站在工程思维的角度，架构师的角度，你看看  
+  有哪些东西可以用来检测，通过debuginfo传出来                                   
+
+● 好的，这是一个很实际的车规级嵌入式调试设计问题。让我先深入了解你的工程结构，特
+  别是任务调度、DPM 数据流、CAN
+  输出和现有的错误处理机制，然后从架构师角度给你一份可落地的 debugInfo
+  字段设计。
+
+  让我先并行勘探几个关键文件。
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/dem
+      o/awr2x44P/mmw_ddm" && ls mss/ dss/ include/ 2>&1 | head -80)
+  ⎿  dss/:
+     dss.syscfg
+     dss_main.c
+     … +59 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 让我深入核心文件，了解任务调度、DPM 数据流、时间统计和现有的错误处理。
+
+  Read 1 file (ctrl+o to expand)
+
+● 这个文件很大。让我精准定位关键的运行时统计、错误处理、MCB 结构和现有的 CAN
+  打包逻辑。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● 现在看 MCB 结构、统计字段、最近的时间同步 DTC 机制，以及 CAN 输出打包。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● 现在看 MCB 的 stats 结构和现有 CAN 输出打包方式。
+
+  Read 2 files (ctrl+o to expand)
+
+● 我已经对架构有了充分理解。最后确认一下时间戳记录机制（mssTimeRecord）和
+  DSP/perception 的数据流。
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● 已经掌握了足够的架构信息。让我快速确认时间戳记录的辅助函数和是否已有看门狗机制
+  。
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 我已经把你工程的运行时数据流摸清楚了。在给方案之前，先指出一个必须先纠正的硬约
+  束，否则后面的设计白做。
+
+  ---
+  ⚠️ 先纠正一个硬约束：CAN FD 单帧最大 64 字节，不是 128
+
+  CAN FD 的 DLC 最大就是 64 字节（DLC=15）。你定的 128
+  字节在单帧里发不出去。你自己工程里的 TimeSync 帧（wf_time_sync.h）就是
+  MCAN_DATA_SIZE_64BYTES / DLC=15，这是上限。
+
+  所以 0x200 有三条路：
+
+  ┌─────────────────┬────────────────────────┬──────────────────────────────┐
+  │      方案       │          做法          │             评价             │
+  ├─────────────────┼────────────────────────┼──────────────────────────────┤
+  │ A. 砍到 64 字节 │ 精选信息塞进单帧       │ 最简单，但 debug             │
+  │                 │                        │ 信息天然想要更多             │
+  ├─────────────────┼────────────────────────┼──────────────────────────────┤
+  │ B. 多路复用分页 │ Byte0 当 page/mux，每  │ DBC 里配成 multiplexed       │
+  │ （推荐）        │ 帧发一"页"，66ms 轮换  │ signal，总线负载不变，能暴露 │
+  │                 │ N 页                   │ 海量信息                     │
+  ├─────────────────┼────────────────────────┼──────────────────────────────┤
+  │ C. ISO-TP       │ 把 128B 拆成多帧重组   │ 对周期性日志属于过度设计，不 │
+  │ 分段传输        │                        │ 推荐                         │
+  └─────────────────┴────────────────────────┴──────────────────────────────┘
+
+  强烈建议走 B（分页轮播）。这恰恰是 debug 日志的理想形态：每页 63
+  字节有效载荷，4 页 → 264ms 拿到完整快照，对定位问题足够快，而总线只占一条周期
+  报文。下面的字段目录就是按"分页"组织的。
+
+  ---
+  设计原则（架构层面，先立规矩再填字段）
+
+  实车不能接调试器，这条报文是你唯一的眼睛，所以它本身的设计质量决定了它能不能定
+  位问题：
+
+  1. 粘滞位（sticky / latched fault bits） —— 故障摘要字用"或累加"，发出后才清。
+  否则两次报文之间(66ms)发生的瞬态故障会被漏掉。这是车载日志和实时状态最大的区别
+  ：你要的是"这段时间内发生过吗"，不是"此刻还在吗"。
+  2. 峰值锁存 + 读后清零（latched-max reset-on-read） —— 各阶段耗时不要报"瞬时值
+  "，要报这个窗口内的最大值，发完清零。算法超时是偶发尖峰，平均值会把它抹平。
+  3. 滚动计数器 + CRC —— 跟你 TimeSync 帧一样：一个每帧自增的 rolling
+  counter（丢帧/总线阻塞可见）+ 末尾 CRC-16（你已有
+  wf_time_sync_calc_crc16，直接复用）。
+  4. Schema 版本字节 —— 第一个字节放协议版本，固件迭代时 DBC 能兼容解析。
+  5. 全页公共头 —— rolling counter、故障摘要字这种"一眼定生死"的信息，每一页都带
+  ，不要只在某一页出现，否则那一页丢了就瞎了。
+  6. 快照一致性 + 非阻塞 —— 在
+  MmwDemo_DPC_ObjectDetection_reportFxn（帧结束点）做一次短临界区快照，CAN
+  发送放到 mss_canoutput_task，绝不能在采集点做阻塞发送。
+
+  ---
+  该检测什么 —— 按优先级的字段目录（已对应到你工程里的真实变量）
+
+  🔴 第 1 优先级：时序 / 算法超时（你最想要的）
+
+  你工程里已经有现成的埋点，没被利用起来：
+
+  - mssTimeRecord[20]（mss_main.c:2188）：index 0=CM4
+  解调、1=DOA/DSP、2=后处理、3=CAN 发送、4=Enet
+  发送、5=总耗时。这就是分阶段耗时的金矿。
+  - TimestampRecord(0..3) 已经在 RANGE_START / DOPPLER_START / RANGECFAR_START /
+  RESULT 各阶段打点。
+  - MmwDemo_output_message_stats：interFrameProcessingMargin（判断超时的核心指标
+  ——余量趋近 0 或变负就是要爆 66ms
+  预算）、activeFrameCPULoad、interFrameCPULoad。
+
+  要发出来的：
+  - 各阶段耗时的窗口最大值（CM4 / DOA / 后处理/perception / CAN-TX / 总），单位
+  µs 或 0.1ms。
+  - interFrameProcessingMargin（剩余余量）——最关键。
+  - 超时溢出计数器：总耗时 > 帧周期(66ms) 的累计次数 + 上次溢出时的总耗时值。
+  - activeFrameCPULoad / interFrameCPULoad。
+  - 帧周期抖动：相邻帧 trigger 间隔的实测值与最大偏差（用 CarEgoInfo 那套
+  lockFlag 旁边的时间戳就能算）。
+
+  🔴 第 1 优先级：心跳 / 存活性
+
+  - gMmwMssMCB.stats.frameTriggerReady（u64 帧累计计数）——卡死立刻可见。
+  - sensorState（INIT/OPENED/STARTED/STOPPED）。
+  - 系统 uptime（ms since boot）。
+  - 各 FreeRTOS 任务存活位图：mmwCtrlTask / RspTask / canoutput / timeSync
+  各自维护一个自增
+  tick，监控端看它有没有在涨。某个任务挂了但系统没崩，这是唯一能看出来的方式。
+
+  🟠 第 2 优先级：数据通路 / 帧完整性
+
+  - DPM result 计数 vs frameTrigger 计数的差值——丢帧检测（BSS
+  触发了但处理没跟上）。
+  - stats.isLastFrameDataProcessed——上一帧还没发完新帧就来了（背压）。
+  - IPC 锁状态（IPC_LOCK_ID，mss_can_output.h:13）——MSS/DSS 之间 IPC
+  争用或死锁，挂死前的征兆。
+  - cfarNumSingleFrame / waveIdSingleFrame /
+  intfNumSingleFrame（mss_main.c:2208）——检测点数（0
+  长期=致盲，饱和=噪声）、波形 ID 跳变、干扰计数。
+  - perception 输出：DBCOutSGU.trcNum（航迹数）、per 输出 rolling counter。
+
+  🟠 第 2 优先级：RF / BSS 健康
+
+  - stats.failedTimingReports / stats.calibrationReports——BSS 异步事件。
+  - temperatureStats：tempReportValid + 几个温度传感器值——热降频/热关断前兆。
+  - Analog monitor / CQ 饱和故障位（anaMonCfg）。
+  - sensorStopped 非预期停机计数。
+
+  🟡 第 3 优先级：TimeSync 子系统（你刚做完的，几乎零成本接进来）
+
+  WFTimeSyncObj_s 里已经全是现成计数器，直接搬：
+  - state（INIT/SILENT_WAIT/SYNCED/SYNC_LOST）+ devClass。
+  - offsetUs（时钟偏移）、offsetJumpCount。
+  - crcErrorCount / invalidFrameCount / validFrameCount。
+  - dtcActive + dtcReason（DC_SYNC_LOST / LOCAL_ANOMALY）+ dtcReportCount。
+  - lastSequenceCounter（连续性断裂检测）。
+
+  🟡 第 3 优先级：CAN 总线健康
+
+  - MCAN TEC/REC 错误计数器、bus-off 状态（mss_mcan.c:779 已经在读
+  errCounter.recErrCnt，接出来即可）。
+  - 各 CAN 实例 TX 邮箱满 / 丢帧计数。
+  - 车身信息接收超时：CarEgoInfo_66MS.lockFlag 那套同步失败逻辑（mss_main.c:2232
+  -2252）已经在记录第一次/第二次同步成败，把失败计数发出来。
+
+  🟡 第 3 优先级：异常 / 复位锁存（出大问题时的黑匣子）
+
+  - 复位原因（你有
+  pmic_reset.c）——看门狗/PMIC/软件复位区分，是定位"偶发重启"的命门。
+  - 最后一次错误码（文档里那套负数 error code 体系，mmwave/DPC/DPU）。
+  - 异常/abort 标志 + 最后 assert 位置（文件名 hash + 行号，你满工程都是
+  DebugP_assert，把它的落点记下来）。
+  - 看门狗喂狗计数 / 剩余余量。
+
+  ---
+  一个可落地的 64 字节分页布局（方案 B）
+
+  每帧固定结构，Byte0 选页，公共头每页都带：
+
+  公共头 (Byte 0..7，每页相同)
+    [0]   schemaVersion (高4位) | pageId (低4位)
+    [1]   rollingCounter (每帧+1, 全局)
+    [2-3] globalFaultSummary  ← 粘滞位: bit0 超时, bit1 丢帧, bit2 SyncLost,
+                                bit3 BusOff, bit4 过温, bit5 DTC, bit6
+  任务挂死...
+    [4]   sensorState(4b) | timeSyncState(4b)
+    [5]   taskAliveBitmap (各任务存活位)
+    [6-7] CRC-16 占位 / 或放帧尾
+
+  页载荷 (Byte 8..63，56 字节)
+
+  Page 0 —— 时序/超时:
+    各阶段耗时窗口最大值(CM4/DOA/后处理/CAN-TX/总) ×u16
+    interFrameProcessingMargin u16, 超时溢出计数 u16,
+    CPU负载 active/interframe, 帧周期抖动 u16
+  Page 1 —— 数据通路/RF:
+    frameTriggerReady(低32), DPM丢帧差值, cfarNum, trcNum,
+    intfNum, waveId, 温度×N, anaMon故障位, failedTimingReports
+  Page 2 —— TimeSync/CAN总线:
+    offsetUs i32, crc/invalid/jump 计数, dtcActive+reason,
+    CAN TEC/REC, busOff, TX丢帧, 车身信息同步失败计数
+  Page 3 —— 异常黑匣子:
+    resetReason, lastErrorCode i32, lastAssert(fileHash+line),
+    uptime ms u32, watchdog余量, sensorStart/Stop计数
+
+  公共头里的 globalFaultSummary（粘滞）让你任何一帧、任何一页都能一眼判生死；要
+  细节再看轮到的那一页。
+
+  ---
+  落地建议
+
+  - 数据采集点：在 MmwDemo_DPC_ObjectDetection_reportFxn 的 MMWDEMO_DPC_RESULT
+  分支（mss_main.c:2204，帧结束、所有耗时已知）做快照写入一个全局
+  gDebugInfo；峰值字段在这里 max() 累加。
+  - 发送点：在 mss_canoutput_task 里按 66ms 节拍取 gDebugInfo、轮换 pageId、算
+  CRC、发 0x200，发完清"读后清零"字段。
+  - 复用现成件：CRC 用 wf_time_sync_calc_crc16；CAN 发送复用 mss_can_output.c
+  的打包路径；DBC 文件你已经有 mss/dbc/ 目录，加一条 multiplexed message 即可。
+  - 开关：照搬你 WF_TIME_SYNC_DEBUG_ENABLE 的宏开关风格，给 0x200 一个编译期/CLI
+  开关，量产可关。
+
+  ---
+  要不要我先把 64 字节分页的 C 结构体（packed）+ DBC multiplexed 
+  报文定义写出来？还是你想先确认是走"分页轮播(B)"还是"单帧 64
+  字节(A)"，我再针对性地落代码？我个人强烈建议 B——debug
+  信息只会越加越多，分页给你留足扩展空间且不增加总线负载。
+
+✻ Crunched for 5m 27s
+
+> /model fable                                                                  
+  ⎿  Set model to Fable 5 and saved as your default for new sessions
+
+> 嗯嗯 可以的，采用方案B                                                        
+  然后帮我检查下这些是否在运行时有问题的时候能够帮我住分析出问题                
+
+● 好嘞，那我现在做一轮"故障场景 → 能否定位"的反向验证：先确认我列的每个信号在你
+  工程里真实存在且运行时真的会被填充（有些 TI demo
+  字段是摆设），再用典型故障场景推演覆盖度。先验证几个关键数据源。
+
+  Searched for 13 patterns, read 2 files (ctrl+o to expand)
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/dem
+      o/awr2x44P/mmw_ddm/mss" && head -60 pmic_reset.c && grep -rn
+      "watchdog\|Watchdog\|WDT\|…)
+  ⎿  /*
+      *  Copyright (C) 2021 Texas Instruments Incorporated
+      *
+     … +57 lines (ctrl+o to expand)
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 验证完成。结论：大方向成立，但发现了 1 个死字段、3 个盲区、2 
+  个需要补埋点的地方。下面是逐项核查结果和故障场景推演。
+
+  ---
+  一、数据源真实性核查（✅ 真实可用 / ❌ 是摆设 / ⚠️ 要补）
+
+  信号: mssTimeRecord[] 分阶段耗时
+  核查结果: ✅ 真实工作。sys_conf.h:48 的宏实打实在跑，单位
+    0.1ms（/100），u16。打点链完整：RANGE_START(0)→DOPPLER(1)→RANGECFAR(2)→RESUL
+  T(3)→DOA(4)→后处理(6)→CAN发送(7)，mssTimeRecord[5]
+     = RANGE_START 到后处理结束的总耗时（mss_main.c:2725）
+  ────────────────────────────────────────
+  信号: interFrameProcessingMargin / CPU load
+  核查结果: ❌ 死字段。MmwDemo_updateObjectDetStats 在 dss_cm4_main.c:116
+    只有声明，全工程无定义无调用，整个 outputStats
+    没人填。我上一轮把它列为"最核心指标"是错的，必须改为派生计算：margin  = 
+    66000µs − mssTimeRecord[5]×100
+  ────────────────────────────────────────
+  信号: stats.frameTriggerReady
+  核查结果: ✅ 真实自增（mss_main.c:2073，BSS 异步事件）
+  ────────────────────────────────────────
+  信号: 温度报告
+  核查结果: ✅ 运行时真的在读（mss_main.c:1094、2361 两处调
+    rlRfGetTemperatureReport）
+  ────────────────────────────────────────
+  信号: MCAN TEC/REC
+  核查结果: ⚠️ API 已在调（mss_mcan.c:778
+    MCAN_getErrCounters）但读完就扔了，且只在收到报文时读——bus-off
+    时根本收不到报文，永远读不到。需改为在 66ms 发送任务里主动读 + 加
+    MCAN_getProtocolStatus()（bus-off 标志在那里面）
+  ────────────────────────────────────────
+  信号: 复位原因
+  核查结果: ⚠️ 当前全工程没人读。但 SDK 有现成 API：SOC_rcmGetResetCause() /
+    SOC_getWarmResetCause()（soc_rcm.h:609/773），后者能直接区分
+    MSS_WDT/POWER_ON/EXT_PAD/HSM_WDT。开机读一次存全局即可，零成本
+  ────────────────────────────────────────
+  信号: cfarNumSingleFrame/waveId/intfNum、trcNum
+  核查结果: ✅ 每帧在 reportFxn 里更新（mss_main.c:2208-2210）
+  ────────────────────────────────────────
+  信号: TimeSync 全套计数器
+  核查结果: ✅ 现成，直接搬
+  ────────────────────────────────────────
+  信号: 车身信息同步
+  核查结果: ✅ CarEgoInfo lockFlag 机制存在，但只有标志没有失败计数，要加一个 u8
+
+    计数器
+
+  ---
+  二、故障场景推演：出问题时能不能定位？
+
+  #: 1
+  实车典型故障: DOA/后处理偶发超时尖峰
+  现方案能否定位: ✅
+  定位路径: Page0 各阶段 max-hold 直接指认是哪一段(CM4/DOA/后处理)、尖峰多大
+  ────────────────────────────────────────
+  #: 2
+  实车典型故障: 持续过载、帧堆积
+  现方案能否定位: ✅
+  定位路径: 派生 margin 持续走低 + 超时计数器涨 + isLastFrameDataProcessed
+  背压位
+  ────────────────────────────────────────
+  #: 3
+  实车典型故障: DSP/DPM 挂死（RESULT 不再上报）
+  现方案能否定位: ✅
+  定位路径: frameTriggerReady 在涨但 result 计数停 → 差值拉大；RspTask alive
+    位停跳
+  ────────────────────────────────────────
+  #: 4
+  实车典型故障: CM4 挂死（卡在某流水段）
+  现方案能否定位: ⚠️ 有盲区
+  定位路径: 只知道"没出结果"，不知道卡在哪一段。修复：加一个 lastStageReached
+    字节——reportFxn 每个 case
+    写一次枚举值（RANGE=1/DOPPLER=2/CFAR=3/RESULT=4...），卡死时这个字节冻结在最
+  后到达的阶段，直接指认卡点。一行代码的事
+  ────────────────────────────────────────
+  #: 5
+  实车典型故障: BSS/RF 停止触发帧
+  现方案能否定位: ✅
+  定位路径: frameTriggerReady 停涨 + sensorState 仍 =STARTED → 矛盾即指向
+    BSS；配合 failedTimingReports/温度判断原因
+  ────────────────────────────────────────
+  #: 6
+  实车典型故障: 偶发整机重启
+  现方案能否定位: ✅(补API后)
+  定位路径: uptime 归零 + rollingCounter 重置 + SOC_getWarmResetCause()
+    区分看门狗/掉电/外部复位
+  ────────────────────────────────────────
+  #: 7
+  实车典型故障: CAN bus-off
+  现方案能否定位: ⚠️ 自盲区
+  定位路径: bus-off 期间 0x200
+    自己也发不出去——这是该方案的物理极限。修复：bus-off 恢复后第一帧带出粘滞的
+    busOffEverCount，事后可知"刚才断过、断了几次"。TEC/REC 在 error-passive
+    阶段（bus-off 之前）就会爬升，能提前预警
+  ────────────────────────────────────────
+  #: 8
+  实车典型故障: 车身信息(20ms报文)丢失
+  现方案能否定位: ⚠️ 要补
+  定位路径: 现在只有 lockFlag 瞬时逻辑。加：车身报文"距上次接收的 age (ms)" +
+    同步失败计数。age 是定位"上游断了还是我没收"的关键
+  ────────────────────────────────────────
+  #: 9
+  实车典型故障: 时间同步异常
+  现方案能否定位: ✅
+  定位路径: Page2 全套：state/offset/crcErr/jump/DTC reason，你刚做的模块自带
+  ────────────────────────────────────────
+  #: 10
+  实车典型故障: 致盲/检测异常（点云长期为0、干扰）
+  现方案能否定位: ✅
+  定位路径: cfarNum/trcNum/intfNum 趋势 + 温度
+  ────────────────────────────────────────
+  #: 11
+  实车典型故障: 栈溢出 / 堆耗尽
+  现方案能否定位: ❌ 完全盲区（最危险）
+  定位路径: 见下面盲区③
+  ────────────────────────────────────────
+  #: 12
+  实车典型故障: DebugP_assert 命中（满工程都是）
+  现方案能否定位: ❌ 盲区
+  定位路径: release 下 assert =
+    死循环，现象就是"静默消失"，什么都留不下来。见盲区④
+
+  ---
+  三、四个必须补的盲区
+
+  ① margin 死字段（已述） —— Page0 改为派生：margin = 660 − 
+  mssTimeRecord[5]（0.1ms 单位），CPU load 两个字段删掉，换成"超时溢出计数 +
+  上次溢出时各阶段快照"。
+
+  ② 没有看门狗 —— mss.syscfg 里没配 WDT。意味着场景 4/12 的挂死 =
+  雷达永久静默，连复位重启的机会都没有，debugInfo 也跟着消失。建议把 MSS WDT 
+  使能（syscfg 里加 watchdog 模块，在 66ms 发送任务里喂狗）——挂死 → WDT 复位 →
+  重启后 Page3 报
+  SOC_WarmResetCause_MSS_WDT，闭环了。这是让整套方案"兜底"的一块拼图。
+
+  ③ 栈/堆监控缺失 —— 实车偶发踩内存是嵌入式头号疑难。补三个信号（都是 FreeRTOS
+  现成 API，每 66ms 读一次几乎零开销）：
+  - 各关键任务 uxTaskGetStackHighWaterMark() 的最小值（u8，剩余字数/16）
+  - xPortGetFreeHeapSize() / xPortGetMinimumEverFreeHeapSize()
+  - vApplicationStackOverflowHook 里置粘滞位 + 记任务号（FreeRTOSConfig 需开
+  configCHECK_FOR_STACK_OVERFLOW=2）
+
+  ④ assert/崩溃黑匣子（noinit 段技巧） —— 在链接脚本加一小块 .noinit 段（warm 
+  reset 不清零的 RAM），自定义 assert 钩子把 文件名hash+行号+magic
+  写进去再触发复位（或等 WDT）。重启后开机检查 magic 有效 → Page3
+  把"上次死在哪一行"发出来。这是没有调试器的实车上唯一能把"死前最后一口气"带出来
+  的手段，强烈建议做。你工程的 MmwDemo_debugAssert
+  宏（mmw_mss.h:625）是统一入口，改一处全工程生效。
+
+  ---
+  四、修正后的 v2 页面布局
+
+  公共头 Byte0..5 (每页带) ：
+    [0] ver(4b)|pageId(4b)  [1] rollingCounter
+    [2-3] globalFaultSummary 粘滞位:
+          bit0 超时发生过      bit1 丢帧(trigger-result差值>0)
+          bit2 SyncLost        bit3 CAN errorPassive/busOff曾发生
+          bit4 过温            bit5 DTC active
+          bit6 任务失活        bit7 栈溢出hook触发
+          bit8 黑匣子有记录    bit9 车身信息超时
+    [4] sensorState(4b)|timeSyncState(4b)
+    [5] taskAliveBitmap
+  Byte62..63 = CRC16 (复用 wf_time_sync_calc_crc16)
+
+  Page0 时序: 各阶段耗时max-hold×7(u16,0.1ms) + 派生margin(i16)
+             + 超时计数(u16) + 上次超时帧号(u32) + lastStageReached(u8)
+             + 帧周期实测max偏差(u16)
+  Page1 数据通路/RF: frameTriggerReady(u32) + result计数(u32) + cfarNum
+             + trcNum + intfNum + waveId + 温度×4(i8) + failedTimingReports
+             + anaMon故障位 + 车身报文age(u16,ms) + 车身同步失败计数
+  Page2 TimeSync/CAN: offsetUs(i32) + crc/invalid/jump计数 + dtcReason
+             + TEC/REC(u8×2) + protocolStatus + busOffEverCount
+             + TX丢帧计数(各CAN实例)
+  Page3 黑匣子/资源: resetCause + warmResetCause + uptime(u32)
+             + 黑匣子assert记录(fileHash u16+line u16+count u8)
+             + 各任务栈最小余量×6(u8) + minEverFreeHeap(u16,/64B)
+             + lastErrorCode(i32) + sensorStart/Stop计数
+
+  诊断闭环现在是完整的：慢(Page0) → 断流(Page1) → 总线/同步(Page2) → 
+  死过(Page3黑匣子)，加上 WDT 兜底后没有"永久静默且无痕"的故障模式了（唯一例外是
+  bus-off 进行中的窗口，物理上无解，靠恢复后的粘滞计数补侦）。
+
+  ---
+  要开始落代码吗？我建议的实施顺序：① debugInfo 结构体+采集快照+0x200 
+  分页发送任务（核心框架）→ ② lastStageReached/车身age/MCAN主动读这些小埋点 → ③ 
+  noinit 黑匣子+assert钩子 → ④ WDT 使能（动 syscfg，单独验证）。①②③ 不动 syscfg
+  风险很低；④ 涉及 make syscfg 重新生成，建议单独一步上硬件验证。
+
+✻ Baked for 4m 26s
+
+> 好的 开始落地代码                                                             
+
+● 好，开始落地。先创建任务清单，然后把发送路径、任务创建模式、makefile
+  这些落点摸清，再写代码。
+
+  Searched for 9 patterns, read 9 files (ctrl+o to expand)
+● Write(mss\wf_debug_info.h)
+  ⎿  Wrote 134 lines to mss\wf_debug_info.h
+       2 #pragma once
+       3 /*
+         s 周期, 分页轮播) 0x200 调试日志报文 (CANFD 标准帧, 64 字节, 66m
+       5  *
+       6  * 实车无调试器, 该报文是唯一的运行时观测手段。设计原则:
+         务存活位图, 每页都带: rollingCounter + 粘滞故障摘要 + 状态 + 任
+       8  *    任何一页单独到达都能"一眼判生死"。
+         提供。粘滞位(faultSummary)本上电周期内只置不清, 细节由各页计数器
+      10  *  - 各阶段耗时取窗口最大值(max-hold), Page0 发出后清零, 捕捉偶
+         发尖峰。
+     … +163 lines (ctrl+o to expand)
+
+● 先确认 SOC 复位原因 API 的头文件包含方式，然后写实现。
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mcu_plus_sdk_awr2x44p_10_00_00_07/sou
+      rce/drivers" && grep -n "soc_rcm.h\|soc\.h" soc.h 2>/dev/null | head; ls
+      soc/awr2x44p/…)
+  ⎿  44:#include <drivers/soc/am64x_am243x/soc.h>
+     48:#include <drivers/soc/am263x/soc.h>
+     49:#include <drivers/soc/am263x/soc_rcm.h>
+     … +13 lines (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mcu_plus_sdk_awr2x44p_10_00_00_07/sou
+      rce/drivers/soc/awr2x44p" && grep -n "include" soc.h | head -10)
+  ⎿  36:#include <stdint.h>
+     52:#include <kernel/dpl/SystemP.h>
+     53:#include <drivers/soc/awr2x44p/soc_rcm.h>
+
+● Write(mss\wf_debug_info.c)
+  ⎿  Wrote 733 lines to mss\wf_debug_info.c
+       2  * wf_debug_info.c: 0x200 调试日志报文实现 (分页轮播, 66ms)
+       3  *
+       4  * 数据流:
+       5  *   采集: DPM reportFxn 阶段标记 / RspTask 帧闭环快照 / 各任务 
+         alive tick
+       7  * 与 mss_canoutput_task 解耦: canoutput 卡死时本报文仍可发出并
+         报告其失活。
+       8  */
+       9 
+      10 #include "wf_debug_info.h"
+     … +798 lines (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss\mmw_mss.mak)
+  ⎿  Added 1 line
+      127                             IntfAss.c \
+      128                             utilize.c \
+      129                             wf_time_sync.c\
+      130 +                           wf_debug_info.c \                  
+      131                             wf_calib_ant_channel.c \
+      132                             calibration_can_parser.c \
+      133                             dtc_fault_manager.c \
+
+● Update(mss\mmw_mss_linker.cmd)
+  ⎿  Added 3 lines, removed 1 line
+      10      .l3ram: { } >> DSS_L3
+      11      .doa_l2Heap:  {} > MSS_L2
+      12      .ota_data: {} > TCMB_RAM
+      13 -    .ota_text: {} > TCMA_RAM                                   
+      13 +    .ota_text: {} > TCMA_RAM                                   
+      14 +    /* debugInfo 黑匣子: warm reset 后保留 (NOLOAD, 运行时不清 
+         +零) */                                                         
+      15 +    .wfNoInit: type = NOLOAD {} > MSS_L2                       
+      16  }
+      17  /*-------------------------------------------------------------
+          ---------------*/
+      18  
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      783  #include "perception.h"
+      784  #include "perception_public_def.h"
+      785  #include "wf_time_sync.h"
+      786 +#include "wf_debug_info.h"                                    
+      787  #include "wf_calib_ant_channel.h"
+      788  #include "ASWCALIBRATION_Init.h"
+      789  #include "ASWCALIBRATION_FLASHWriteBlock.h"
+
+● Update(mss\mss_main.c)
+  ⎿  Added 11 lines
+      3979      configASSERT(gMmwMssMCB.taskHandles.RspTask != NULL);
+      3980  
+      3981      wf_time_sync_init( WF_TIME_SYNC_DEV_DEF );
+      3982 +                                                             
+      3983 +    /* 0x200 debugInfo: 复位原因/黑匣子读取 + 66ms 分页发送任
+           +务 */                                                        
+      3984 +    wf_debug_info_init();                                    
+      3985 +    wf_debug_register_stack("ctrl",   gMmwCtrlTskStack,  size
+           +of(gMmwCtrlTskStack));                                       
+      3986 +    wf_debug_register_stack("rsp",    gRspTskStack,      size
+           +of(gRspTskStack));                                           
+      3987 +    wf_debug_register_stack("canout", canoutputStack,    size
+           +of(canoutputStack));                                         
+      3988 +    wf_debug_register_stack("canrec", canrecStack,       size
+           +of(canrecStack));                                            
+      3989 +    {                                                        
+      3990 +        extern StackType_t wfTimeSyncTskStack[];             
+      3991 +        wf_debug_register_stack("tsync", wfTimeSyncTskStack, 
+           +1024U * sizeof(StackType_t));                                
+      3992 +    }                                                        
+      3993      /********************************************************
+            *********************
+      3994       * Initialize the Profiler
+      3995       ********************************************************
+            *********************/
+
+● 现在加 reportFxn 的阶段标记：
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      2206          {
+      2207              TimestampRecord(3);
+      2208              CurTimePeriodRecord(0, 0);
+      2209 +            wf_debug_mark_stage(WF_DBG_STAGE_DPC_RESULT);    
+      2210              cfarNumSingleFrame = ((uint16_t*)data)[2];       
+             
+      2211              waveIdSingleFrame = ((uint16_t*)data)[3];
+      2212              intfNumSingleFrame = ((uint16_t*)data)[4];
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      2241              }
+      2242              memset(cm4Time, 0, sizeof(cm4Time));
+      2243              TimestampRecord(0);
+      2244 +            wf_debug_mark_stage(WF_DBG_STAGE_RANGE_START); /*
+           + 顺带统计帧周期抖动 */                                       
+      2245              break;
+      2246          }
+      2247          case MMWDEMO_DOPPLER_START:
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      2255                  CarEgoInfo_66MS.lockFlag = 0x20;
+      2256              }
+      2257        TimestampRecord(1);
+      2258 +            wf_debug_mark_stage(WF_DBG_STAGE_DOPPLER_START); 
+      2259  #if (WF_TIME_SYNC_DEV_DEF == 1)
+      2260              // wf_trig_slave_sync( NULL );
+      2261  #elif(WF_TIME_SYNC_DEV_DEF == 2)
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      2275          }
+      2276          case MMWDEMO_RANGECFAR_START:
+      2277              TimestampRecord(2);
+      2278 +            wf_debug_mark_stage(WF_DBG_STAGE_CFAR_START);    
+      2279              break;
+      2280      }
+      2281  }
+● 现在接 RspTask 主循环的快照和阶段标记：
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      2624      {
+      2625          /* Wait for the results to be available from DPC. */
+      2626          SemaphoreP_pend(&gMmwMssMCB.RspSemHandle, SystemP_WAI
+            T_FOREVER);
+      2627 +        wf_debug_task_alive(WF_DBG_TASK_RSP);                
+      2628          gSharedDataStr.carSpeed = CarEgoInfo_66MS.actual_spd;
+      2629          realTimeCarSpeed = gSharedDataStr.carSpeed;
+      2630          /* 长短/降级波形切换 */
+
+● Update(mss\mss_main.c)
+  ⎿  Added 1 line
+      2675                              waveIdSingleFrame
+      2676                          );
+      2677              CurTimePeriodRecord(1, 4);
+      2678 +            wf_debug_mark_stage(WF_DBG_STAGE_DOA_DONE);      
+      2679              // tell can task
+      2680              // csp.time= (uint32_t)((uint64_t)ClockP_getTimeU
+            sec()-tTimeStart);
+      2681              // tTimeStart = ClockP_getTimeUsec();
+
+● Update(mss\mss_main.c)
+  ⎿  Added 4 lines, removed 1 line
+      2733              csp.trackerTime = (uint16_t)(mssTimeRecord[2]);
+      2734  #endif
+      2735  
+      2736 -                                                             
+      2736 +            /* debugInfo 帧闭环快照: 耗时 max-hold / overrun 
+           +/ 检测统计 */                                                
+      2737 +            wf_debug_mark_stage(WF_DBG_STAGE_POSTPROC_DONE); 
+      2738 +            wf_debug_frame_snapshot(cfarNumSingleFrame, intfN
+           +umSingleFrame, waveIdSingleFrame);                           
+      2739 +                                                             
+      2740              SemaphoreP_post(&gMcanSendSem);
+      2741  #ifdef ENET_STREAM
+      2742              if (enet_enable)
+
+● 接 assert 钩子和 mmwCtrlTask 的 alive：
+
+● Update(mss\mss_main.c)
+  ⎿  Added 2 lines
+      972  void _MmwDemo_debugAssert(int32_t expression, const char *file
+           , int32_t line)
+      973  {
+      974      if (!expression) {
+      975 +        /* 黑匣子记录 (noinit RAM): 复位后仍可经 0x200 Page3  
+          +读出死前位置 */                                               
+      976 +        wf_debug_blackbox_assert(file, line);                 
+      977          CLI_write ("Exception: %s, line %d.\n",file,line);
+      978      }
+      979  }
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss\mss_main.c)
+  ⎿  Added 2 lines
+      1471  
+      1472      while (1)
+      1473      {
+      1474 +        wf_debug_task_alive(WF_DBG_TASK_CTRL);               
+      1475          /* Execute the mmWave control module: */
+      1476          if (MMWave_execute (gMmwMssMCB.ctrlHandle, &errCode) 
+            < 0)
+      1477          {
+      1478 +            wf_debug_set_last_error(errCode);                
+      1479              MmwDemo_debugAssert (0);
+      1480          }
+      1481      }
+
+  Searched for 1 pattern (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss\wf_debug_info.c)
+  ⎿  Added 3 lines, removed 2 lines
+      412      }
+      413      gWfDbg.aliveBitmap = bitmap;
+      414  
+      415 -    /* 失活判死: 仅对周期性任务; RSP 仅在 sensor 运行时应当周 
+          -期活动。 */                                                   
+      415 +    /* 失活判死: 仅对真正周期性的任务 (CANOUT 5ms 循环 / TIMES
+          +YNC 10ms 轮询);                                               
+      416 +     * CANREC 事件驱动 (无总线流量时不 tick), 只进位图不判死; 
+      417 +     * RSP 仅在 sensor 运行时应当周期活动。 */                
+      418      {
+      419          uint8_t expect = (1U << WF_DBG_TASK_CANOUT) |
+      418 -                         (1U << WF_DBG_TASK_CANREC) |         
+      420                           (1U << WF_DBG_TASK_TIMESYNC);
+      421          if (gMmwMssMCB.sensorState == MmwDemo_SensorState_STAR
+           TED)
+      422          {
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss\mss_mcan.c)
+  ⎿  Added 1 line
+      15  #include "mss_mcan.h"
+      16  #include "perception_public_def.h"
+      17  #include "wf_time_sync.h"
+      18 +#include "wf_debug_info.h"                                     
+      19  #include "wf_calib_ant_channel.h"
+      20  #include "gwmp11_CR_RL.h"
+      21  #include "zelos_CR_CAN1_FL.h"
+
+● Update(mss\mss_mcan.c)
+  ⎿  Added 1 line
+      621          struct zelos_CR_CAN2_FL_vehicle_data_t temp;
+      622          (void)zelos_CR_CAN2_FL_vehicle_data_unpack(&temp, &(rx
+           Msg->data[0]), gMcanRxDataSize[rxMsg->dlc]);
+      623  
+      624 +        wf_debug_mark_vehicle_rx(); /* 车身信息接收时间戳 (deb
+          +ugInfo age 监测) */                                           
+      625          // 车速
+      626          CarEgoInfo_20MS.actual_spd = ((temp.host_vel * 1) - 20
+           00) / 100.0f;
+      627          // 档位
+
+● Update(mss\mss_mcan.c)
+  ⎿  Added 4 lines
+      218      App_mcanConfigTxMsg(&txMsg, msgIdentifier, data, size, dlc
+           );
+      219  
+      220      MCAN_getTxFIFOQueStatus( gMcanBaseAddr, &fifoStatus);
+      221 +    if(fifoStatus.freeLvl == 0)                               
+      222 +    {                                                         
+      223 +        wf_debug_mark_can_tx_stall(); /* TX FIFO 满: 总线背压/
+          +带宽不足征兆 */                                               
+      224 +    }                                                         
+      225      while(fifoStatus.freeLvl == 0)
+      226      {
+      227          vTaskDelay(1);
+
+● Update(mss\mss_mcan.c)
+  ⎿  Added 1 line
+      967      while(1)
+      968      {
+      969          SemaphoreP_pend(&gMcanRxDoneSem, SystemP_WAIT_FOREVER)
+           ;
+      970 +        wf_debug_task_alive(WF_DBG_TASK_CANREC);              
+      971          mcana_Rev(&RXMSG);
+      972          mcanb_Rev(&RXMSG);
+      973          // vTaskDelay(30);
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss\mss_can_output.c)
+  ⎿  Added 1 line
+      33  #include "perception_public_def.h"
+      34  #include "structDefine.h"
+      35  #include "dtc_fault_manager.h"
+      36 +#include "wf_debug_info.h"                                     
+      37  #include "mcr1_mfr1_objects_list_can__matrix_to__zelos_v3_0_2_0
+          3_tx.h"
+      38  #endif  
+      39  #define UTILS_ALIGN(x,align)  ((((x) + ((align) - 1))/(align)) 
+          * (align))
+
+● Update(mss\mss_can_output.c)  ⎿  Added 1 line
+      154              static uint8_t timer56ms_cnt = 0;
+      155              static uint8_t timer1s_cnt = 0;
+      156              vTaskDelay( pdMS_TO_TICKS(5));
+      157 +            wf_debug_task_alive(WF_DBG_TASK_CANOUT);          
+      158  
+      159              timer56ms_cnt++;
+      160              timer1s_cnt++;
+
+● Update(mss\mss_can_output.c)
+  ⎿  Added 1 line
+      185                                  mssTimeRecord);
+      186                  cnt++;
+      187                  pTrackOutPutAddr2 = pTrackOutPutAddr;
+      188 +                wf_debug_set_track_num(obj_header_fl_t.rsds_fl
+          +_per_obj_num); /* 航迹数 → debugInfo */                       
+      189                  mcr1_mfr1_objects_list_can__matrix_to__zelos_v
+           3_0_2_03_tx_frame_header_fl_pack((uint8_t *)snd_buf, &obj_head
+           er_fl_t, MCR1_MFR1_OBJECTS_LIST_CAN__MATRIX_TO__ZELOS_V3_0_2_0
+           3_TX_FRAME_HEADER_FL_LENGTH);
+      190  #ifdef FRONT_RIGHT
+      191                  mcanA_transfer_FIFO(MCR1_MFR1_OBJECTS_LIST_CAN
+           __MATRIX_TO__ZELOS_V3_0_2_03_TX_FRAME_HEADER_FR_FRAME_ID, (uin
+           t8_t *)snd_buf, MCR1_MFR1_OBJECTS_LIST_CAN__MATRIX_TO__ZELOS_V
+           3_0_2_03_TX_FRAME_HEADER_FR_LENGTH, 15);
+
+● Update(mss\wf_time_sync.c)
+  ⎿  Added 1 line
+      1  #include "wf_time_sync.h"
+      2 +#include "wf_debug_info.h"                                      
+      3  #include "mmw_mss.h"
+      4  #include "mss_mcan.h"
+      5  #include "dtc_fault_manager.h"   /* fault_monitor_update(), FAUL
+         T_TIMESYNC_TIMEOUT -> DTC_TIMESYNC_FAILURE */
+
+● Update(mss\wf_time_sync.c)
+  ⎿  Added 1 line
+      106          uint8_t hasFrame = 0U;
+      107          uintptr_t key;
+      108  
+      109 +        wf_debug_task_alive(WF_DBG_TASK_TIMESYNC);            
+      110          semStatus = SemaphoreP_pend(&wfTimeSyncObj.timeSyncSem
+           Handle,
+      111                                      pdMS_TO_TICKS(WF_TIME_SYNC
+           _TASK_POLL_MS));
+      112          if (semStatus == SystemP_SUCCESS)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 20 new diagnostic issues in 2 files (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mcu_plus_sdk_awr2x44p_10_00_00_07" &&
+      grep -rl "TI.noinit\|attribute__((noinit\|type = NOLOAD\|type=NOLOAD"
+      --include="*.cmd…)
+  ⎿  (No output)
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mcu_plus_sdk_awr2x44p_10_00_00_07" &&
+      grep -rl "NOLOAD\|noinit" --include="*.cmd" . 2>/dev/null | head -5; grep
+      -rn "noinit"…)
+  ⎿  ./examples/drivers/boot/sbl_can_uniflash/awr2x44p-evm/r5fss0-0_nortos/
+     ti-arm-clang/linker.cmd
+     ./examples/drivers/boot/sbl_jtag_uniflash/awr2x44p-evm/r5fss0-0_nortos
+     … +15 lines (ctrl+o to expand)
+
+● Update(mss\wf_debug_info.c)
+  ⎿  Added 2 lines, removed 1 line
+      61      uint16_t assertCount;
+      62  } WFDbgBlackBox_s;
+      63  
+      64 -static WFDbgBlackBox_s gWfDbgBlackBox __attribute__((section(".
+         -wfNoInit")));                                                  
+      64 +/* (NOLOAD) 段: 启动不清零, warm reset 后内容保留 (与 SDK IPC  
+         +共享内存同一惯用法) */                                         
+      65 +static WFDbgBlackBox_s gWfDbgBlackBox __attribute__((section(".
+         +bss.wfNoInit")));                                              
+      66  
+      67  /* ------------------------------------------------------------
+          ------ */
+      68  /* 运行时状态                                                  
+                  */
+
+● Update(mss\mmw_mss_linker.cmd)
+  ⎿  Added 2 lines, removed 2 lines
+      11      .doa_l2Heap:  {} > MSS_L2
+      12      .ota_data: {} > TCMB_RAM
+      13      .ota_text: {} > TCMA_RAM
+      14 -    /* debugInfo 黑匣子: warm reset 后保留 (NOLOAD, 运行时不清 
+         -零) */                                                         
+      15 -    .wfNoInit: type = NOLOAD {} > MSS_L2                       
+      14 +    /* debugInfo 黑匣子: warm reset 后保留 (NOLOAD, 启动不清零)
+         + */                                                            
+      15 +    .bss.wfNoInit (NOLOAD) : {} > MSS_L2                       
+      16  }
+      17  /*-------------------------------------------------------------
+          ---------------*/
+      18  
+  ⎿  Found 13 new diagnostic issues in 2 files (ctrl+o to expand)
+
+● PowerShell(cmd /c "cd /d D:\Weifu\git\compare\zelos_repo\mmwave_mcuplus_sdk_04
+            _07_00_01\scripts\windows && call setenv.bat >nul 2>&1 && cd /d
+            D:\Weifu\git\compare\zelos_re…)
+  ⎿  Error: Exit code 1
+
+● 输出被吞了，改用日志文件捕获：
+
+● PowerShell(cmd /c "cd /d D:\Weifu\git\compare\zelos_repo\mmwave_mcuplus_sdk_04
+            _07_00_01\scripts\windows && call setenv.bat >
+            D:\Weifu\git\compare\build_dbg.log 2>&1 && cd…)
+  ⎿  Error: Exit code 1
+     'setenv.bat' is not recognized as an internal or external command,
+     operable program or batch file.
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+● Write(D:/Weifu/git/compare/build_dbg.bat)
+  ⎿  Wrote 15 lines to ..\..\..\..\..\..\build_dbg.bat
+       2 set sdk_install_path=D:\Weifu\git\compare\zelos_repo
+       3 set ccs_install_path1=D:\ti\ccs1281
+       4 set sysconfig_install_path1=D:\ti\sysconfig_1.23.0
+       5 
+       6 cd /d %sdk_install_path%\mmwave_mcuplus_sdk_04_07_00_01\scripts\
+         windows
+       7 call setenv.bat
+       8 if %ERRORLEVEL% NEQ 0 (
+       9   echo SETENV FAILED
+      10   exit /b 1
+     … +8 lines (ctrl+o to expand)
+
+● PowerShell(cmd /c "D:\Weifu\git\compare\build_dbg.bat >
+            D:\Weifu\git\compare\build_dbg.log 2>&1"; "exit=$LASTEXITCODE";
+            Get-Content D:\Weifu\git\compare\build_dbg.log -Tai…)
+  ⎿  Error: Exit code 1
+     exit=1
+     'setenv.bat' is not recognized as an internal or external command,
+     operable program or batch file.
+     SETENV FAILED
+
+● 调试一下：cd 之后 cwd 到底在哪：
+
+● PowerShell(cmd /c "cd /d D:\Weifu\git\compare\zelos_repo\mmwave_mcuplus_sdk_04
+            _07_00_01\scripts\windows & echo CWD=%CD% & dir /b")
+  ⎿  CWD=D:\Weifu\git\compare\zelos_repo\mcu_plus_sdk_awr2x44p_10_00_00_07
+     checkenv.bat
+     setenv.bat
+     setenv.mak
+
+● Update(D:/Weifu/git/compare/build_dbg.bat)
+  ⎿  Added 1 line, removed 1 line
+       4  set sysconfig_install_path1=D:\ti\sysconfig_1.23.0
+       5  
+       6  cd /d %sdk_install_path%\mmwave_mcuplus_sdk_04_07_00_01\scripts
+          \windows
+       7 -call setenv.bat                                                
+       7 +call .\setenv.bat                                              
+       8  if %ERRORLEVEL% NEQ 0 (
+       9    echo SETENV FAILED
+      10    exit /b 1
+
+● PowerShell("NoDefaultCurrentDirectoryInExe=[$env:NoDefaultCurrentDirectoryInEx
+            e]"; cmd /c "echo [%NoDefaultCurrentDirectoryInExe%]")
+  ⎿  NoDefaultCurrentDirectoryInExe=[]
+     [%NoDefaultCurrentDirectoryInExe%]
+
+● PowerShell(cmd /c "set sdk_install_path=D:\Weifu\git\compare\zelos_repo& set
+            ccs_install_path1=D:\ti\ccs1281& set
+            sysconfig_install_path1=D:\ti\sysconfig_1.23.0& cd /d D:\…)
+  ⎿  D:\Weifu\git\compare\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\scripts
+     \windows>set MMWAVE_SDK_DEVICE=awr2x44P
+     … +51 lines (ctrl+o to expand)
+
+● Update(D:/Weifu/git/compare/build_dbg.bat)
+  ⎿  Added 1 line
+      3  set ccs_install_path1=D:\ti\ccs1281
+      4  set sysconfig_install_path1=D:\ti\sysconfig_1.23.0
+      5  
+      6 +set PATH=%sdk_install_path%\mmwave_mcuplus_sdk_04_07_00_01\scrip
+        +ts\windows;%PATH%                                               
+      7  cd /d %sdk_install_path%\mmwave_mcuplus_sdk_04_07_00_01\scripts\
+         windows
+      8  call .\setenv.bat
+      9  if %ERRORLEVEL% NEQ 0 (
+
+● PowerShell(cmd /c "D:\Weifu\git\compare\build_dbg.bat >
+            D:\Weifu\git\compare\build_dbg.log 2>&1"; "exit=$LASTEXITCODE";
+            Get-Content D:\Weifu\git\compare\build_dbg.log -Tai…)
+  ⎿  Error: Exit code 2
+     exit=2
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/perception/calibration/dtc_fault_manager.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: ./mss/can_rx_id_array.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/dbc/mcr1_mfr1_objects_list_can__matrix_to__zelos_v3_0_2_03_rx.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/dbc/mcr1_mfr1_objects_list_can__matrix_to__zelos_v3_0_2_03_tx.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/Zelos_can_protocol/zelos_CR_CAN1_FL.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/Zelos_can_protocol/zelos_CR_CAN2_FL.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/Zelos_can_protocol/zelos_CR_CAN1_FR.c
+     [R5 Device/Type: awr2x44P/awr2x44P] Building file: 
+     ./mss/Zelos_can_protocol/zelos_CR_CAN2_FR.c
+
+     … +22 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/dem
+      o/awr2x44P/mmw_ddm" && grep -A4 "MEMORY CONFIGURATION"
+      awr2x44P_mmw_demo_mssDDM.map 2>/…)
+  ⎿  MEMORY CONFIGURATION
+
+              name            origin    length      used     unused   attr
+     … +7 lines (ctrl+o to expand)
+
+● TCMB 只用了 1KB，还剩 63KB。把调试任务栈和黑匣子都挪到 TCMB：
+
+● Update(mss\wf_debug_info.c)
+  ⎿  Added 2 lines, removed 1 line
+      61      uint16_t assertCount;
+      62  } WFDbgBlackBox_s;
+      63  
+      64 -/* (NOLOAD) 段: 启动不清零, warm reset 后内容保留 (与 SDK IPC  
+         -共享内存同一惯用法) */                                         
+      64 +/* (NOLOAD) 段: 启动不清零, warm reset 后内容保留 (与 SDK IPC  
+         +共享内存同一惯用法)。                                          
+      65 + * 放 TCMB (MSS_L2 已满); 若 SBL 对 TCM 做 ECC 初始化清零, 黑匣
+         +子跨复位能力需上硬件确认。 */                                  
+      66  static WFDbgBlackBox_s gWfDbgBlackBox __attribute__((section(".
+          bss.wfNoInit")));
+      67  
+      68  /* ------------------------------------------------------------
+          ------ */
+
+● Update(mss\wf_debug_info.c)  ⎿  Added 3 lines, removed 1 line
+      135  } WFDbgObj_s;
+      136  
+      137  static WFDbgObj_s gWfDbg;
+      138 -static StackType_t gWfDbgTskStack[WF_DEBUG_TASK_STACK_SIZE] __
+          -attribute__((aligned(32)));                                   
+      138 +/* 任务栈放 TCMB (MSS_L2 已满, TCMB 对 R5F 是零等待 TCM); 保持
+          +零初始化以支持栈水位扫描 */                                   
+      139 +static StackType_t gWfDbgTskStack[WF_DEBUG_TASK_STACK_SIZE]   
+      140 +    __attribute__((aligned(32), section(".bss.wfDbgStack"))); 
+      141  
+      142  /* -----------------------------------------------------------
+           ------- */
+      143  /* 工具                                                       
+                    */
+
+● Update(mss\mmw_mss_linker.cmd)
+  ⎿  Added 3 lines, removed 1 line
+      12      .ota_data: {} > TCMB_RAM
+      13      .ota_text: {} > TCMA_RAM
+      14      /* debugInfo 黑匣子: warm reset 后保留 (NOLOAD, 启动不清零)
+           */
+      15 -    .bss.wfNoInit (NOLOAD) : {} > MSS_L2                       
+      15 +    .bss.wfNoInit (NOLOAD) : {} > TCMB_RAM                     
+      16 +    /* debugInfo 发送任务栈 (零初始化, 支持栈水位扫描) */      
+      17 +    .bss.wfDbgStack: {} > TCMB_RAM                             
+      18  }
+      19  /*-------------------------------------------------------------
+          ---------------*/
+      20  
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● PowerShell(cmd /c "D:\Weifu\git\compare\build_dbg.bat >
+            D:\Weifu\git\compare\build_dbg.log 2>&1"; "exit=$LASTEXITCODE";
+            Get-Content D:\Weifu\git\compare\build_dbg.log -Tai…)
+  ⎿  exit=0
+     D:/ti/ccs1281/ccs/tools/compiler/ti-cgt-c6000_8.3.12/bin/cl6x -mv6600
+     --abi=eabi -g --define=SOC_AWR2X44P --display_error_number --diag_warn
+     … +47 lines (ctrl+o to expand)
+  ⎿  (timeout 10m)
+
+● ✅ 编译通过，appimage 已生成。验证一下段布局是否符合设计：
+
+● Bash(cd "D:/Weifu/git/compare/zelos_repo/mmwave_mcuplus_sdk_04_07_00_01/ti/dem
+      o/awr2x44P/mmw_ddm" && grep -E "TCMB_RAM|MSS_L2 "
+      awr2x44P_mmw_demo_mssDDM.map | head -…)
+  ⎿    TCMB_RAM              00080000   00010000  0000141c  0000ebe4  RW
+       MSS_L2                10220000   000b0000  000aee10  000011f0  RW
+     ---
+     … +17 lines (ctrl+o to expand)
+
+  Wrote 3 memories (ctrl+o to expand)
+
+● 落地完成，编译验证通过（MASTER/FL，appimage 已打包签名）。总结：
+
+  交付内容
+
+  新文件（2 个）
+  - mss/wf_debug_info.h — 帧布局定义、故障位、阶段枚举、采集 API（含
+  WF_DEBUG_INFO_ENABLE 总开关，置 0 全部编译为空宏）
+  - mss/wf_debug_info.c — 4 页构建、66ms 独立发送任务、黑匣子、栈水位扫描、CAN
+  健康主动读
+
+  改动文件（6 个），全部是单行级埋点
+
+  ┌────────────────────┬─────────────────────────────────────────────────────┐
+  │        文件        │                        埋点                         │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mss_main.c         │ init + 注册栈、reportFxn 4 处阶段标记、RspTask      │
+  │                    │ 帧快照、ctrl task alive + 错误码、assert 黑匣子钩子 │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mss_mcan.c         │ 车身报文时间戳、TX FIFO 满计数、canrec alive        │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mss_can_output.c   │ canout alive、航迹数                                │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ wf_time_sync.c     │ timesync alive                                      │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mmw_mss_linker.cmd │ .bss.wfNoInit (NOLOAD) + 任务栈 → TCMB              │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mmw_mss.mak        │ 加入 wf_debug_info.c                                │
+  └────────────────────┴─────────────────────────────────────────────────────┘
+
+  编译过程发现并解决的两个问题
+
+  1. MSS_L2 已近满载（只剩 5.6KB）——调试任务栈 4KB 挪到 TCMB_RAM（64KB 只用了
+  1KB），R5F 访问 TCM 反而零等待
+  2. noinit 段写法改用 SDK IPC 共享内存同款的 .bss.xxx (NOLOAD) 惯用法，防止启动
+  zero-init 抹掉黑匣子
+
+  上硬件要验证的三件事
+
+  1. 0x200 报文基本收发：CANoe/CANalyzer 收四页轮播，rollingCounter 连续、CRC
+  对（CRC 参数与你 TimeSync 0x040 完全一致，校验范围 Byte0..61）
+  2. 黑匣子跨复位：CLI 触发一次 assert → 复位 → 看 Page3 的
+  bbValid/fileHash/line。⚠️ 若 SBL 对 TCM 做 ECC
+  初始化清零，跨复位记录会失效，届时把 .bss.wfNoInit 改放 DSS_L3_SHARE_RAM 再试
+  3. 台架对照：Page0 的耗时 max-hold 与你 CCS 调试时看到的 mssTimeRecord
+  数值对得上（单位 0.1ms）
+
+  第④步 MSS 看门狗（动 syscfg）还没做——这是让"挂死→WDT 复位→Page3 报 MSS_WDT
+  原因"闭环的最后一块，建议黑匣子在硬件上验证通过后再单独做。另外如果你要把
+  0x200 写进 DBC（mux 信号定义），我可以按四页布局生成 DBC 片段，随时说。
+
+✻ Cooked for 24m 39s
