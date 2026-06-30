@@ -417,6 +417,21 @@ MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按�
 
 `tools/debuginfo_parser.py` —— 按附录 A 实现:双 ID 收 + rolling 配对 + 派生 marginMin + 粘滞位/状态/复位原因解名 + 连续性/丢半帧/趋势告警。输入支持 CANoe `.asc`(经典/CANFD,按 asc 头 `base hex|dec` 解析 ID)与十六进制行。帧的 hot/det 归属取自帧头 `msgIndex`(不靠 CAN ID),hex dump 无 ID 也能解析。纯 stdlib,Python 3.7+。
 
+### 多雷达(合并总线)自动分流
+
+两台雷达电气合并到同一条 CAN 总线,固件按位置给 debugInfo ID 加偏移(`wf_debug_info.c`:FL 发 `CAN_ID`,FR 发 `CAN_ID+2`):
+
+| 雷达 | hot / det |
+|---|---|
+| **FL**(FRONT_LEFT) | `0x200` / `0x201` |
+| **FR**(FRONT_RIGHT) | `0x202` / `0x203` |
+
+解析脚本**按 CAN ID 路由到各自的 monitor**(`msgIndex` 只在单台内区分 hot/det,分不出 FL/FR),所以一份 `.asc` 会输出:**每台雷达一份独立 summary + VERDICT**,末尾再给一行**全总线 TX 负载合计**(FL% + FR% → TOTAL%)。
+
+- ID↔位置的映射集中在脚本顶部 `RADARS` 列表;换偏移/加后雷达(RL/RR)改这一处即可。
+- 只录到一台时只出一份 summary、不打合计行(向后兼容单雷达老 capture)。
+- ⚠️ **旧版脚本 `want_ids` 只收 `0x200/0x201`,会静默丢掉 FR 的 `0x202/0x203`** —— 即只解析了 FL。务必用本版解析合并总线的录制。
+
 ### 用法
 
 ```bash

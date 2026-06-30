@@ -22,8 +22,14 @@ Features
 The frame half is taken from header byte0[3:0] (msgIndex), not the CAN id, so hex
 dumps without an id still decode correctly.
 
+Multi-radar (merged bus): two radars share one electrically-merged CAN bus and
+offset their debugInfo ids by position (FL=0x200/0x201, FR=0x202/0x203). Frames are
+routed BY CAN ID into a separate per-radar monitor, so .asc captures get one summary
+per radar plus a combined whole-bus TX-load total. (msgIndex only separates hot/det
+within one radar, so id-less hex dumps fall back to a single merged stream.)
+
 Inputs (auto-detected by extension, or --format)
-  - CANoe/CANalyzer .asc  (classic + CAN-FD lines), frames with id 0x200 or 0x201
+  - CANoe/CANalyzer .asc  (classic + CAN-FD lines), ids 0x200/0x201 (FL) + 0x202/0x203 (FR)
   - hex dump: one frame per line, 64 hex bytes (optional leading float timestamp)
 
 Usage
@@ -43,6 +49,26 @@ FRAME_LEN = 64
 # "base hex|dec" header (Vector default = hex), so these are the real 0x200/0x201.
 ID_HOT = 0x200   # 512
 ID_DET = 0x201   # 513
+
+# --- Multi-radar split -------------------------------------------------------
+# Two radars share one (electrically merged) CAN bus. Each radar offsets its
+# debugInfo ids by its position so they do NOT collide (firmware wf_debug_info.c:
+# FL emits CAN_ID, FR emits CAN_ID + 2):
+#   FL (FRONT_LEFT)  -> 0x200 / 0x201
+#   FR (FRONT_RIGHT) -> 0x202 / 0x203
+# Frames are routed to a per-radar monitor BY CAN ID (the in-frame msgIndex only
+# tells hot vs det WITHIN one radar, so it cannot distinguish FL from FR).
+RADARS = [
+    ("FL", 0x200, 0x201),
+    ("FR", 0x202, 0x203),
+]
+RADAR_IDS = {name: (hot, det) for name, hot, det in RADARS}
+ID_TO_RADAR = {}
+for _name, _hot, _det in RADARS:
+    ID_TO_RADAR[_hot] = _name
+    ID_TO_RADAR[_det] = _name
+ALL_WANT_IDS = set(ID_TO_RADAR.keys())
+
 CRC_COVER = 62
 SCHEMA_VER_EXPECTED = 4
 FRAME_BUDGET_100US = 660          # 66ms in 0.1ms units (matches firmware)
@@ -62,6 +88,20 @@ CAN_FIXED_DAT_BITS = 36           # data-rate control/CRC bits per frame
 CAN_US_PER_FRAME = CAN_FIXED_NOM_BITS * CAN_NOM_BITS_US \
                  + CAN_FIXED_DAT_BITS * CAN_DAT_BITS_US      # ~78 us
 CAN_US_PER_BYTE = 8 * CAN_DAT_BITS_US                        # 4.0 us
+
+
+def bus_load_pct(fps, kbps):
+    """Rough on-wire bus occupancy (%) from a node's TX frame/s + KB/s."""
+    bus_us_per_sec = fps * CAN_US_PER_FRAME + (kbps * 1024) * CAN_US_PER_BYTE
+    return bus_us_per_sec / 1e6 * 100.0
+
+
+def monitor_bus_load(mon):
+    """(txFramesPerSec_peak, txKBytesPerSec_peak, busPct) for one radar's monitor."""
+    dm = mon.a["detmax"]
+    fps = dm.get("txFramesPerSec", 0)
+    kbps = dm.get("txKBytesPerSec", 0)
+    return fps, kbps, bus_load_pct(fps, kbps)
 
 FAULT_BITS = [
     "OVERRUN", "FRAME_DROP", "SYNC_LOST", "CAN_ERR", "OVER_TEMP", "DTC_ACTIVE",
@@ -437,7 +477,7 @@ def iter_asc(path, want_ids):
                 ts = float(toks[0])
             except ValueError:
                 ts = None
-            yield ts, data
+            yield ts, msg_id, data
 
 
 def iter_hex(path, want_ids):
@@ -458,7 +498,8 @@ def iter_hex(path, want_ids):
             except ValueError:
                 continue
             if len(data) == FRAME_LEN:
-                yield ts, data
+                # hex dumps carry no CAN id -> cannot split radars; single stream.
+                yield ts, None, data
 
 
 # --------------------------------------------------------------------------- #
@@ -468,9 +509,10 @@ def fmt_ts(ts):
     return f"{ts:10.4f}" if isinstance(ts, float) else "      -   "
 
 
-def print_line(f):
+def print_line(f, label=""):
     faults = ",".join(f["faults"]) or "-"
-    print(f"[{fmt_ts(f['ts'])}] {f['half']:3s} roll={f['rolling']:3d} "
+    tag = f"{label:2s} " if label else ""
+    print(f"[{fmt_ts(f['ts'])}] {tag}{f['half']:3s} roll={f['rolling']:3d} "
           f"sensor={f['sensorState']} sync={f['timeSyncState']} "
           f"alive={','.join(f['aliveTasks']) or '-'} faults={faults}")
     for w in f["warnings"]:
@@ -490,14 +532,18 @@ def print_snapshot(cyc):
             print(f"     {k:22s} = {v}")
 
 
-def print_summary(mon):
+def print_summary(mon, label=None):
     a = mon.a
     faults = _bits(a["fault_union"], FAULT_BITS)
     hm, dm = a["hotmax"], a["detmax"]
     dur = (a["ts_last"] - a["ts_first"]) if (a["ts_first"] is not None and a["ts_last"] is not None) else None
 
     print("=" * 64)
-    print("debugInfo capture summary")
+    if label and label in RADAR_IDS:
+        hot, det = RADAR_IDS[label]
+        print(f"debugInfo summary  —  {label}  ({hot:#05x}/{det:#05x})")
+    else:
+        print("debugInfo capture summary")
     print("=" * 64)
     line = f"frames={mon.frame_count}  cycles={a['cycles']}"
     if dur is not None:
@@ -518,14 +564,10 @@ def print_summary(mon):
           f"rsp(algo)={hm.get('cpuRspPct', 0)}%  canout={hm.get('cpuCanoutPct', 0)}%")
     print(f"CAN-A  tec max={dm.get('tec', 0)}  rec max={dm.get('rec', 0)}  "
           f"busOffEver={dm.get('busOffEverCount', 0)}  txStall max={dm.get('canTxStallCount', 0)}  CEL max={dm.get('canErrLogCnt', 0)}")
-    fps = dm.get('txFramesPerSec', 0)
-    kbps = dm.get('txKBytesPerSec', 0)
-    # rough on-wire bus load (this node only): fixed per-frame + per-byte payload
-    busUsPerSec = fps * CAN_US_PER_FRAME + (kbps * 1024) * CAN_US_PER_BYTE
-    busPct = busUsPerSec / 1e6 * 100.0
-    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s  (radar's own bus contribution)")
-    print(f"est. bus load (this node): ~{busPct:.0f}%  "
-          f"(500K/2M; rough, TX only — sum FR+FL for whole-bus total)")
+    fps, kbps, busPct = monitor_bus_load(mon)
+    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s  (this radar's own bus contribution)")
+    print(f"est. bus load (this radar): ~{busPct:.0f}%  "
+          f"(500K/2M; rough, TX only — see combined total below)")
     print(f"TimeSync  crcErr={dm.get('crcErrorCount', 0)}  invalid={dm.get('invalidFrameCount', 0)}  jump={dm.get('offsetJumpCount', 0)}")
     print(f"blackbox record: {'YES' if a['bb_seen'] else 'no'}   assertLive max={dm.get('assertCountLive', 0)}   lastErrorCode={a['lastErr']}")
     if a["stack_min"]:
@@ -583,38 +625,71 @@ def main():
     if fmt == "auto":
         fmt = "asc" if args.input.lower().endswith(".asc") else "hex"
     reader = iter_asc if fmt == "asc" else iter_hex
-    want_ids = {ID_HOT, ID_DET}
+    want_ids = ALL_WANT_IDS
 
-    mon = DebugInfoMonitor()
+    # One monitor per radar, created lazily as its frames first appear, so a
+    # single-radar capture reports only the radar actually present. "single" is
+    # the fallback bucket for id-less hex input.
+    monitors = {}        # name -> DebugInfoMonitor
+    order = []           # first-seen radar order
+
+    def get_mon(name):
+        m = monitors.get(name)
+        if m is None:
+            m = DebugInfoMonitor()
+            monitors[name] = m
+            order.append(name)
+        return m
+
     read_idx = 0
-    for ts, data in reader(args.input, want_ids):
+    for ts, msg_id, data in reader(args.input, want_ids):
         read_idx += 1
         if read_idx <= skip_frames:
             continue
         if skip_time is not None and isinstance(ts, float) and ts < skip_time:
             continue
+        name = ID_TO_RADAR.get(msg_id, "single") if msg_id is not None else "single"
+        mon = get_mon(name)
         f = mon.feed(ts, data)
         if not args.summary:
-            print_line(f)
+            print_line(f, label=(name if name != "single" else ""))
             if args.full and f["completed_cycle"] is not None:
                 print_snapshot(f["completed_cycle"])
 
-    snap, warns = mon.flush()
-    if not args.summary:
-        for w in warns:
-            print(f"            !! {w}")
-        if args.full and snap is not None:
-            print_snapshot(snap)
+    for name in order:
+        snap, warns = monitors[name].flush()
+        if not args.summary:
+            for w in warns:
+                print(f"            !! {w}")
+            if args.full and snap is not None:
+                print_snapshot(snap)
 
-    if mon.frame_count == 0:
-        print(f"no 0x{ID_HOT:X}/0x{ID_DET:X} frames found (format={fmt}). Check --format.",
-              file=sys.stderr)
+    total_frames = sum(m.frame_count for m in monitors.values())
+    if total_frames == 0:
+        ids = "/".join(f"0x{i:X}" for i in sorted(ALL_WANT_IDS))
+        print(f"no {ids} frames found (format={fmt}). Check --format.", file=sys.stderr)
         sys.exit(1)
 
     if args.summary:
-        print_summary(mon)
+        loads = []
+        for name in order:
+            print_summary(monitors[name], label=(name if name != "single" else None))
+            fps, kbps, pct = monitor_bus_load(monitors[name])
+            loads.append((name, fps, kbps, pct))
+        # Combined whole-bus total when more than one radar was seen.
+        real = [x for x in loads if x[0] != "single"]
+        if len(real) > 1:
+            total = sum(x[3] for x in real)
+            print("=" * 64)
+            print("combined CAN-A bus load  (all radars on this merged bus, TX only, rough)")
+            print("  " + "   ".join(f"{n}~{p:.0f}%" for n, _f, _k, p in real)
+                  + f"   ->  TOTAL ~{total:.0f}%")
+            print("  (500K/2M; per-radar TX estimate summed; judge headroom with "
+                  "txStall/tec/busOff, not this %.)")
+            print("=" * 64)
     else:
-        print(f"\n{mon.frame_count} frames decoded. (run with --summary for a health verdict)")
+        seen = ", ".join(f"{n}={monitors[n].frame_count}" for n in order)
+        print(f"\n{total_frames} frames decoded ({seen}). (run with --summary for a health verdict)")
 
 
 if __name__ == "__main__":
