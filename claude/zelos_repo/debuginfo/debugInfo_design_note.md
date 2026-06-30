@@ -428,6 +428,8 @@ MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按�
 
 解析脚本**按 CAN ID 路由到各自的 monitor**(`msgIndex` 只在单台内区分 hot/det,分不出 FL/FR),所以一份 `.asc` 会输出:**每台雷达一份独立 summary + VERDICT**,末尾再给一行**全总线 TX 负载合计**(FL% + FR% → TOTAL%)。
 
+> **免 Python 的独立 exe**:对外分发时不必给 `.py` 源码,用 `dist/debuginfo_parser.exe`(单文件,目标机器无需装 Python),把 `.asc` **拖到图标上**即出报告。打包方法见**附录 E**。
+
 - ID↔位置的映射集中在脚本顶部 `RADARS` 列表;换偏移/加后雷达(RL/RR)改这一处即可。
 - 只录到一台时只出一份 summary、不打合计行(向后兼容单雷达老 capture)。
 - ⚠️ **旧版脚本 `want_ids` 只收 `0x200/0x201`,会静默丢掉 FR 的 `0x202/0x203`** —— 即只解析了 FL。务必用本版解析合并总线的录制。
@@ -458,3 +460,126 @@ python debuginfo_parser.py frames.hex --format hex --summary
 - **`NEEDS ATTENTION`** —— 有需排查项(CRC 错、schema 不匹配、黑匣子有崩溃记录、overrun、任务失活、栈紧张、assert 命中等),逐条带提示。
 
 完整性栏:`rolling gaps`/`missing hot/det` **只在 t≈0 出现一次** = 录制开场假象(用 `--skip` 滤掉);**录制中段反复出现** = 真丢帧(查总线拥塞或设备复位:看 `uptime` 是否归零、`resetCause`)。
+
+---
+
+## 附录 D:`--summary` 报告逐字段详解
+
+> 这份解释报告**输出端的每一行**:数据来自哪条帧/哪个字节(对应附录 A)、脚本怎么算出来的、什么含义、正常 vs 该警觉。与附录 A(on-wire 字节真相)互为正反面:附录 A 是"帧里有什么",本附录是"报告里那行从哪来"。
+
+### 解析总流程(从 .asc 到报告)
+
+```
+.asc 每行 → 取 CAN ID + 64 字节数据
+   → 按 ID 路由到 FL(0x200/1) / FR(0x202/3) 各自的 monitor(见附录 C 多雷达分流)
+   → 每帧:解 6 字节公共头,用 msgIndex 选 hot(0x200) 还是 det(0x201) 半张
+   → CRC16 校验(覆盖 byte0–61)+ schema 版本校验
+   → 按 rollingCounter 把 hot+det 配成"一个周期快照"
+   → 全程聚合 → print_summary 打出聚合值 → VERDICT 判读
+```
+
+**四种聚合方式**(报告里反复出现):
+
+| 方式 | 含义 | 用在哪些字段 |
+|---|---|---|
+| **峰值锁存 max-hold** | 整段取最大 | 耗时/CPU负载/overrun/tec/busOff/TX rate… |
+| **派生 derived** | 固件不发,脚本算 | `margin`、`est. bus load` |
+| **并集/集合** | 故障位按位或;状态收集所有出现值 | `faultSummary`、`sensorState`、`timeSyncState` |
+| **首→尾 / min** | 计数器记首末帧;栈取最小剩余 | `frameStart/resultCount`、`stack free min` |
+
+### 逐字段(按报告自上而下)
+
+| 报告行/字段 | 来源(帧@偏移) | 聚合 | 含义 / 正常 · 该警觉 |
+|---|---|---|---|
+| 标题 `summary — FL (0x200/0x201)` | 按 CAN ID 分流 | — | FL=0x200/1,FR=0x202/3 |
+| `frames` / `cycles` / `duration` | 计数 / 行首时间戳 | — | cycles≈frames/2≈duration÷0.066;差很多=中段断流 |
+| `sensorState` | 头 byte4[3:0] | 集合 | 该跑应 `STARTED`;停在 `OPENED`=没启动信号链 |
+| `timeSyncState` | 头 byte4[7:4] | 集合 | `SYNCED` 正常;`SILENT_WAIT`=无主节点(台架常见);`SYNC_LOST`=丢同步 |
+| `uptime` | det@30 (u16 秒) | max | 持续涨;max≪duration=中途复位过 |
+| `resetCause` | det@50 | 最后值 | `POWER_ON` 正常 |
+| `warmResetCause` | det@51 | 最后值 | `MSS_WDT`/`HSM_WDT`=被看门狗复位(挂死过,重点查) |
+| `frameStart A->B` | hot@30 (u32) | 首→尾 | 每帧 RANGE_START 自增 |
+| `resultCount C->D` | hot@34 (u32) | 首→尾 | 与 frameStart **一起涨且接近**;start 涨 result 停=DSP/DPM 挂 |
+| `timing CM4/DOA/postproc/total` | hot@6/8/10/16 (u16,0.1ms) | max | ⚠️ **墙钟含抢占,只当趋势**;`total`<660(66ms) |
+| `overrun max` | hot@20 (u16) | max | 超 66ms 预算的累计次数,>0=有帧超时 |
+| `framePeriodMaxDev max` | hot@28 (u16,0.1ms) | max | 帧周期抖动,个位数正常 |
+| `CPU R5 avg/peak` | hot@12/13 (u8 %) | max | **真 CPU 时间**(run-time stats,免抢占);avg=累计均值(抗 71min 回绕),peak=0.5s 窗口尖峰 |
+| `CPU rsp/canout` | hot@14/15 (u8 %) | max | rsp=算法(DOA+感知);canout≈0(发送走 FIFO 硬件,不吃 R5) |
+| `tec` / `rec` | det@47 / @48 (u8) | max | CAN 发/收错误计数;tec 爬升=没ACK,>127=error-passive |
+| `busOffEver` | det@20 (u16) | max | bus-off 次数 |
+| `txStall` | det@22 (u16) | max | TX FIFO 满等待(背压) |
+| `CEL` | det@26 (u16) | max | 硬件错误日志;以上全 0=总线健康 |
+| `TX rate frames/s, KB/s` | det@28 / @53 | max | 固件在 `mcanA_transfer_FIFO` 数本节点**每帧** TX(对象+诊断全算) |
+| `est. bus load (this radar)` | **派生** | — | `fps×78µs + KB/s×1024×4µs`→占空比;粗估 ±1–1.5%,只看量级 |
+| `TimeSync crcErr/invalid/jump` | det@10/12/14 (u16) | max | 同步帧 CRC错/非法/时间跳变;全 0 干净 |
+| `blackbox record` | det@52 (bbRecValid) | 或 | `YES`=本上电周期命中过 assert(`--full` 看 `bbLine`+`bbFileHash`) |
+| `assertLive max` | det@38 (u16) | max | 本次运行 assert 命中数 |
+| `lastErrorCode` | det@40 (i32) | 最后非零 | ≠0=某模块返回过错误码 |
+| `stack free min` | det@56–61 (u8×16B) | **min** | 各任务最坏剩余;某项 **<~256B=快溢出**;`0xFF`=未注册 |
+| `integrity CRC err` | byte62 校验 | 计数 | >0=误码或固件↔脚本 schema 没同步 |
+| `integrity schema err` | byte0[7:4]≠4 | 计数 | >0=固件/脚本版本没对上(偏移可能全错) |
+| `integrity rolling gaps` | byte1 不连续 | 计数 | 丢周期;仅 t≈0 一次=开场假象(`--skip` 滤) |
+| `integrity missing hot/det` | 周期内缺半张 | 计数 | 某周期只收到 0x200 或 0x201 |
+
+### VERDICT 判读逻辑
+
+故障位(头 byte2-3,整段**并集**)分两类后给结论:
+- **`FAULT_BENCH`**(`CAN_ERR`/`CAN_TX_STALL`/`SYNC_LOST`/`VEHICLE_TIMEOUT`)→ 台架/环境事,标 `[bench]`。
+- 其余故障位 + CRC错 + schema错 → 固件/系统问题,标 `[!]`。
+
+| 情况 | 结论 |
+|---|---|
+| 无 `[!]` 无 `[bench]` | `OK` |
+| 只有 `[bench]` | `OK (firmware) - only bench/environment faults` |
+| 有任何 `[!]` | `NEEDS ATTENTION`(逐条列出 + 提示) |
+
+> 多雷达录制时,每台各出一份本报告 + VERDICT,末尾再追加一行全总线 TX 负载合计(`FL% + FR% → TOTAL%`)。
+
+---
+
+## 附录 E:打包成独立 exe(免 Python 分发)
+
+**目的**:对外(客户/产线/同事)分发解析工具时,**不交付 `.py` 源码**,只给一个免安装的 `.exe`,把 `.asc` 拖进去就出报告。
+
+**工具**:[PyInstaller](https://pyinstaller.org)(把解释器 + 脚本 + 依赖打进单个 exe)。本脚本是**纯标准库**,无第三方依赖,`--onefile` 可干净打包。
+
+### 一键打包
+
+仓库已带脚本 **`tools/build_debuginfo_exe.bat`**,改完 `debuginfo_parser.py` 后双击它即可重出 exe。它执行的核心命令是:
+
+```bat
+:: 一次性安装(只需一次)
+python -m pip install pyinstaller
+
+:: 打包(build_debuginfo_exe.bat 里就是这条)
+python -m PyInstaller --onefile --console --name debuginfo_parser ^
+    --distpath dist --workpath build_tmp --specpath build_tmp ^
+    --noconfirm debuginfo_parser.py
+```
+
+| 选项 | 作用 |
+|---|---|
+| `--onefile` | 打成**单个** exe(而非一堆 dll + exe 的文件夹) |
+| `--console` | 保留控制台窗口(报告要打印在窗口里) |
+| `--name` | 输出名 `debuginfo_parser.exe` |
+| `--distpath dist` | exe 输出到 `tools/dist/` |
+| `--workpath/--specpath build_tmp` | 临时产物集中到 `build_tmp/`(脚本结尾 `rmdir` 删掉,保持 tools/ 干净) |
+
+产物:`tools/dist/debuginfo_parser.exe`(约 9–10 MB)。连同 `dist/使用说明.txt` 一起发即可。
+
+### exe 的"拖拽即用"是怎么做到的
+
+`debuginfo_parser.py` 的 `main()` / `__main__` 里有**仅在打包后(`sys.frozen`)才生效**的三段逻辑(跑 `.py` 开发时完全不触发):
+
+1. **拖拽 / 命令行带文件**:文件路径作为 `argv[1]` 进来,正常解析。
+2. **双击(无参数)**:`input()` 提示"拖入 .asc 文件后回车,或输入路径",把路径补进 `argv`。
+3. **默认出体检报告**:打包版若没显式加 `--full`,自动等价 `--summary`(终端用户要的就是结论)。
+4. **跑完不闪退**:`__main__` 的 `finally` 里 `input("按回车键退出...")` 让控制台窗口停住。
+
+### ⚠️ 注意事项(必读)
+
+- **exe ≠ 加密源码**:PyInstaller 只是把字节码打包进去,**懂逆向的人能解出 `.pyc` 再反编译**回接近源码。它能挡住普通用户(不交付明文 `.py`),但**不是强 IP 保护**。需要更强防逆向请用 **Nuitka**(编译成 C 再生成 exe,逆向难度高得多)或商业混淆器(PyArmor 等)。
+- **平台绑定**:打出来的是 **64 位 Windows** exe,Linux/Mac/32 位跑不了;在哪个平台打包就只能在哪个平台跑。
+- **杀软误报**:单文件 exe 的引导器**偶尔被杀软误报**(打包器通病),加信任放行即可。
+- **不建议提交进 git**:9–10 MB 二进制随源码每次变都变,体积大;建议 `tools/dist/` 加进 `.gitignore`,需要时用 `build_debuginfo_exe.bat` 现场重打。
+- **Python 版本**:在 Python 3.14 + PyInstaller 6.21 上验证通过;换很新的 Python 时,PyInstaller 可能需同步升级才支持。
