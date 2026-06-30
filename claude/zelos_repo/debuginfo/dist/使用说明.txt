@@ -1,0 +1,23 @@
+debugInfo 解析工具  debuginfo_parser.exe
+============================================
+
+用途
+  解析雷达 debugInfo 的 CAN 录制(.asc 文件),输出一份"体检报告"和结论。
+  无需安装 Python,双击即可用。仅支持 64 位 Windows。
+
+怎么用(任选一种)
+  1) 把 .asc 文件直接拖到 debuginfo_parser.exe 图标上松手。
+  2) 双击 debuginfo_parser.exe,按提示把 .asc 文件拖进窗口(或粘贴路径),回车。
+  3) 命令行：debuginfo_parser.exe  你的录制.asc
+
+看什么
+  - 两台雷达(FL = 0x200/0x201、FR = 0x202/0x203)各一份报告 + VERDICT 结论。
+  - 末尾一行是全总线 TX 负载合计(FL% + FR% -> TOTAL%)。
+  - 只看每份末尾的 VERDICT：
+        OK              = 正常,无需处理。
+        NEEDS ATTENTION = 有问题,按下面的 [!] 行排查。
+
+说明
+  - 一台没录到时只出一份报告,属正常。
+  - 首次运行若被杀毒软件误报,是 exe 打包工具的常见现象,加信任放行即可。
+  - build_debuginfo_exe.bat   │ 你以后改了 .py,双击它一键重新打包
