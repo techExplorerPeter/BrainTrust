@@ -1,7 +1,7 @@
-# 0x200 debugInfo 设计说明 (Design Note)
+# debugInfo 设计说明 (Design Note) — schema v4
 
 > 运行时调试报文 — 实车无调试器环境下的"飞行记录仪"
-> 模块代码:`mss/wf_debug_info.c` / `mss/wf_debug_info.h`
+> 模块代码:`mss/wf_debug_info.c` / `mss/wf_debug_info.h` ｜ 解析:`tools/debuginfo_parser.py`
 > 作者:Peter Zhu ｜ 状态:设计/落地阶段(未上硬件验证)
 
 ---
@@ -10,39 +10,38 @@
 
 实车上整机只有一条 CAN 总线,**接不了调试器**:看不到内存、看不到栈、打不了断点、释放版 `assert` 命中即静默死循环。出问题时几乎没有观测手段。
 
-因此引入一条专用 CAN 报文(CAN ID `0x200`),固定 66ms 周期播出固件的"体检报告"。在总线上用 CANoe/CANalyzer 即可接收。**这条报文是实车上唯一的运行时观测窗口**,其设计质量直接决定故障可定位性。
+因此引入一组专用 CAN 报文,固定 66ms 周期播出固件的"体检报告",在总线上用 CANoe/CANalyzer 接收、由 Python 脚本解析。**这组报文是实车上唯一的运行时观测窗口**,其设计质量直接决定故障可定位性。
 
 ---
 
-## 2. 核心矛盾与解法:分页轮播
+## 2. 容量与结构:两条消息,一周期拿全快照
 
-想监测的信号有几十项,而 CAN FD 单帧最大 64 字节(DLC=15),装不下。
+CAN FD 单帧最大 64 字节(DLC=15),装不下要监测的几十项信号。本设计用**两条 CAN-FD 消息**承载一张完整快照:
 
-**解法 = multiplexed 分页轮播**:帧首字节低 4 位作页号(`pageId`),每 66ms 发一页,4 页一轮。
+| 消息 | CAN ID | 内容 | msgIndex |
+|---|---|---|---|
+| hot | `0x200` | 时序 / 检测 / 存活(变化最快、最该实时盯的) | 0 |
+| detail | `0x201` | TimeSync / CAN / 黑匣子 / 资源(慢变量) | 1 |
 
-```
-t=0     Page0 (时序/超时)
-t=66ms  Page1 (数据通路/RF)
-t=132ms Page2 (TimeSync/CAN)
-t=198ms Page3 (黑匣子/栈/复位)
-t=264ms 回到 Page0 …
-```
+两帧每 66ms **背靠背连发**,合计 128B,去掉 2×(6B 头 + 2B CRC)= **112B 有效载荷**。经过去冗余(见附录 A 说明)把数据压到 112B 后,**一个周期即拿到完整快照,无需分页轮播**。DBC 只做透传(两条 64B 不透明消息),解析全在 Python 脚本。
 
-264ms 得到一张完整快照,而总线上只占一条周期报文,负载不变。
+> 早期 v1 是单帧 0x200 + 4 页轮播(264ms 一圈);v2 改双消息后取消轮播,`schemaVer` 升到 2,旧解析不会误读新帧。
 
 ---
 
-## 3. 五条设计原则(本设计的方法论核心)
+## 3. 五条设计原则(方法论核心)
 
 把"实时状态"变成"可靠日志"的关键,也是它区别于普通打印 log 的本质:
 
 | # | 原则 | 动机 | 代码体现 |
 |---|---|---|---|
-| ① | **粘滞位 (sticky)** | 两帧间隔 66ms,期间的瞬态故障若只报"此刻"会漏。故障位用"或累加",本上电周期内**只置不清** | `faultSummary \|= bit`,`wf_dbg_set_fault()` |
-| ② | **峰值锁存 + 读后清零 (max-hold)** | 算法超时是偶发尖峰,平均值会抹平。各阶段耗时报窗口最大值,发出后清零 | `tMax[i]`;Page0 发完置 0 |
+| ① | **粘滞位 (sticky)** | 两帧间隔 66ms,期间的瞬态故障若只报"此刻"会漏。故障位"或累加",本上电周期内**只置不清** | `faultSummary \|= bit`,`wf_dbg_set_fault()` |
+| ② | **峰值锁存 + 读后清零 (max-hold)** | 算法超时是偶发尖峰,平均值会抹平。各阶段耗时报窗口最大值,发出后清零 | `tMax[i]`;`wf_dbg_build_hot` 读后清 |
 | ③ | **滚动计数器 + CRC** | rolling counter 每帧 +1,丢帧/阻塞可见;帧尾 CRC16 防误码 | `rollingCounter`、`wf_dbg_crc16()` |
-| ④ | **公共头每页都带** | "一眼定生死"的信息每页都带,某页丢了也不瞎 | 每帧 Byte0–5 固定头 |
-| ⑤ | **采集 / 发送解耦** | 采集点绝不阻塞发送;发送独立任务。即使 canoutput 挂死,本报文仍能发出并报告其失活 | 独立 `wf_debug_info_task` |
+| ④ | **公共头每帧都带** | "一眼定生死"信息每帧都带,丢一条也不瞎 | 两帧各带 Byte0–5 头 |
+| ⑤ | **采集 / 发送解耦** | 采集点绝不阻塞发送;**独立发送任务**。即使 canoutput 挂死/栈溢出,本报文仍能发出并报告其失活 | 独立 `wf_debug_info_task` |
+
+> 关于 ⑤:发送是**独立 FreeRTOS 任务**而非寄生在 `mss_canoutput_task`,是刻意的 —— 报告器要有最少依赖、最高隔离,才能在最复杂的任务崩溃时还活着报告它(栈溢出/任务挂死正是本模块要抓的目标)。
 
 ---
 
@@ -52,257 +51,288 @@ t=264ms 回到 Page0 …
    算法流水线 (RspTask / DPM reportFxn)          独立发送任务 (66ms)
    ┌─────────────────────────────┐            ┌──────────────────────┐
    │ 单行"采集 API":             │            │ 1. eval 存活/健康     │
-   │  wf_debug_mark_stage()      │  写全局     │ 2. 填公共头           │
-   │  wf_debug_frame_snapshot()  │ ─────────► │ 3. 填当前页载荷        │
-   │  wf_debug_task_alive()      │  gWfDbg    │ 4. 算 CRC             │
-   │  wf_debug_mark_vehicle_rx() │            │ 5. 发 0x200,翻页      │
+   │  wf_debug_mark_stage()      │  写全局     │ 2. 发 0x200(hot)      │
+   │  wf_debug_frame_snapshot()  │ ─────────► │ 3. 发 0x201(det)      │
+   │  wf_debug_task_alive() 等   │  gWfDbg    │ 4. rollingCounter++   │
    └─────────────────────────────┘            └──────────────────────┘
         (短临界区,不阻塞)                       (HwiP 临界区读快照)
 ```
 
 - **采集端**:散落各处的单行埋点,只更新全局结构 `gWfDbg`,极轻量。
-- **发送端**:独立 FreeRTOS 任务 `wf_debug_info_task`(优先级 2,栈在 TCMB),66ms 醒一次打包发送。
-- **并发**:采集与发送之间用 `HwiP_disable/restore`(关中断临界区)保证读写一致。所有对 `faultSummary` 的读-改-写、`framePeriodMaxDev` 的"读后清零"等都在临界区内对称保护。
+- **发送端**:独立任务(优先级 2,栈在 TCMB),66ms 醒一次,连发 0x200/0x201 两帧,共用本周期 `rollingCounter`,发完 +1。
+- **并发**:采集与发送间用 `HwiP_disable/restore` 保证读写一致;所有 RMW(faultSummary)与"读后清零"(framePeriodMaxDev 等)均在临界区内对称保护。
 
 ---
 
-## 5. 帧格式 (64 字节)
+## 5. 帧格式
 
-### 公共头 (Byte 0–5,每页相同)
+### 公共头(两帧 Byte 0–5 各带 + 帧尾)
 
-```
-[0]   schemaVer(高4位) | pageId(低4位)
-[1]   rollingCounter            每帧 +1
-[2-3] faultSummary              12 个粘滞故障位
-[4]   sensorState(低4) | timeSyncState(高4)
-[5]   taskAliveBitmap           各任务存活位
-```
-
-### 故障摘要位 `faultSummary`(`WF_DBG_FAULT_*`)
-
-| bit | 含义 | bit | 含义 |
+| 偏移 | 类型 | 字段 | 说明 |
 |---|---|---|---|
-| 0 | 帧处理超 66ms 预算 | 6 | 周期任务失活 |
-| 1 | 丢帧(trigger-result 差增大) | 7 | 某任务栈底剩余 < 阈值 |
-| 2 | TimeSync SYNC_LOST | 8 | 黑匣子有上次死机记录 |
-| 3 | CAN-A error passive / bus-off | 9 | 车身信息报文超时 |
-| 4 | 前端过温 | 10 | 本周期 assert 命中过 |
-| 5 | TimeSync DTC 锁存 | 11 | CAN-A TX FIFO 满等待 |
+| 0 | u8 | `schemaVer`(bit7:4) \| `msgIndex`(bit3:0) | ver=4;msgIndex 0=hot/1=det |
+| 1 | u8 | `rollingCounter` | 每周期 +1;**两帧相同**,解析端据此配对 |
+| 2 | u16 | `faultSummary` | 12 粘滞位 |
+| 4 | u8 | `sensorState`(bit3:0) \| `timeSyncState`(bit7:4) | |
+| 5 | u8 | `taskAliveBitmap` | bit0 RSP,1 CANOUT,2 CANREC,3 TIMESYNC,4 CTRL |
+| 62 | u16 | `CRC16-CCITT-FALSE` | poly 0x1021,init 0xFFFF,覆盖本帧 Byte 0–61 |
 
-> **使用方式**:收报文第一眼只看这 2 字节,哪位亮了再去翻对应那一页看细节。
+**`faultSummary` 位**:0 OVERRUN｜1 FRAME_DROP｜2 SYNC_LOST｜3 CAN_ERR｜4 OVER_TEMP｜5 DTC_ACTIVE｜6 TASK_DEAD｜7 STACK_LOW｜8 BLACKBOX｜9 VEHICLE_TIMEOUT｜10 ASSERT｜11 CAN_TX_STALL
 
-### 帧尾
-
-```
-[62-63] CRC-16/CCITT-FALSE (poly=0x1021, init=0xFFFF, 覆盖 Byte0..61)
-```
-与 TimeSync 0x040 帧同参数,可复用解析逻辑。
-
-### 4 页载荷 (Byte 6–61)
-
-| 页 | 主题 | 关键字段 | 回答的问题 |
-|---|---|---|---|
-| **Page0** | 时序/超时 | 各阶段耗时 max-hold ×6、tTotal、派生 margin、overrun 计数、`lastStage`、帧周期最大偏差 | 慢不慢?卡哪一段? |
-| **Page1** | 数据通路/RF | frameTriggerReady、result 计数、cfar min/cur/max、航迹数、干扰数、waveId、温度 ×4、failedTimingReports、车身报文 age | 断流没?致盲没? |
-| **Page2** | TimeSync/CAN | offsetUs、crc/invalid/jump 计数、DTC reason、CAN TEC/REC、bus-off 计数、TX 阻塞计数 | 同步/总线健康? |
-| **Page3** | 黑匣子/资源 | 复位原因、warm 复位原因、bootCount、uptime、黑匣子(line+fileHash+count)、栈水位 ×8、lastErrorCode、sensorStart/Stop 计数 | 死过没?死在哪? |
+> 收报文第一眼只看公共头的 `faultSummary` + `aliveBitmap`,哪位亮了再看对应字段。这两项在**两帧里都带**,丢一条也保得住。
 
 ---
 
 ## 6. 关键检测手法
 
-1. **死字段改派生计算**
-   TI 自带 `interFrameProcessingMargin` / CPU load 全工程无人填充(死字段)。改为派生:
-   `margin = 660 − mssTimeRecord[5]`(单位 0.1ms,66ms = 660)。
-   **教训:用一个字段前先确认它真被运行时填充。**
-
-2. **`lastStage` 指认卡点**
-   每个流水阶段(`wf_debug_mark_stage`)写一个枚举值。卡死时该字节冻结在最后到达的阶段,直接指认卡在 CM4 / DOA / 后处理哪一段。
-
-3. **CAN 健康主动轮询**
-   `MCAN_getErrCounters` 原本只在收到报文时读 —— bus-off 时根本收不到报文。改为在 66ms 任务里主动读 + `MCAN_getProtocolStatus()` 取 bus-off 标志(`wf_dbg_read_cana`)。
-
-4. **任务存活位图**
-   每个任务在主循环里 `wf_debug_task_alive()` 自增 tick,发送任务检查"tick 是否在涨"。某任务挂死但系统未崩时,这是唯一可观测手段。区分:周期性任务(canout/timesync,sensor 运行时含 rsp)才判死,事件驱动的 canrec 只进位图不判死。
-
-5. **栈水位扫描**
-   静态栈数组从栈底(数组首)向上数连续的 `0x00000000` / `0xA5A5A5A5` 字,首个非空字即用过的最深处,据此算剩余余量(`wf_dbg_scan_stacks`)。
+1. **死字段改派生**:TI 自带 `interFrameProcessingMargin` 全工程无人填(死字段)。改为 `margin = 660 − tMax_total`(0.1ms,66ms=660),**由解析脚本派生,不占总线字节**。
+2. **`lastStage` 指认卡点**:每个流水阶段写枚举值,卡死时冻结在最后到达的阶段。
+3. **CAN 健康主动轮询**:bus-off 时收不到报文,故在 66ms 任务里主动读 `MCAN_getErrCounters` + `getProtocolStatus`(`wf_dbg_read_cana`)。
+4. **任务存活位图**:各任务主循环 `wf_debug_task_alive()` 自增 tick,发送任务看"是否在涨"。周期任务(canout/timesync)才判死,事件驱动的 canrec 只进位图。
+5. **栈水位扫描**:静态栈从栈底数连续 `0x00/0xA5A5A5A5` 字算剩余(`wf_dbg_scan_stacks`),传 6 个任务的水位。
+6. **CPU 负载用 run-time stats(免抢占)+ 抗回绕累加**:`cpuR5Avg/Peak`、`cpuRsp`、`cpuCanout` 取自 FreeRTOS 每任务 run-time 计数(`vTaskGetInfo`/`ulTaskGetIdleRunTimeCounter`),是**CPU 时间**不是墙钟,免受抢占污染(这也是 `canout≈0%` 正确、而 timing 阶段是墙钟会被抢占抬高的原因)。
+   - **抗 71min 回绕**:计数器源是 32 位微秒计数器,`2^32µs≈71.6min` 回绕。直接用"当前 total 作分母"在首次回绕后会失真(分母回绕、分子不同步)。`wf_dbg_eval_cpuload` 每 66ms 跑一次(≪71min),把**无符号回绕安全的逐次差值**累加进 **64 位累加器**(`accTotal/accIdle/accRsp/accCan`)再求比 → **累计均值整个 uptime(含 18h)都准**。
+   - **窗口峰值**(`cpuR5Peak`)单独用 0.5s 窗口的差值算最坏尖峰(如 flash 写),与累计均值互补:均值看常态、峰值看挤帧风险。
 
 ---
 
-## 7. 黑匣子(noinit 段技巧)
+## 7. 黑匣子(本上电周期实时定位)
 
-**问题**:release 下 `assert` 命中 = 死循环 → 雷达静默消失,无任何痕迹。
+**作用**:命中 assert 时,**实时**把死点(文件名 hash + 行号 + 计数)经 0x201 播出来,你抓总线日志当场就能看到死在哪。
 
 **手法**:
-1. 链接脚本开一块 `.bss.wfNoInit (NOLOAD)` —— warm reset 不清零的 RAM。
-2. 自定义 assert 钩子 `wf_debug_blackbox_assert(file, line)` 写入 **magic + 行号 + 文件名 hash + 计数**。
-3. 复位重启后 `wf_debug_info_init()` 检查 magic 有效 → 判定上次为崩溃复位 → 通过 Page3 把"上次死在哪行"发出。
+1. assert 钩子 `wf_debug_blackbox_assert(file, line)` 写普通 RAM 里的 `gWfDbgBlackBox`(行号 + 文件名 hash + 计数),并置 `ASSERT` 粘滞位。
+2. Page det 上报 `bbRecValid`(本周期有记录)+ `bbLine`/`bbFileHash`(死在哪)+ `assertCountLive`(几次)。
 
-配合 **MSS 看门狗(WDT,待做)**:挂死 → WDT 复位 → 重启后 Page3 报 `SOC_WarmResetCause_MSS_WDT`,形成闭环。届时**不存在"永久静默且无痕"的故障模式**(唯一物理无解的是 bus-off 进行中的窗口,靠恢复后的粘滞计数补侦)。
+**职责边界**:本黑匣子**只管本上电周期**(普通 RAM,每次上电清空)。"上次启动有没有崩"由**系统级 dumptrace / systeminfo** 负责 —— 二者互补:dumptrace 是跨复位事后回读,本黑匣子是本周期实时。
 
-> ⚠️ 前提:noinit RAM 真不被启动清零、SBL 不对 TCM 做 ECC 清零。**这是头号硬件验证项。**
+> 早期版本曾尝试用 noinit RAM 跨 warm reset 保留黑匣子,但本平台**没有可用的热复位**(只能 PMIC 冷复位 = POR,RAM 物理清空),且与系统 dumptrace 重复,故移除。若将来需要"跨任意复位(含 POR)的崩溃回读",正解是**写 flash**(软 assert 在正常上下文从容写,预擦扇区、崩溃时只写不擦),而非 noinit RAM。
 
 ---
 
 ## 8. 内存布局
 
-MSS_L2 近满载且碎片化(详见仓库 CLAUDE.md),新增代码易触发 `GROUP_6` 链接错误。本模块按对象文件路由出 MSS_L2(`mss/mmw_mss_linker.cmd`):
+MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按对象文件路由出 MSS_L2:
 
 | 段 | 去向 | 内容 |
 |---|---|---|
-| `.wfDbgCode` | TCMA_RAM | `wf_debug_info.oer5f` 的 `.text` / `.rodata` |
-| `.wfDbgData` | TCMB_RAM | 其 `.data` / `.bss` |
-| `.bss.wfNoInit (NOLOAD)` | TCMB_RAM | 黑匣子(跨 warm reset 保留) |
+| `.wfDbgCode` | TCMA_RAM | `wf_debug_info.oer5f` 的 `.text`/`.rodata` |
+| `.wfDbgData` | TCMB_RAM | 其 `.data`/`.bss`(含黑匣子,普通 RAM) |
 | `.bss.wfDbgStack` | TCMB_RAM | 发送任务栈 |
-
-> `.bss.wfNoInit` / `.bss.wfDbgStack` 用 `wf_debug_info.oer5f(.bss.<name>)` 对象+精确段名限定,严格比 `.wfDbgData` 的 `.bss.*` 通配更具体,无论列序都优先认领,防止黑匣子被并入普通 bss 清零。
-> 代码置 TCMA 距 MSS_L2 调用点 >32MB,链接器自动生成小 veneer(无害)。
 
 ---
 
 ## 9. 实战:如何用它定位问题
 
 ```
-收到 0x200 → 看 faultSummary 哪位亮
-  ├ bit0  超时     → 等 Page0,看哪段 max-hold 爆、margin 走低
-  ├ bit1  丢帧     → 等 Page1,trigger 涨但 result 停 = DSP/DPM 挂
-  ├ bit6  任务失活 → 看 aliveBitmap 哪个任务位灭
-  ├ bit8  黑匣子   → 等 Page3,line + fileHash = 上次死在哪行
+收齐同一 rolling 的 0x200+0x201 → 看 faultSummary 哪位亮
+  ├ bit0  超时     → 0x200: 哪段 tMax 爆、marginMin(派生) 走负
+  ├ bit1  丢帧     → 0x200: frameTrigger 涨但 result 停 = DSP/DPM 挂
+  ├ bit6  任务失活 → aliveBitmap 哪个任务位灭
+  ├ bit10 assert   → 0x201: bbLine + bbFileHash = 本周期死在哪行
   ├ bit11 TX 阻塞  → CAN 背压/带宽不足
   └ rollingCounter 不连续 → 丢帧或总线阻塞
 ```
 
-故障场景覆盖(设计推演):
-
-| 场景 | 能否定位 | 路径 |
-|---|---|---|
-| DOA/后处理偶发超时尖峰 | ✅ | Page0 各阶段 max-hold |
-| 持续过载帧堆积 | ✅ | margin 走低 + 超时计数涨 |
-| DSP/DPM 挂死 | ✅ | trigger 涨 result 停 + RspTask alive 停 |
-| CM4 卡某流水段 | ✅ | `lastStage` 冻结在卡点 |
-| BSS 停止触发帧 | ✅ | trigger 停 + sensorState 仍 STARTED |
-| 偶发整机重启 | ✅(补 WDT 后) | uptime 归零 + warm 复位原因 |
-| CAN bus-off | ⚠️ 物理极限 | 期间发不出,恢复后粘滞 busOffEverCount 补侦 |
-| 车身报文丢失 | ✅ | Page1 报文 age + 同步失败 |
-| 时间同步异常 | ✅ | Page2 全套 |
-| 致盲/检测异常 | ✅ | cfarNum/trcNum/intfNum 趋势 + 温度 |
-| 栈溢出 | ✅ | Page3 栈水位 + 粘滞位 |
-| assert 命中 | ✅(noinit 验证后) | Page3 黑匣子 |
+`tools/debuginfo_parser.py` 自动:双 ID 收 → 按 rolling 配对成快照 → CRC 校验 → 派生 marginMin → rolling 连续性 / 丢半帧 / trigger-result 趋势告警。
 
 ---
 
 ## 10. 待办与硬件验证项
 
-1. **黑匣子跨复位存活**(头号验证项):触发 assert → 复位 → 看 Page3 的 `line`/`fileHash` 是否保留。若被清零,改放 DSS_L3 共享 RAM 再试。
-2. **MSS WDT 使能**(第④步):需改 syscfg,在 66ms 任务里喂狗,使"挂死→WDT 复位→Page3 报 MSS_WDT"闭环。建议黑匣子验证通过后单独做。
-3. **基本收发验证**:CANoe 收四页轮播,rollingCounter 连续、CRC 对、各页数值与 CCS 调试观测一致。
-4. **(可选)堆余量字段**:设计文档原列 Page3 含 `minEverFreeHeap`,当前实现未放;如关心堆耗尽可补 `xPortGetMinimumEverFreeHeapSize()/64B`。
+1. **MSS WDT 使能(自动恢复)**:改 syscfg,在 66ms 任务里喂狗,使"挂死→复位→自救"闭环。前提先确认本平台 WDT 复位路径(本芯片 MSS 热复位有问题,复位只能走 PMIC)。
+2. **跨复位崩溃回读(可选)**:若需要,走 flash 持久化(见 §7),非 noinit RAM。当前跨复位由系统 dumptrace 负责。
+3. **基本收发**:CANoe 收 0x200/0x201 成对,rollingCounter 连续、CRC 对、数值与 CCS 观测一致。
+
+---
+
+## 11. 故障速查(看 `--summary` 报告定位)
+
+核心心法:`python tools/debuginfo_parser.py <capture>.asc --summary` 末尾的 **`VERDICT` 块已替你分好类,先只看它**,30 秒定位。
+
+### 30 秒三步走
+
+1. **只看最后一行 `VERDICT`**
+   - `OK` → 无事。
+   - `OK (firmware) - only bench/environment faults` → 固件正常,下面 `[bench]` 行是台架/环境事(CANoe 未 ACK、无同步主节点等),通常不用动固件。
+   - `NEEDS ATTENTION` → 有真问题,每条 `[!]` 带了是什么 + 提示。
+2. **看方括号标签**:`[!]` = 固件/系统要排查;`[bench]` = 环境。
+3. **真有 `[!]` 才按下表往下挖。**
+
+记忆口诀:**死没死 → 慢没慢 → 断没断 → 漏没漏**。
+
+### 速查表:报告里看到 X → 去哪查
+
+| 报告字段/标志 | 说明 | 下一步 |
+|---|---|---|
+| `blackbox record: YES` | 上次崩溃过(最高优先级) | `--full` 看 `bbLine`+`bbFileHash` = 死在哪文件哪行 |
+| `warmResetCause=...(MSS_WDT/HSM_WDT)` | 被看门狗复位 = 挂死过 | 配合 blackbox 看死点;`boot` 是否 >1 |
+| `overrun max>0` | 帧处理爆 66ms 预算 | 看 `timing max-hold` 哪段最大(CM4/DOA/postproc) |
+| `lastStage` 卡某阶段(`--full`) | 流水卡死点 | 该阶段即卡点 |
+| `FRAME_DROP` / `frameTrigger 涨 result 停` | DSP/DPM 挂了 | trigger 涨 result 不动 = 信号处理链断 |
+| `TASK_DEAD` | 某周期任务停跳 | 逐帧看 `alive=` 少了哪个任务 |
+| `stack free min` 某项 < ~256B | 栈快溢出 | 看哪个任务,加栈 / 查递归 / 大局部变量 |
+| `CRC err>0` / `schema err>0` | 解码对不上 | 固件与脚本 schema 没同步,或总线误码 |
+| `rolling gaps`/`missing` **中段反复** | 真丢帧 | 查总线拥塞 / 复位(`uptime` 归零、`boot` +1) |
+| `rolling gaps`/`missing` **只在 t≈0** | 录制开场缓冲假象 | `--skip 0.05s` 滤掉,忽略 |
+| `ASSERT` / `lastErrorCode≠0` | 命中断言 / 有错误码 | `--full` 看 `assertLive`、错误码值 |
+
+### `--summary` 字段逐行含义(自查用)
+
+| 字段 | 含义 | 正常 | 该警觉 |
+|---|---|---|---|
+| `frames`/`cycles`/`duration` | 解出帧数/周期数(=帧/2)/时长 | cycles≈时长÷0.066 | 纯信息 |
+| `sensorState` | 传感器状态 | 运行时 `STARTED` | 该跑却 `OPENED`=没启动 |
+| `timeSyncState` | 时间同步状态 | 有主节点时 `SYNCED` | `SYNC_LOST`=同步丢;`SILENT_WAIT`=无主节点(台架正常) |
+| `boot` | 启动计数 | 稳定 | 突增=复位过 |
+| `uptime` | 开机秒数 | 持续增长 | 中途突然变小=重启了 |
+| `resetCause`/`warmResetCause` | 上次复位原因 | `POWER_ON` | `MSS_WDT`/`HSM_WDT`=看门狗触发(挂过) |
+| **`frameStart→`/`resultCount→`** | 起始帧/完成帧(整段 首→尾) | **一起涨、数值接近** | start 涨 result 停=**处理挂**(FRAME_DROP);都不涨(STARTED下)=BSS 没触发 |
+| **`timing` total** | 总耗时峰值(0.1ms) | **< 660**(66ms) | 接近/超 660=超时风险 |
+| `timing` CM4/DOA/postproc | 各阶段耗时峰值(墙钟,含抢占,当趋势看) | 稳定 | 某阶段持续上抬=该算法变慢 |
+| **`CPU load` R5 avg/peak** | R5 总负载:累计均值 / 窗口峰值(run-time stats,免抢占;均值 64 位累加抗 71min 回绕,18h 也准) | avg 有余量;peak 不长期触顶 | peak 频繁趋近 100%=有尖峰挤帧风险 |
+| `CPU load` rsp/canout | 算法 CPU% / CAN发送 CPU% | rsp 稳定;canout≈0(发送是 FIFO 硬件,几乎不吃 R5) | rsp 飙升=算法变重 |
+| `overrun max` | 总耗时超 66ms 累计次数 | 0 | >0=有帧超时 |
+| `framePeriodMaxDev` | 帧周期最大抖动(0.1ms) | 个位数 | 变大=帧节奏不稳 |
+| `tec`/`rec` | CAN-A 发/收错误计数 | 0 | tec 爬升=没ACK/总线问题;>127=error-passive |
+| `busOffEver`/`txStall`/`CEL` | bus-off次数/TX满次数/硬件错误日志 | 全0 | 非0=总线断过/背压/有错 |
+| `CAN-A TX rate` frames/s, KB/s | 雷达自身发送速率(in-band 估总线负载,实车无分析仪用) | 与对象数相符、稳定 | 暴涨=发送异常;配合 `txStall` 判总线吃不吃得下 |
+| `est. bus load (this node)` | 由 TX 速率粗估的本节点总线占用(parser 算,非固件) | ~9%(轻松) | 仅本节点·仅TX·粗估;本网络只有 FR+FL,两台百分比相加≈全总线占用;判总线满仍以 `txStall`/`tec` 为准 |
+| `TimeSync crcErr/invalid/jump` | 同步帧 CRC错/非法/时间跳变 | 全0 | 非0=同步帧损坏或时间不连续 |
+| `blackbox record` | 上次启动有无崩溃记录 | `no` | `YES`=上次崩过 |
+| `assertLive max` | 本次运行 assert 命中数 | 0 | >0=命中过(看 `--full` det 页 `bbLine` 定位行号) |
+| `lastErrorCode` | 最近模块错误码 | 0 | ≠0=某模块返回错误 |
+| `stack free min` | 各任务栈底剩余最小值(B) | 千字节级 | 某项 < ~256B=快溢出 |
+| `integrity CRC err`/`schema err` | 误码/版本不匹配 | 0/0 | CRC>0=误码;schema>0=固件↔脚本版本没对上 |
+| `integrity rolling gaps`/`missing` | 丢周期/丢半帧 | 0/0(或仅 t≈0) | 中段反复=真丢帧(`--skip` 滤开场) |
+| `VERDICT` | 一句话结论 | `OK` | `NEEDS ATTENTION`=看 `[!]` 行 |
+
+**30 秒自查**:看 `VERDICT` → 若 `OK` 收工。再扫 4 点:① `frameStart`/`resultCount` 一起涨且接近;② `total`<660;③ `stack free min` 无 <256B;④ `integrity` 全0、`blackbox`=no、`tec`=0。四项都正常即健康。
+
+### CAN 总线负载估算公式(parser 端,可改)
+
+固件只数本节点 TX 的**帧数/字节数**(`txFramesPerSec`/`txKBytesPerSec`),总线占用由 parser 用 CAN-FD 时序粗算,常量在 `debuginfo_parser.py` 顶部 `CAN_*`:
+
+```
+本节点占用 ≈ frames/s × 每帧固定开销 + bytes/s × 每字节
+         = frames × 78µs        + bytes × 4µs
+```
+- **每帧固定 78µs** = ~30 仲裁段位 ×2µs(500K)+ ~36 数据段控制/CRC 位 ×0.5µs(2M)。与 payload 无关:SOF/ID/控制/ACK/EOF/IFS + ESI/DLC/stuff-count/CRC。
+- **每字节 4µs** = 8 位 ÷ 2Mbps。
+- 当前总线 **500K / 2M**;改波特率只改 `CAN_NOM_BITS_US`/`CAN_DAT_BITS_US` 两个常量。**采样点(80%)不进公式**——它只决定位内采样点位置,不改位时长。
+- 误差 ±~1–1.5%(未计位填充动态位、DLC 量化补齐),**只作量级/趋势用**;判总线满仍以 `txStall`/`tec`/`busOff`(实测背压)为准。
+- 本网络仅 **FR + FL** 两节点同固件 → **两台 `est. bus load` 相加 ≈ 全总线占用**(无别的 ECU 漏算)。
+
+### CAN 故障:台架假象 vs 真问题
+
+`CAN_ERR`/`CAN_TX_STALL` 被标 `[bench]` 只是启发式,真假看在哪条总线录:
+
+- **台架(雷达 + CANoe)**:几乎一定是 CANoe **listen-only 未 ACK**。改成正常模式(主动 ACK)再录,标志应消失。
+- **整车总线(多 ECU)**:仍出 `CAN_ERR` 即**真问题** → 查 120Ω 终端(两端各一)、波特率、线束/收发器。
+- 辅助判据:`tec max` 爬到 128(error-passive)或 `busOffEver>0`,且总线上有别的活动节点 → 偏真故障。
+
+---
+
+## 12. 自检测试(故障注入 → 期望报告)
+
+"测试你的烟雾报警器":每个监控都主动制造一次对应故障,确认①故障位会亮、②报告能指到位置。做一遍建立信心。
+
+### A. 台架/总线即可造(无需改固件)
+
+| 故障 | 怎么造 | 报告应出现 |
+|---|---|---|
+| `CAN_ERR` | CANoe 设 listen-only(不 ACK)/ 拔 CANH-CANL / 设错波特率 | `CAN_ERR`,`tec` 爬到 128,`busOffEver++` |
+| `CAN_TX_STALL` | 调低波特率 / 加大对象输出频率 / 阻塞总线 | `CAN_TX_STALL`,`txStall max` 飙升 |
+| `SYNC_LOST` | SYNCED 后停发 TimeSync 主帧(0x40) | `SYNC_LOST`,`sync=SYNC_LOST` |
+| `VEHICLE_TIMEOUT` | 停发车身信息 20ms 报文 | `VEHICLE_TIMEOUT`,`vehAgeMs`>200 |
+| TimeSync `crcErr`/`invalid` | 发一帧 0x40 但 CRC/载荷故意错 | `crcErrorCount++` / `invalidFrameCount++` |
+
+### B. 用注入工具造(`wf_debug_inject.*`,CAN 触发)
+
+**触发方式**:从 CANoe 在 **CAN-A(发 0x200 那条总线)** 发一帧到 `WF_DBG_INJECT_CAN_ID = 0xC2`,`data[0]` = 故障码(或 CCS 里写 `gWfDbgInjectCmd`)。生产编译把 `WF_DEBUG_FAULT_INJECT` 置 0 即全部剔除。
+
+> ⚠️ 注入 ID 必须在 MCAN 接收白名单里。本工程是 buffer 模式白名单(`0xC0–0xC4` + 车身/标定/tsync + 0x74C/0x78C),`0xC2` 已被收下且 CAN-A 无人处理,故选它,零过滤器改动。**不要用 `0x2FF`** —— 不在白名单(硬件直接丢)且与 OTA tx id 撞。
+
+| `data[0]` | 宏 | 注入 | 报告应出现 |
+|---|---|---|---|
+| 1 | `WF_INJ_ASSERT` | 写黑匣子 + 置 ASSERT(软断言,系统照常) | 本周期 `ASSERT` + Page det `bbRecValid`/`bbLine`/`bbFileHash`/`assertLive`(实时,无需复位) |
+| 2 | `WF_INJ_KILL_RSP` | 挂起 RspTask | `TASK_DEAD`(`alive=` 少 RSP)+ `FRAME_DROP`(frameStart 涨 result 停)+ 解析器 "DSP/DPM hang" 趋势告警 |
+| 3 | `WF_INJ_OVERRUN` | RspTask 真实延迟一帧 80ms(经 rangeStartTs 环正确测量) | `OVERRUN`,`overrun max>0`,`marginMin` 转负,`total≈1160` |
+| 4 | `WF_INJ_OVERTEMP` | 强制过温 | `OVER_TEMP` |
+
+> 黑匣子是**本上电周期**实时定位(见 §7),不做跨复位。跨复位崩溃回读由系统 dumptrace 负责。
+
+### C. 编译期阈值即可造
+
+| 故障 | 怎么造 |
+|---|---|
+| `STACK_LOW` | 临时把 `WF_DEBUG_STACK_LOW_BYTES` 调到高于当前 `stack free min` → 立即亮(无需真撑爆栈) |
+| `OVER_TEMP`(实测) | 临时把 `WF_DEBUG_OVER_TEMP_C` 调到低于室温 |
+
+### 已修:FRAME_DROP 的哑源
+
+`FRAME_DROP` 原先比较 `gMmwMssMCB.stats.frameTriggerReady` —— 那是 BSS `RL_RF_AE_FRAME_TRIGGER_RDY_SB` 事件,**整个 sensor 启动只发一次(恒=1)**,永远不会超过 `resultCount`,导致 FRAME_DROP 和解析器趋势告警都是哑的。现改用**每帧在 `RANGE_START` 自增的 `frameStartCount`**(同时占用 0x200 offset 30,取代原冻结字段),两条监控才真正接通。**这正是 §12 自检"揪出哑监控"的价值。**
+
+### 已修(量产):`mcanA_transfer_FIFO` 并发竞态
+
+调试任务每周期直接调 `mcanA_transfer_FIFO` 发 0x200/0x201,使该函数**第一次有了两个并发调用者**(原本只有 canoutput 任务)。函数体 `读 putIdx → 写该槽 → AddReq 该槽` 是 TOCTOU:高优先级的 canoutput 抢占调试任务时,两者会拿到**同一个 putIdx**,导致**对象帧被覆盖或同槽双请求**(丢真数据)。
+
+修法:`mss_mcan.c` 加一把 **优先级继承互斥锁** `gMcanaTxFifoMutex`(`SemaphoreP_constructMutex`,在 `mcan_initialization` 构造),串行化整个取槽→写→请求序列。等待循环里有 `vTaskDelay`,故用 mutex 而非关中断;所有返回路径(含 FIFO 满超时丢帧)经单一 `out:` 释放,无死锁;`gMcanaTxFifoMutexValid` 门控避免 init 前 pend。
+
+**整把锁用 `#if WF_CAN_TX_SERIALIZE` 门控**,其中 `WF_CAN_TX_SERIALIZE = (WF_DEBUG_INFO_ENABLE || WF_SYSINFO_ENABLE)`:只要存在第二个 TX 调用者(debugInfo 的 0x200/0x201 **或** systemInfo 的 0x100)就生效。**只有两者都关时**,声明/构造/pend/post/`out:` 才全部预处理消失,`mcanA_transfer_FIFO` 逐字节回到原始单调用者版本(超时走 `return`,无锁)。注意:量产 D sample 即便关掉 debugInfo,只要 **systemInfo 仍开**(崩溃黑匣子,通常保留),锁就**必须保留**——因为 systemInfo 的发送任务同样是 FIFO 的并发调用者。
 
 ---
 
 ## 附录 A:字节偏移表(解析权威 spec)
 
-> 所有偏移为**帧内绝对字节**(0–63),小端。固件真相源是 `wf_debug_info.c` 的 `wf_dbg_build_pageN()`;**改固件 schema 时先改本表,解析脚本(`tools/debuginfo_parser.py`)照本表实现**。`schemaVer` 当前 = 1,字段变更需 +1。
+> 偏移为**帧内绝对字节**(0–63),小端。固件真相源是 `wf_debug_info.c` 的 `wf_dbg_build_hot()` / `wf_dbg_build_det()`;**改 schema 时先改本表,`debuginfo_parser.py` 照本表实现**。`schemaVer` 当前 = 4,字段变更需 +1。两帧公共头同上表(§5)。**两条各 56B 载荷正好占满,零余量** —— 加新字段需先腾位。
 
-### 公共头(每页 Byte 0–5 + 帧尾)
+### 0x200 hot(msgIndex=0)— 时序/检测/存活
 
-| 偏移 | 类型 | 字段 | 说明 |
-|---|---|---|---|
-| 0 | u8 | `schemaVer`(bit7:4) \| `pageId`(bit3:0) | ver=1 |
-| 1 | u8 | `rollingCounter` | 每帧 +1,断续=丢帧 |
-| 2 | u16 | `faultSummary` | 12 粘滞位,见下 |
-| 4 | u8 | `sensorState`(bit3:0) \| `timeSyncState`(bit7:4) | 枚举值见 `mmw_mss.h`/`wf_time_sync.h` |
-| 5 | u8 | `taskAliveBitmap` | bit0 RSP,1 CANOUT,2 CANREC,3 TIMESYNC,4 CTRL |
-| 62 | u16 | `CRC16-CCITT-FALSE` | poly 0x1021,init 0xFFFF,覆盖 Byte 0–61 |
+| 偏移 | 类型 | 字段 | | 偏移 | 类型 | 字段 |
+|---|---|---|---|---|---|---|
+| 6 | u16 | `tMax_CM4`(0.1ms) | | 34 | u32 | `resultCount` |
+| 8 | u16 | `tMax_DOA` | | 38 | u16 | `cfarNumCur` |
+| 10 | u16 | `tMax_postproc` | | 40 | u16 | `cfarNumMin` |
+| 12 | u8 | `cpuR5AvgPct`(R5总负载,累计均值) | | 42 | u16 | `cfarNumMax` |
+| 13 | u8 | `cpuR5PeakPct`(R5负载,窗口峰值) | | | | |
+| 14 | u8 | `cpuRspPct`(算法 DOA+perc) | | 44 | u16 | `trcNum` |
+| 15 | u8 | `cpuCanoutPct`(CAN发送,真实CPU≈0) | | | | |
+| 16 | u16 | `tMax_total` | | 46 | u16 | `intfNumCur` |
+| 18 | u16 | `tTotalCur` | | 48 | u16 | `waveIdCur` |
+| 20 | u16 | `overrunCount` | | 50 | u16 | `failedTimingReports` |
+| 22 | u32 | `lastOverrunFrame` | | 52 | u16 | `calibrationReports` |
+| 26 | u16 | `framePeriodCur` | | 54 | u16 | `vehAgeMs`(ms,0xFFFF=从未) |
+| 28 | u16 | `framePeriodMaxDev` | | 56–59 | i8×4 | `tmpRx0/Tx0/Pm/Dig0`(°C) |
+| 30 | u32 | `frameStartCount`(每帧++) | | 60 | u8 | `tempValid`(1=有效) |
+| | | | | 61 | u8 | `lastStage` |
 
-**`faultSummary` 位**:0 OVERRUN｜1 FRAME_DROP｜2 SYNC_LOST｜3 CAN_ERR｜4 OVER_TEMP｜5 DTC_ACTIVE｜6 TASK_DEAD｜7 STACK_LOW｜8 BLACKBOX｜9 VEHICLE_TIMEOUT｜10 ASSERT｜11 CAN_TX_STALL
+> `marginMin` 不传,解析端派生 `660 − tMax_total`(0.1ms,<0 即超时)。
+> `lastStage` 枚举:1 RANGE_START｜2 DOPPLER_START｜3 CFAR_START｜4 DPC_RESULT｜5 DOA_DONE｜6 POSTPROC_DONE
 
-### Page0 — 时序/超时(`pageId`=0)
+### 0x201 detail(msgIndex=1)— TimeSync/CAN/黑匣子/资源
 
-| 偏移 | 类型 | 字段 |
-|---|---|---|
-| 6 | u16 | `tMax0` CM4 解调 max-hold (0.1ms) |
-| 8 | u16 | `tMax1` DOA/DSP |
-| 10 | u16 | `tMax2` 后处理 |
-| 12 | u16 | `tMax3` CAN-TX |
-| 14 | u16 | `tMax4` Enet-TX |
-| 16 | u16 | `tMax5` 总耗时 |
-| 18 | u16 | `tTotalCur` 当前帧总耗时 |
-| 20 | **i16** | `marginMin` 余量最小值(=660−总耗时,负即超时) |
-| 22 | u16 | `overrunCount` 超时累计 |
-| 24 | u32 | `lastOverrunFrame` 上次超时帧号 |
-| 28 | u8 | `lastStage` 最后到达阶段(卡死指认) |
-| 29 | u8 | (保留) |
-| 30 | u16 | `framePeriodCur` 帧周期实测 |
-| 32 | u16 | `framePeriodMaxDev` 帧周期最大偏差 |
-| 34 | u32 | `resultCount` 处理完成帧数 |
+| 偏移 | 类型 | 字段 | | 偏移 | 类型 | 字段 |
+|---|---|---|---|---|---|---|
+| 6 | u16 | `vehicleRxCount`(回绕) | | 38 | u16 | `assertCountLive` |
+| 8 | u16 | `validFrameCount`(回绕) | | 40 | i32 | `lastErrorCode` |
+| 10 | u16 | `crcErrorCount` | | 44 | u8 | `dtcActive` |
+| 12 | u16 | `invalidFrameCount` | | 45 | u8 | `dtcReason` |
+| 14 | u16 | `offsetJumpCount` | | 46 | u8 | `lastSeqCounter` |
+| 16 | i32 | `offsetUs` | | 47 | u8 | `tec` |
+| 20 | u16 | `busOffEverCount` | | 48 | u8 | `rec` |
+| 22 | u16 | `canTxStallCount` | | 49 | u8 | `canFlags`(bit0 busOff,1 errPassive,2 warning) |
+| 24 | u16 | `dtcReportCount` | | 50 | u8 | `resetCause` |
+| 26 | u16 | `canErrLogCnt`(HW CEL,≤255) | | 51 | u8 | `warmResetCause` |
+| 28 | u16 | `txFramesPerSec`(雷达自身TX) | | 52 | u8 | `bbRecValid` |
+| 30 | u16 | `uptimeSec`(秒,饱和,18h 上限) | | 53 | u8 | `txKBytesPerSec`(雷达自身TX,KB/s) |
+| 32 | u16 | `bbLine` | | 54 | u8 | `sensorStartCount` |
+| 34 | u16 | `bbFileHash` | | 55 | u8 | `sensorStopCount` |
+| 36 | u16 | `bbAssertCount` | | 56–61 | u8×6 | `stackFree16[0..5]`(剩余/16B,0xFF=未注册) |
 
-`lastStage` 枚举:1 RANGE_START｜2 DOPPLER_START｜3 CFAR_START｜4 DPC_RESULT｜5 DOA_DONE｜6 POSTPROC_DONE
+`stackFree16` 注册顺序:0 ctrl,1 rsp,2 canout,3 canrec,4 tsync,5 wfdbg。
 
-### Page1 — 数据通路/RF(`pageId`=1)
-
-| 偏移 | 类型 | 字段 |
-|---|---|---|
-| 6 | u32 | `frameTriggerReady`(低 32) BSS 触发计数 |
-| 10 | u32 | `resultCount` 处理完成计数 |
-| 14 | u16 | `cfarNumCur` 当前检测点数 |
-| 16 | u16 | `cfarNumMin` 窗口最小 |
-| 18 | u16 | `cfarNumMax` 窗口最大 |
-| 20 | u16 | `trcNum` 航迹数 |
-| 22 | u16 | `intfNumCur` 干扰数 |
-| 24 | u16 | `waveIdCur` 波形 ID |
-| 26 | i8 | `tmpRx0` (°C) |
-| 27 | i8 | `tmpTx0` |
-| 28 | i8 | `tmpPm` |
-| 29 | i8 | `tmpDig0` |
-| 30 | u8 | `tempValid`(1=温度有效) |
-| 31 | u8 | (保留) |
-| 32 | u16 | `failedTimingReports` |
-| 34 | u16 | `calibrationReports` |
-| 36 | u16 | `vehAgeMs` 车身报文距上次接收(ms,0xFFFF=从未) |
-| 38 | u32 | `vehicleRxCount` |
-
-### Page2 — TimeSync/CAN(`pageId`=2)
-
-| 偏移 | 类型 | 字段 |
-|---|---|---|
-| 6 | i32 | `offsetUs` 时钟偏移 |
-| 10 | u32 | `validFrameCount` |
-| 14 | u16 | `crcErrorCount` |
-| 16 | u16 | `invalidFrameCount` |
-| 18 | u16 | `offsetJumpCount` |
-| 20 | u8 | `dtcActive` |
-| 21 | u8 | `dtcReason` |
-| 22 | u8 | `lastSequenceCounter` |
-| 23 | u8 | `tec` CAN-A 发送错误计数 |
-| 24 | u8 | `rec` CAN-A 接收错误计数 |
-| 25 | u8 | `canFlags` bit0 busOff,1 errPassive,2 warning |
-| 26 | u16 | `busOffEverCount` |
-| 28 | u16 | `canTxStallCount` |
-| 30 | u16 | `dtcReportCount` |
-| 32 | u32 | `canErrLogCnt` |
-
-### Page3 — 黑匣子/资源(`pageId`=3)
-
-| 偏移 | 类型 | 字段 |
-|---|---|---|
-| 6 | u8 | `resetCause` (`SOC_rcmGetResetCause`) |
-| 7 | u8 | `warmResetCause` (`SOC_getWarmResetCause`) |
-| 8 | u16 | `bootCount` |
-| 10 | u32 | `uptimeMs` |
-| 14 | u8 | `bbRecValid`(1=黑匣子有记录) |
-| 15 | u8 | `bbFromPrevBoot`(1=记录来自上一次启动) |
-| 16 | u16 | `bbLine` 死机行号 |
-| 18 | u16 | `bbFileHash` 文件名 djb2 hash |
-| 20 | u16 | `bbAssertCount` |
-| 22 | 8×u8 | `stackFree16[0..7]` 各任务栈底剩余/16B(0xFF=未注册) |
-| 30 | i32 | `lastErrorCode` |
-| 34 | u8 | `sensorStartCount` |
-| 35 | u8 | `sensorStopCount` |
-| 36 | u16 | `assertCountLive` 本次运行 assert 计数 |
-
-`stackFree16` 注册顺序:0 ctrl,1 rsp,2 canout,3 canrec,4 tsync,5 wfdbg(见 `mss_main.c` 注册序)。
+**v1→v2 字段裁剪(无诊断信息损失)**:`resultCount` 去重(原 P0/P1 各一份)、删 2 个 padding、`marginMin` 改派生;`uptime` u32 ms→u16 秒、`canErrLogCnt`/`validFrameCount`/`vehicleRxCount` u32→u16、`stackFree16[8]→[6]`。
 
 ---
 
@@ -314,4 +344,31 @@ MSS_L2 近满载且碎片化(详见仓库 CLAUDE.md),新增代码易触发 `GROU
 
 ## 附录 C:解析脚本
 
-`tools/debuginfo_parser.py` —— 按附录 A 实现:4 页重组、粘滞位/状态解名、rollingCounter 连续性检查、CRC 校验、trigger/result 趋势告警。输入支持 CANoe `.asc`(经典/CANFD)与十六进制行,详见脚本头注释。
+`tools/debuginfo_parser.py` —— 按附录 A 实现:双 ID 收 + rolling 配对 + 派生 marginMin + 粘滞位/状态/复位原因解名 + 连续性/丢半帧/趋势告警。输入支持 CANoe `.asc`(经典/CANFD,按 asc 头 `base hex|dec` 解析 ID)与十六进制行。帧的 hot/det 归属取自帧头 `msgIndex`(不靠 CAN ID),hex dump 无 ID 也能解析。纯 stdlib,Python 3.7+。
+
+### 用法
+
+```bash
+# 快速体检:跑完整段,出"体检报告 + 结论"(日常首选)
+python debuginfo_parser.py capture.asc --summary
+
+# 逐帧明细(查某一时刻);加 --full 在每个周期末打印完整快照
+python debuginfo_parser.py capture.asc
+python debuginfo_parser.py capture.asc --full
+
+# 滤掉录制起始的缓冲假象(CANoe 开场会刷一批挤在一起的旧帧)
+python debuginfo_parser.py capture.asc --summary --skip 0.05s   # 丢弃 t<0.05s 的帧
+python debuginfo_parser.py capture.asc --summary --skip 16      # 或丢弃前 16 帧
+
+# 串口转发/手动粘贴的十六进制(每行 64 字节)
+python debuginfo_parser.py frames.hex --format hex --summary
+```
+
+### 怎么看 `--summary` 的结论
+
+末行 `VERDICT`:
+- **`OK`** —— 无故障、无完整性问题。
+- **`OK (firmware) - only bench/environment faults`** —— 固件正常,只有台架/环境类故障(`CAN_ERR`/`CAN_TX_STALL`/`SYNC_LOST`/`VEHICLE_TIMEOUT`),通常是 CANoe 未 ACK、无同步主节点等,非固件问题。
+- **`NEEDS ATTENTION`** —— 有需排查项(CRC 错、schema 不匹配、黑匣子有崩溃记录、overrun、任务失活、栈紧张、assert 命中等),逐条带提示。
+
+完整性栏:`rolling gaps`/`missing hot/det` **只在 t≈0 出现一次** = 录制开场假象(用 `--skip` 滤掉);**录制中段反复出现** = 真丢帧(查总线拥塞或设备复位:看 `uptime` 是否归零、`resetCause`)。

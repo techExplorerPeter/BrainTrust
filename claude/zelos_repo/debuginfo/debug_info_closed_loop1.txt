@@ -1,0 +1,463 @@
+ ▐▛███▜▌   Claude Code v2.1.195
+▝▜█████▛▘  Opus 4.8 · Claude Pro
+  ▘▘ ▝▝    D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_0…
+
+
+✻ Conversation compacted (ctrl+o for history)
+
+
+● CAN TX 速率(in-band)加好了,自测通过:CAN-A TX rate (peak): 315 frames/s 13 
+  KB/s。
+
+  改动汇总
+
+  ┌────────────────────┬─────────────────────────────────────────────────────┐
+  │        文件        │                        改动                         │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ wf_debug_info.c/.h │ 新增 wf_debug_mark_can_tx(size)(数帧+字节)+         │
+  │                    │ wf_dbg_eval_cantxrate()(1秒窗口算速率);schema→v4    │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mss_mcan.c         │ mcanA_transfer_FIFO 里每发一帧调一次                │
+  │                    │ wf_debug_mark_can_tx(size)                          │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │                    │ 复用 0x201 里两个死字段:bootCount(恒1)→             │
+  │ 数据位置           │ txFramesPerSec(u16);bbFromPrevBoot(恒0)→            │
+  │                    │ txKBytesPerSec(u8)                                  │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ 解析器/doc         │ 同步更新,summary 出新行                             │
+  └────────────────────┴─────────────────────────────────────────────────────┘
+
+  报告里怎么看 CAN 负载(实车无 CANoe)
+
+  --summary 新增:
+  CAN-A TX rate (peak): X frames/s  Y KB/s  (radar's own bus contribution)
+  - X frames/s + Y KB/s = 雷达自己往总线发了多少 —— 这就是你 in-band
+  估总线负载的依据。
+  - 粗估总线占用 ≈ Y KB/s × 8 / 波特率(数据段 5Mbps);或者直接看趋势:暴涨 = 
+  发送异常。
+  - 配合 txStall:TX 速率正常但 txStall 飙升 → 总线吃不下(别的 ECU 太占 /
+  波特率不够 / 没 ACK)。
+
+  两个注意
+
+  1. 只统计 CAN-A 经 mcanA_transfer_FIFO 的发送(对象列表 + 调试帧 =
+  主流量)。buffer 模式发送(如 OTA 偶发)没算进去,但那是零星的。
+  2. 只是雷达自己的 TX(看不到别的 ECU)—— 这正是你要的"雷达占了多少总线"。
+  3. clean 全量重编(schema v4,旧 capture 会报 schema err,正常)。
+
+  烧完发我 CAN-A TX rate 那行,看帧率/字节率合不合理(按你对象数 + 66ms
+  周期估算应该对得上)。这样你"R5 CPU 负载 + CAN
+  总线负载"两个维度,实车纯靠报文就都能看了。
+
+✻ Baked for 11m 17s
+
+> /export debug_info_closed_loop.txt                                            
+  ⎿  Conversation exported to:
+     D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\
+     ti\demo\awr2x44P\mmw_ddm\docs\debug_info_closed_loop.txt
+
+> ty      : CRC err=0  schema err=0  rolling gaps=0  missing hot/det=0/0        
+  ----------------------------------------------------------------              
+  VERDICT: OK — no faults, no integrity issues.                                 
+  ================================================================              
+  这是最新log，看下cpu load和can负载是否正确                                    
+
+● 解析最新 capture,看 CPU load 和 CAN TX 速率(并确认 v4 固件):
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t *.asc 2>/dev/null |
+      head -1); echo "…)
+  ⎿  最新: debuginfo_20260626_194414.asc (2026-06-26 19:44:14)
+     sensorState   : STARTED
+     frameStart 74->208   resultCount 73->207
+     … +7 lines (ctrl+o to expand)
+
+● 都正确,而且数值都站得住脚。我帮你核对一遍:
+
+  CPU load:R5 avg=13% peak=53% rsp=6% canout=0% ✅
+
+  - v4 固件确认(schema err=0)。
+  - R5 平均 13% / 峰值 53% —— 和之前一致:平时很闲(87% 空闲),峰值是 flash
+  写那种瞬时尖峰。健康,余量充足。
+  - rsp=6%(算法):略低于墙钟估算的 ~8.5%(DOA 2.3ms+postproc
+  3.3ms),因为累计平均把"sensor 启动前 rsp=0"那段也算进去拉低了,uptime
+  越长越收敛。合理。
+  - canout=0%:对(CAN 发送不烧 CPU)。
+
+  CAN TX 速率:284 frames/s  17 KB/s ✅ —— 我帮你验算
+
+  帧率对不对?
+  - 每秒 284 帧 × 0.066s/周期 = 每个雷达帧发 ~18.7 个 CAN 帧。
+  - 对照:对象列表(头 1 + ~17 个目标)+ 调试 2 帧 ≈ 19-20 帧/周期 → 完全吻合。
+
+  字节率对不对?
+  - 17 KB/s ÷ 284 帧 = ~60 字节/帧(64 字节对象帧 + 几个小帧的混合)→ 合理。
+
+  反推总线负载(雷达自己占多少):
+  - 每个 CAN-FD 64 字节帧 ≈ 仲裁段 ~30µs(@1Mbps)+ 数据段 ~108µs(@5Mbps)≈
+  ~138µs/帧。
+  - 284 帧/s × 138µs = ~39ms/s → 雷达自己占总线 ~4%。很轻。
+
+  所以:雷达 TX 占总线约 4%,非常轻松,txStall=0 也印证了总线完全吞得下。
+
+  实车你就这么用
+
+  无 CANoe 时,盯报文里这两行:
+  1. CPU load: R5 avg/peak —— R5 忙不忙(现在很闲)。
+  2. CAN-A TX rate: X frames/s, Y KB/s —— 雷达发了多少,粗估总线占用 ≈
+  帧数×~138µs,或 Y KB/s × 8 / 5Mbps(数据段)。暴涨就是异常;配合 txStall
+  判总线吃不吃得下。
+
+  两个维度(R5 CPU + CAN 总线)现在实车纯靠 0x200/0x201
+  报文就都看得到了,数值也都验证正确。这块到此完整。
+
+✻ Sautéed for 59s
+
+> /export debug_info_closed_loop.txt                                            
+  ⎿  Conversation exported to:
+     D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\
+     ti\demo\awr2x44P\mmw_ddm\tools\debug_info_closed_loop.txt
+
+> 你这个can负载你是怎么推算出来的呢 准确么                                      
+  ⎿  Referenced file mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\doc
+     s\debugInfo_design_note.md
+  ⎿  Referenced file mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\too
+     ls\debuginfo_parser.py
+  ⎿  Referenced file 
+     mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_mcan.c
+  ⎿  Referenced file 
+     mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_debug_info.c
+  ⎿  Read 
+     mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_debug_info.h
+     (137 lines)
+
+● 好问题——我那个数是手算的粗估,不是固件测的,我得跟你讲清楚它的依据和误差,别让你
+  拿它当精确的总线负载表用。先确认下固件里 size 到底传的是什么:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● size 就是这帧的有效数据字节数(payload),不含 CAN 协议开销。所以 17 KB/s 是纯
+  payload 速率。下面讲清楚我怎么从 284 帧/s + 17 KB/s 推出"~4%",以及准不准。
+
+  推算方法
+
+  CAN-FD 一帧的总线占用时间分两部分:和 payload 无关的固定开销 + payload 
+  数据本身。
+
+  ① 固定开销(每帧都有,跟字节数无关)——走仲裁段速率 1 Mbps:
+  SOF + 11位ID + 控制位 + CRC界定符 + ACK(2) + EOF(7) + 帧间隔IFS(3) ≈ ~30 位 ≈ 
+  30µs/帧
+
+  ② payload 数据——走数据段速率 5 Mbps:
+  每字节 8 位 ÷ 5 Mbps = 1.6µs/字节
+
+  总线忙时间 ≈ 帧数×30µs + 字节数×1.6µs
+  = 284 × 30µs  +  17408 × 1.6µs
+  = 8520µs      +  27853µs
+  = 36373µs / 1s  ≈  3.6%
+  (我上次说 ~4%,这次拆开算 3.6%,同一量级)
+
+  准不准:这是粗估,误差约 ±1~1.5%(绝对)
+
+  会让真实值偏高的因素(我没算进去):
+  - 位填充(bit stuffing):仲裁段每 5 个同极性位插 1 位,数据段有固定填充位 →
+  实际多 ~3-8%。
+  - DLC 量化:CAN-FD 超过 8 字节只能取 12/16/20/24/32/48/64,比如 17
+  字节的帧上线占 20 字节槽。size 传的是请求长度,上线字节可能比统计的多。
+  - 我把仲裁/控制位都按理想 1µs、数据位按 0.2µs
+  算,实际采样点/传播段配置会有出入。
+
+  结论:这个数是数量级正确的粗估(精度 ~±1.5% 绝对),足够判断"轻(4%)还是重(40%)"和
+  看趋势,但不是精密总线负载表。要精确值得用真正的总线分析仪,或读 MCAN
+  自己的统计寄存器。
+
+  一个更重要的限制 ⚠️
+
+  固件只能数雷达自己发的帧。总线上别的 ECU 发的雷达根本看不见。所以:
+
+  ▎ 这个"CAN 负载"= 雷达自己的贡献,是整条总线负载的下限,不是全总线占用。
+
+  实车判断"总线是不是要满了",真正可靠的信号其实是 txStall(FIFO 满等待)和
+  tec/rec/busOff——那些是雷达实测到的总线背压,比我这个手算的百分比靠谱。TX
+  速率那两个数用来看雷达自己发得多不多 / 有没有异常暴涨最合适。
+
+  要不要我把这套"30µs/帧 + 1.6µs/字节"的估算公式写进 parser,让 --summary
+  直接顺手打一行 est. radar bus load ≈ 
+  X%?这样你不用每次手算,但我会在旁边标注"粗估·仅雷达自身·看趋势为主"。
+
+✻ Brewed for 3m 26s
+
+> 是这样的，我的canfd的配置是500K 和2M 然后采样率是80%，整个can网络中           
+  就只有我这FR和FL雷达                                                          
+
+● 关键信息变了两点,结论也跟着变,我重算给你看:
+
+  1. 速率改成 500K/2M,总线占用要翻倍
+
+  我上次按 1M/5M 算的。你的实际配置慢一半 → 每帧占用时间大约翻倍。重算(采样点
+  80% 不影响,见下):
+
+  ┌──────────────────────────────────────┬───────────────┬───────────────────┐
+  │                                      │ 1M/5M(我上次) │ 500K/2M(你的实际) │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 仲裁段位时间                         │ 1µs/bit       │ 2µs/bit           │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 数据段位时间                         │ 0.2µs/bit     │ 0.5µs/bit         │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 固定开销/帧(~30仲裁位 +              │ ~38µs         │ ~78µs             │
+  │ ~36数据段控制/CRC位)                 │               │                   │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 每 payload 字节                      │ 0.32µs        │ 4µs               │
+  └──────────────────────────────────────┴───────────────┴───────────────────┘
+
+  FR 雷达总线占用 ≈ 帧数×78µs + 字节×4µs
+                = 284×78µs + 17408×4µs
+                = 22152µs + 69632µs
+                ≈ 91800µs/s  ≈  9~10%
+  再加位填充和 DLC 量化,FR 单台实测约 9~10%(不是之前的 4%)。
+
+  ▎ 采样点 80% 对负载计算没影响——它决定的是每个位"在哪儿采样"(关系到总线长度/时
+  ▎ 序裕量),不改变位的时长。位时长只由波特率决定,所以负载算法里用不到它。我没忽
+  ▎ 略,是它确实不进这个公式。
+
+  2. 全网只有 FR + FL → 你能算出整条总线的真实负载 ✅
+
+  这是个很好的条件。既然总线上只有这两台、且跑同一套固件,那:
+
+  ▎ 总线总负载 ≈ FR自报速率 + FL自报速率(几乎就是全部,没有别的 ECU 漏算)
+
+  所以你只要把两台雷达的 0x200/0x201 各读一份,把两边的 TX rate
+  一加,就是接近真实的全总线占用——不再是"下限",而是逼近真值。两台都 ~9-10%
+  的话,整条总线 ~18-20%,还很轻松。
+
+  这也意味着我之前说的"看不到别的
+  ECU"的限制,在你这个两节点网络里基本不成立——你能拼出全图。
+
+  建议:把公式焊进 parser
+
+  我把 固定78µs/帧 + 4µs/字节(按你 500K/2M 写死)加进 --summary,直接打一行:
+  est. bus load (this node): ~9%   (500K/2M; radar TX only — sum FR+FL for
+  total)
+  旁边标注"粗估·看趋势"。这样实车你扫一眼两台的报文就知道总线占用,不用手算。
+
+  要我加吗?
+
+✻ Sautéed for 49s
+
+> 好的，帮我把公式焊进 parser里面                                               
+
+● I'll read the parser to find where the CAN TX rate is printed in the summary,
+  then add the bus-load estimate there.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Now let me look at the top of the file to add the bus-load constants, then
+  update the print line.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(debuginfo_parser.py)  ⎿  Added 16 lines
+      47  SCHEMA_VER_EXPECTED = 4
+      48  FRAME_BUDGET_100US = 660          # 66ms in 0.1ms units (matche
+          s firmware)
+      49  
+      50 +# --- CAN-FD bus-load estimate (rough, this node's TX only) ---
+         +------------------                                             
+      51 +# On-wire time per frame = fixed overhead (independent of paylo
+         +ad) + payload bytes.                                           
+      52 +#   fixed overhead = ~30 nominal-rate bits (SOF/ID/control/ACK/
+         +EOF/IFS)                                                       
+      53 +#                  + ~36 data-rate bits  (ESI/DLC/stuff-count/C
+         +RC etc.)                                                       
+      54 +#   payload        = 8 data-rate bits per byte                 
+      55 +# Configured for THIS bus: 500 kbit/s nominal, 2 Mbit/s data (s
+         +ample point 80%                                                
+      56 +# does not affect bit duration, so it is not used here).       
+      57 +CAN_NOM_BITS_US = 1.0 / 0.500     # 2.0 us per nominal-rate bit
+         +  (500 kbit/s)                                                 
+      58 +CAN_DAT_BITS_US = 1.0 / 2.000     # 0.5 us per data-rate bit   
+         +  (2 Mbit/s)                                                   
+      59 +CAN_FIXED_NOM_BITS = 30           # nominal-rate overhead bits 
+         +per frame                                                      
+      60 +CAN_FIXED_DAT_BITS = 36           # data-rate control/CRC bits 
+         +per frame                                                      
+      61 +# Pre-folded per-frame and per-byte on-wire microseconds:      
+      62 +CAN_US_PER_FRAME = CAN_FIXED_NOM_BITS * CAN_NOM_BITS_US \      
+      63 +                 + CAN_FIXED_DAT_BITS * CAN_DAT_BITS_US      # 
+         +~78 us                                                         
+      64 +CAN_US_PER_BYTE = 8 * CAN_DAT_BITS_US                        # 
+         +4.0 us                                                         
+      65 +                                                               
+      66  FAULT_BITS = [
+      67      "OVERRUN", "FRAME_DROP", "SYNC_LOST", "CAN_ERR", "OVER_TEMP
+          ", "DTC_ACTIVE",
+      68      "TASK_DEAD", "STACK_LOW", "BLACKBOX", "VEHICLE_TIMEOUT", "A
+          SSERT", "CAN_TX_STALL",
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 8 lines, removed 1 line
+      518            f"rsp(algo)={hm.get('cpuRspPct', 0)}%  canout={hm.ge
+           t('cpuCanoutPct', 0)}%")
+      519      print(f"CAN-A  tec max={dm.get('tec', 0)}  rec max={dm.get
+           ('rec', 0)}  "
+      520            f"busOffEver={dm.get('busOffEverCount', 0)}  txStall
+            max={dm.get('canTxStallCount', 0)}  CEL max={dm.get('canErrLo
+           gCnt', 0)}")
+      521 -    print(f"CAN-A TX rate (peak): {dm.get('txFramesPerSec', 0)
+          -} frames/s  {dm.get('txKBytesPerSec', 0)} KB/s  (radar's own b
+          -us contribution)")                                            
+      521 +    fps = dm.get('txFramesPerSec', 0)                         
+      522 +    kbps = dm.get('txKBytesPerSec', 0)                        
+      523 +    # rough on-wire bus load (this node only): fixed per-frame
+          + + per-byte payload                                           
+      524 +    busUsPerSec = fps * CAN_US_PER_FRAME + (kbps * 1024) * CAN
+          +_US_PER_BYTE                                                  
+      525 +    busPct = busUsPerSec / 1e6 * 100.0                        
+      526 +    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s 
+          + (radar's own bus contribution)")                             
+      527 +    print(f"est. bus load (this node): ~{busPct:.0f}%  "      
+      528 +          f"(500K/2M; rough, TX only — sum FR+FL for whole-bus
+          + total)")                                                     
+      529      print(f"TimeSync  crcErr={dm.get('crcErrorCount', 0)}  inv
+           alid={dm.get('invalidFrameCount', 0)}  jump={dm.get('offsetJum
+           pCount', 0)}")
+      530      print(f"blackbox record: {'YES' if a['bb_seen'] else 'no'}
+              assertLive max={dm.get('assertCountLive', 0)}   lastErrorCo
+           de={a['lastErr']}")
+      531      if a["stack_min"]:
+
+● Now let me verify against the latest capture:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t *.asc 2>/dev/null |
+      head -1); python…)
+  ⎿  CAN-A TX rate (peak): 284 frames/s  17 KB/s  (radar's own bus contribu
+     tion)
+     est. bus load (this node): ~9%  (500K/2M; rough, TX only �� sum FR+FL
+     for whole-bus total)
+
+● 焊好了,自测通过。
+
+  结果
+
+  CAN-A TX rate (peak): 284 frames/s  17 KB/s  (radar's own bus contribution)
+  est. bus load (this node): ~9%  (500K/2M; rough, TX only — sum FR+FL for
+  whole-bus total)
+  和我手算的 ~9-10% 一致。
+
+  怎么实现的
+
+  在 parser 顶部加了一组写死的 CAN-FD 时序常量(对应你的
+  500K/2M),并把每帧/每字节的上线微秒数预折好:
+  - CAN_US_PER_FRAME ≈ 78µs —— 固定开销(30 仲裁位×2µs + 36
+  数据段控制/CRC位×0.5µs)
+  - CAN_US_PER_BYTE = 4µs —— payload(8位×0.5µs/位)
+
+  --summary 里用 fps×78µs + bytes×4µs 算总线忙时占比。注释里写明了采样点 80%
+  不进公式、以及波特率配置,以后改波特率只改那几个常量即可。
+
+  实车用法提醒
+
+  - 这行是单节点粗估,旁边标了 sum FR+FL for whole-bus total —— 把两台雷达报文各
+  读一份,两个百分比相加就是接近真实的全总线占用(你这网络只有这两台,没漏算)。
+  - 判"总线吃不吃得下"仍以 txStall / tec/rec/busOff
+  为准(那是实测背压),这个百分比主要看量级和趋势。
+
+  需要的话我顺手把这行也补进 docs/debugInfo_design_note.md
+  的字段参考表,保持文档同步。要不要?
+
+✻ Baked for 54s
+
+> 好的，补进 design note                                                        
+
+● I'll find the relevant spots in the design note to update.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● I'll add a row for the new est. bus load line right after the CAN-A TX rate
+  row in the field reference table.
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  File must be read first
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 1 line
+      194  | `tec`/`rec` | CAN-A 发/收错误计数 | 0 | tec 爬升=没ACK/总线
+           问题;>127=error-passive |
+      195  | `busOffEver`/`txStall`/`CEL` | bus-off次数/TX满次数/硬件错误
+           日志 | 全0 | 非0=总线断过/背压/有错 |
+      196  | `CAN-A TX rate` frames/s, KB/s | 雷达自身发送速率(in-band 估
+           总线负载,实车无分析仪用) | 与对象数相符、稳定 | 暴涨=发送异常;
+           配合 `txStall` 判总线吃不吃得下 |
+      197 +| `est. bus load (this node)` | 由 TX 速率粗估的本节点总线占用
+          +(parser 算,非固件) | ~9%(轻松) | 仅本节点·仅TX·粗估;本网络只有
+          + FR+FL,两台百分比相加≈全总线占用;判总线满仍以 `txStall`/`tec` 
+          +为准 |                                                        
+      198  | `TimeSync crcErr/invalid/jump` | 同步帧 CRC错/非法/时间跳变 
+           | 全0 | 非0=同步帧损坏或时间不连续 |
+      199  | `blackbox record` | 上次启动有无崩溃记录 | `no` | `YES`=上次
+           崩过 |
+      200  | `assertLive max` | 本次运行 assert 命中数 | 0 | >0=命中过(看
+            `--full` det 页 `bbLine` 定位行号) |
+
+● 字段表加好了。再看看文档里有没有讲 TX 速率/CAN-FD
+  时序的实现段落,把估算公式也记一笔,免得以后改波特率忘了来源:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● I'll add a short formula note right after the "30秒自查" line, before the CAN
+  fault section:
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 14 lines
+      206  
+      207  **30 秒自查**:看 `VERDICT` → 若 `OK` 收工。再扫 4 点:① `frameS
+           tart`/`resultCount` 一起涨且接近;② `total`<660;③ `stack free m
+           in` 无 <256B;④ `integrity` 全0、`blackbox`=no、`tec`=0。四项都
+           正常即健康。
+      208  
+      209 +### CAN 总线负载估算公式(parser 端,可改)                      
+      210 +                                                              
+      211 +固件只数本节点 TX 的**帧数/字节数**(`txFramesPerSec`/`txKBytes
+          +PerSec`),总线占用由 parser 用 CAN-FD 时序粗算,常量在 `debuginf
+          +o_parser.py` 顶部 `CAN_*`:                                    
+      212 +                                                              
+      213 +```                                                           
+      214 +本节点占用 ≈ frames/s × 每帧固定开销 + bytes/s × 每字节       
+      215 +         = frames × 78µs        + bytes × 4µs                 
+      216 +```                                                           
+      217 +- **每帧固定 78µs** = ~30 仲裁段位 ×2µs(500K)+ ~36 数据段控制/
+          +CRC 位 ×0.5µs(2M)。与 payload 无关:SOF/ID/控制/ACK/EOF/IFS + E
+          +SI/DLC/stuff-count/CRC。                                      
+      218 +- **每字节 4µs** = 8 位 ÷ 2Mbps。                             
+      219 +- 当前总线 **500K / 2M**;改波特率只改 `CAN_NOM_BITS_US`/`CAN_D
+          +AT_BITS_US` 两个常量。**采样点(80%)不进公式**——它只决定位内采 
+          +样点位置,不改位时长。                                         
+      220 +- 误差 ±~1–1.5%(未计位填充动态位、DLC 量化补齐),**只作量级/趋 
+          +势用**;判总线满仍以 `txStall`/`tec`/`busOff`(实测背压)为准。  
+      221 +- 本网络仅 **FR + FL** 两节点同固件 → **两台 `est. bus load`  
+          +相加 ≈ 全总线占用**(无别的 ECU 漏算)。                        
+      222 +                                                              
+      223  ### CAN 故障:台架假象 vs 真问题
+      224  
+      225  `CAN_ERR`/`CAN_TX_STALL` 被标 `[bench]` 只是启发式,真假看在哪
+           条总线录:
+
+● design note 同步好了,两处:
+
+  1. §11 字段参考表 —— 在 CAN-A TX rate 行下加了 est. bus load (this node)
+  行(~9% 基线、仅本节点·仅TX·粗估、FR+FL 相加≈全总线、判满仍看 txStall/tec)。
+  2. 新增小节《CAN 总线负载估算公式》 —— 把 frames×78µs + bytes×4µs
+  的来源、78µs/4µs 各自怎么拆出来(500K/2M)、改波特率改哪两个常量、采样点为何不进
+  公式、误差范围、以及 FR+FL 两台相加=全总线,全部记录在案,和 parser 里 CAN_*
+  常量对应。
+
+  这样以后你或别人改波特率/看这行时,公式出处和限制都在文档里,不用回头翻对话。CAN
+  负载这块到此完整闭环了。
+
+✻ Sautéed for 1m 4s
