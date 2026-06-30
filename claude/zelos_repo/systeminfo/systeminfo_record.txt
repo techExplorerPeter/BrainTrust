@@ -1,0 +1,2126 @@
+ ▐▛███▜▌   Claude Code v2.1.195
+▝▜█████▛▘  Opus 4.8 · Claude Pro
+  ▘▘ ▝▝    D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_0…
+
+
+✻ Conversation compacted (ctrl+o for history)
+
+
+● Update(sysinfo_parser.py)
+  ⎿  Added 4 lines, removed 3 lines
+      328      print("records stored: %d   elf: %s" % (c["recCount"], elf
+            or "(none - addresses only)"))
+      329      print("-" * 64)
+      330  
+      331 -    pc_s = sym.code(h["pc"]) or ""                            
+      332 -    lr_s = sym.code(h["lr"]) or ""                            
+      331 +    pc_s = sym.code(h["pc"]) or "(not a known symbol; bad/unma
+          +pped address)"                                                
+      332 +    lr_s = sym.code(h["lr"]) or "(not a known symbol)"        
+      333      print("faulting PC : 0x%08X  %s" % (h["pc"], pc_s))
+      334      print("caller   LR : 0x%08X  %s" % (h["lr"], lr_s))
+      335      print("task     SP : 0x%08X" % h["sp"])
+     ...
+      340          print("DFSR        : 0x%08X  %s" % (h["dfsr"], fault_s
+           tatus_str(h["dfsr"])))
+      341          print("DFAR (addr) : 0x%08X  %s" % (h["dfar"], ("-> " 
+           + var) if var else "(not a known symbol; stack/heap/peripheral
+           )"))
+      342      elif c["faultType"] == 2:  # prefetch abort
+      343 +        ifar_s = sym.code(h["ifar"]) or "(unmapped / bad jump 
+          +target -- see caller LR above for the call site)"             
+      344          print("IFSR        : 0x%08X  %s" % (h["ifsr"], fault_s
+           tatus_str(h["ifsr"])))
+      344 -        print("IFAR (addr) : 0x%08X  %s" % (h["ifar"], sym.cod
+          -e(h["ifar"]) or ""))                                          
+      345 +        print("IFAR (addr) : 0x%08X  %s" % (h["ifar"], ifar_s)
+          +)                                                             
+      346  
+      347      if regs is not None:
+      348          _, r = regs
+
+● Parser-only change (no rebuild needed). Let me syntax-check + self-test a
+  prefetch frame to confirm the IFAR line is clean now:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python -c "import
+      ast;ast.parse(open('sysinfo_…)
+  ⎿  syntax OK
+     aging: this fault is 2 power-cycle(s) old; auto-clears at 3 -> 1 clean
+      cycle(s) left
+     … +7 lines (ctrl+o to expand)
+
+● 毛刺修好了,而且是纯解析器改动,不用重编固件——你直接重跑解析器看现有 capture
+  就行。
+
+  现在 C3 02(预取中止)的输出干净了:
+  faulting PC : 0xDEAD0000  (not a known symbol; bad/unmapped address)
+  caller   LR : 0x10231000  <某函数> (xxx.c:行号)        ← 关键!发起坏调用的地方
+  IFSR        : 0x0000000D  permission fault (MPU) [read]
+  IFAR (addr) : 0xDEAD0000  (unmapped / bad jump target -- see caller LR above
+  for the call site)
+
+  改了两处(sysinfo_parser.py):
+  1. 符号器:对未映射地址(??/??:0:0)统一返回"无符号",不再吐 ??:0:0。
+  2. 显示:PC/IFAR 反查不出时给清晰提示;预取中止的 IFAR 行明确指引你看 caller 
+  LR——因为预取中止的 PC/IFAR 是坏跳转目标(没符号),真正定位"哪儿发起的"要看
+  LR(调用者)。
+
+  至此三种故障类型全部验证 + 显示干净:
+  - C3 01(data abort):DFAR→数据地址 + DFSR原因,PC/LR→出错代码行。
+  - C3 02(prefetch abort):LR→调用点(关键),IFAR→坏目标。
+  - C3 03(undef):PC→那条非法指令的位置。
+
+  systemInfo 这块功能 + 工具链全齐了。要我现在做最终收尾吗(死代码清理 + design
+  note 更新到最终架构 + 量产门提醒)?还是你先再多测两轮再说。
+
+✻ Churned for 1m 19s
+
+> 这是C3                                                                        
+  03的x44p_10_00_00_07\source\kernel\freertos/FreeRTOS-Kernel/tasks.c:2317:5)   
+  task     SP : 0x00081C08                                                      
+  CPSR        : 0x2000003F                                                      
+  ----------------------------------------------------------------              
+    R0 =0x00000003  R1 =0x00082DFC  R2 =0x1027FE5D  R3 =0x00000311              
+    R4 =0x00000000  R5 =0x000013D9  R6 =0x000000D0  R7 =0x00080000              
+    R8 =0xFFFFFFFF  R9 =0x000001D1  R10=0x000012E9  R11=0x00080010              
+    R12=0x000F0000                                                              
+  ================================================================              
+
+● C3 03(未定义指令)也触发了——CPSR=0x2000003F(Thumb 态)、R0=3(注入码),说明 udf 在
+  wf_sys_do_inject 里执行了。
+
+  但你贴的被截断了,我只看到一行尾巴 ...tasks.c:2317:5),看不出它是 faulting PC
+  还是 caller LR。这很关键:
+  - udf 的故障 PC 应该指到 wf_sys_do_inject(那条 udf 指令);
+  - 如果指到 tasks.c:2317,那可能是 udf 的 LR 偏移没算对,或者那行其实是
+  LR(调用链)。
+
+  麻烦把 C3 03 的完整输出贴一下(尤其顶部被截的两行):
+  FAULT: undefined-instruction on R5F  (...)        ← 这行
+  ...
+  faulting PC : 0x........  <函数> (<文件>:<行>)      ← 这行(最关键)
+  caller   LR : 0x........  <函数> (...)
+
+  我要看 faulting PC 那行的地址和符号。如果 PC → wf_sys_do_inject,说明 undef
+  也完全正确(那 tasks.c:2317 就是 LR,正常);如果 PC → tasks.c,那 undef 的 LR
+  修正(Thumb −2 / ARM −4)可能有问题,我再调。
+
+  贴完整的给我就行。
+
+✻ Sautéed for 2m 31s
+
+> x44p_10_00_00_07\source\kernel\freertos/FreeRTOS-Kernel/tasks.c:2317:5)       
+  task     SP : 0x00081C08                                                      
+  CPSR        : 0x2000003F                                                      
+  ----------------------------------------------------------------              
+    R0 =0x00000003  R1 =0x00082DFC  R2 =0x1027FE5D  R3 =0x00000311              
+    R4 =0x00000000  R5 =0x000013D9  R6 =0x000000D0  R7 =0x00080000              
+    R8 =0xFFFFFFFF  R9 =0x000001D1  R10=0x000012E9  R11=0x00080010              
+    R12=0x000F0000                                                              
+  ================================================================              
+
+● 你的粘贴一直把顶部截掉了(那行长路径换行把前面挤没了)。我直接自己解析最新的
+  capture 看完整输出。让我找最新的 .asc 跑一遍:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t debuginfo_*.asc
+      2>/dev/null | head -…)
+  ⎿  最新: debuginfo_20260630_111151.asc
+     ================================================================
+     systemInfo / dumptrace (CAN 0x100)   frames=8
+     … +14 lines (ctrl+o to expand)
+
+● 完整输出出来了,undef 也完全正确!
+
+  FAULT: undefined-instruction on R5F
+  faulting PC : 0x0000123E  wf_sys_do_inject  (wf_sysinfo.c:577)   ←
+  正确!正是那条 udf 指令
+  caller   LR : 0x1026E373  xTaskResumeAll  (tasks.c:2317)
+
+  故障 PC = wf_sys_do_inject:577 —— 就是 udf #0 那行,定位完全准确。undef 的 LR
+  修正(Thumb −2)没问题。
+
+  那个 tasks.c:2317(xTaskResumeAll)是 LR,不是 PC。为什么它指到 FreeRTOS
+  而不是直接调用者?因为 wf_sys_do_inject 的 udf 分支是叶子函数(不调用任何东西)
+  —— 按 ARM 约定,叶子函数不更新 LR,所以捕获到的 LR 是"上上层"的残留值(udf
+  触发时正好刚从 vTaskDelay 出来,LR 里残留着它内部 xTaskResumeAll
+  的返回地址),而不是直接调用者。
+
+  这不是 bug,是 ARM 叶子函数的固有特性:
+  - 真实崩溃通常发生在非叶子函数里,那时 LR = 真正的直接调用者,有意义。
+  - 叶子函数崩溃时,LR 偏一层,但故障 PC 永远准确——而 PC
+  才是定位的关键(指到出错指令)。
+
+  三种故障类型全部验证 ✅
+
+  ┌───────┬────────────────┬─────────────────────────────────────────┐
+  │ 注入  │      故障      │                关键定位                 │
+  ├───────┼────────────────┼─────────────────────────────────────────┤
+  │ C3 01 │ data abort     │ PC→出错代码行, DFAR→数据地址            │
+  ├───────┼────────────────┼─────────────────────────────────────────┤
+  │ C3 02 │ prefetch abort │ PC→坏目标, LR→调用点                    │
+  ├───────┼────────────────┼─────────────────────────────────────────┤
+  │ C3 03 │ undefined      │ PC→那条非法指令(wf_sys_do_inject:577)✅ │
+  └───────┴────────────────┴─────────────────────────────────────────┘
+
+  systemInfo 全功能验证完毕,稳定可靠。要我现在做最终收尾吗(死代码清理 + design
+  note 更新到最终架构 + 量产门提醒)?
+
+✻ Crunched for 1m 23s
+
+> 好的 做最后的收尾把                                                           
+  ⎿  Referenced file sysinfo_parser.py
+  ⎿  Referenced file ..\mss\wf_sysinfo.c
+  ⎿  Read ..\mss\wf_sysinfo.h (129 lines)
+  ⎿  Referenced file ..\mss\mss_mcan.c
+  ⎿  Read ..\docs\systemInfo_design_note.md (108 lines)
+
+● Let me read the current wf_sysinfo.c to see exactly what's dead before
+  touching anything.
+
+  Read 1 file (ctrl+o to expand)
+
+● Code is fully in view. Before editing verified firmware, let me confirm
+  exactly what's dead and whether the stale .S is referenced anywhere.
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Tool glitch — retrying with the Bash tool:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== refs to dead vars / stale asm
+      ===" && grep…)
+  ⎿  === refs to dead vars / stale asm ===
+     mss/mss_main.c:4007:     * the overridden exception vectors (wf_sysinf
+     o_fault_asm.S), active since boot. */
+     … +30 lines (ctrl+o to expand)
+● Clean picture: the dead vars and stale .S are referenced only inside
+  wf_sysinfo.c itself (plus two stale comments and the systeminfo_record.txt
+  export log, which is your transcript — I'll leave that). The .S is not in the
+  makefile, so it isn't compiled. Let me verify the linker.cmd doesn't reference
+  the stale object before deleting it:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && grep -n "wf_sysinfo"
+      mss/mmw_mss_linker.cmd)
+  ⎿  27:    .wfSysCode: { wf_sysinfo.oer5f(.text)   wf_sysinfo.oer5f(.text.
+     *)
+     28:                  wf_sysinfo.oer5f(.rodata) wf_sysinfo.oer5f(.rodat
+     … +5 lines (ctrl+o to expand)
+
+● Linker only references wf_sysinfo.oer5f (the .c). The stale .S is safe to
+  delete. Let me read the mss_main.c comment context, then do all cleanup edits.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now executing all cleanup edits. First delete the stale .S and fix the two
+  stale comments:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && git rm --quiet
+      mss/wf_sysinfo_fault_asm.S 2>/dev/nul…)
+  ⎿  removed (tracked)
+     confirmed gone
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\mss\mss_main.c)
+  ⎿  Added 2 lines, removed 1 line
+      4004  
+      4005      /* 0x100 systemInfo/dumptrace: read the previous power cy
+            cle's R5 crash record from
+      4006       * flash and broadcast it; ages out after N cycles. The f
+            ault capture itself is via
+      4007 -     * the overridden exception vectors (wf_sysinfo_fault_asm
+           -.S), active since boot. */                                   
+      4007 +     * the overridden exception vectors (file-scope asm block
+           + in wf_sysinfo.c), active                                    
+      4008 +     * since boot. */                                        
+      4009      wf_sysinfo_init();
+      4010  
+      4011      /* 0x200 debugInfo: reset reason/blockend read + 66ms sen
+            d task by page units */
+
+● Now the wf_sysinfo.c edits (all behavior-preserving — the removed conditions
+  provably never fire in single-slot mode):
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\mss\wf_sysinfo.c)
+  ⎿  Added 2 lines, removed 3 lines
+      21  extern void BSW_SocRest(void);      /* working PMIC cold reset 
+          (mss_main.c) */
+      22  
+      23  /* ------------------------------------------------------------
+          ------ */
+      24 -/* Raw context captured by the assembly stubs (wf_sysinfo_fault
+         -_asm.S). */                                                    
+      25 -/* Field order/offset MUST match the .S (r[13]@0, sp@52, lr@56,
+         - pc@60,  */                                                    
+      26 -/* spsr@64).                                                   
+         -         */                                                    
+      24 +/* Raw context captured by the file-scope asm block below. Fiel
+         +d order/ */                                                    
+      25 +/* offset MUST match that asm (r[13]@0, sp@52, lr@56, pc@60, sp
+         +sr@64).  */                                                    
+      26  /* ------------------------------------------------------------
+          ------ */
+      27  typedef struct
+      28  {
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Those diagnostics are pre-existing LSP include-path noise (not from my comment
+  edit). Continuing with the dead-var removal:
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\mss\wf_sysinfo.c)
+  ⎿  Added 3 lines, removed 4 lines
+      183  );
+      184  
+      185  /* -----------------------------------------------------------
+           ------- */
+      186 -/* Boot-computed state, consumed by the fault path so it never
+          - has to   */                                                  
+      187 -/* scan flash from abort context.                             
+          -          */                                                  
+      186 +/* Boot-computed / fault-path state. Single-slot design: the f
+          +lush task */                                                  
+      187 +/* always erases the block then writes slot 0, so there is no 
+          +next-slot  */                                                 
+      188 +/* or next-seq to precompute (the record is built with a fixed
+          + seq=1).   */                                                 
+      189  /* -----------------------------------------------------------
+           ------- */
+      189 -static volatile uint8_t  gWfSysNextSlot = 0xFFU;   /* first em
+          -pty slot, 0xFF = full */                                      
+      190  static volatile uint32_t gWfSysBootTick = 0U;      /* tick-log
+            count for THIS boot   */
+      191 -static volatile uint32_t gWfSysNextSeq  = 1U;                 
+      191  static volatile uint8_t  gWfSysInFault  = 0U;      /* re-entra
+           ncy guard (double fault) */
+      192  
+      193  /* Cached most-recent record for the 0x100 broadcast. */
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\mss\wf_sysinfo.c)
+  ⎿  Added 3 lines, removed 2 lines
+      406  
+      407      if (h == NULL) { return; }
+      408  
+      409 -    /* 1) Scan the record slots. */                           
+      410 -    gWfSysNextSlot = 0xFFU;                                   
+      409 +    /* 1) Scan the record slots for the newest valid record. T
+          +he single-slot design only                                    
+      410 +     *    ever writes slot 0; we still scan all slots (cheap) 
+          +for robustness and to take the                                
+      411 +     *    slot-0 diagnostic snapshot. */                      
+      412      gWfSysRecCount = 0U;
+      413      for (s = 0U; s < WF_SYSINFO_SLOT_COUNT; s++)
+      414      {
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\mss\wf_sysinfo.c)
+  ⎿  Removed 5 lines
+      433                  if (tmp.bootTick > newestFaultTick) { newestFa
+           ultTick = tmp.bootTick; }
+      434              }
+      435          }
+      436 -        else if ((tmp.magic == 0xFFFFFFFFU) && (gWfSysNextSlot
+          - == 0xFFU))                                                   
+      437 -        {                                                     
+      438 -            gWfSysNextSlot = (uint8_t)s;       /* first empty 
+          -slot */                                                       
+      439 -        }                                                     
+      436      }
+      441 -    gWfSysNextSeq = newestSeq + 1U;                           
+      437  
+      438      if (newestSlot != 0xFFU)
+      439      {
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\mss\wf_sysinfo.c)
+  ⎿  Removed 8 lines
+      457          if ((gWfSysTxValid != 0U) &&
+      458              ((bootTickNow - newestFaultTick) >= WF_SYSINFO_RET
+           ENTION_CYCLES)) { doErase = 1; }
+      459          if ((gWfSysTxValid == 0U) && (tick >= (logCap - 4U))) 
+           { doErase = 1; }
+      460 -        /* Guarantee an empty slot for the next crash: write_c
+          -rash writes into the first                                    
+      461 -         * empty slot (gWfSysNextSlot). If none is empty (all 
+          -slots full, or holding garbage                                
+      462 -         * with no valid record), erase the block now -- in th
+          -is safe task context -- so the                                
+      463 -         * fault path always has a clean slot. (A factory/aged
+          - block reads all-empty -> no                                  
+      464 -         * erase.) After erase, gWfSysNextSlot is reset to 0 b
+          -elow. */                                                      
+      465 -        if (gWfSysNextSlot == 0xFFU) { doErase = 1; }         
+      460          if ((gWfSysTxValid == 0U) && (gWfSysRecCount == 0U) &&
+      461              (gWfSysDbgMagic != 0xFFFFFFFFU)) { doErase = 1; } 
+            /* slot0 garbage, nothing valid */
+      462  
+     ...
+      466              tick = 0U;
+      467              gWfSysTxValid  = 0U;
+      468              gWfSysRecCount = 0U;
+      475 -            gWfSysNextSlot = 0U;                              
+      476 -            gWfSysNextSeq  = 1U;                              
+      469          }
+      470      }
+      471  
+
+● Let me verify the modified wf_sysinfo_init reads coherently:
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● The init is coherent (newestSeq/newestSlot both still read; the LSP errors are
+  just missing include paths, not real). Now rewriting the design note to the
+  final architecture:
+
+● Write(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_
+       01\ti\demo\awr2x44P\mmw_ddm\docs\systemInfo_design_note.md)
+  ⎿  Added 89 lines, removed 57 lines
+      1 -# systemInfo / dumptrace 设计笔记 (schema v1, R5F)              
+      1 +# systemInfo / dumptrace 设计笔记 (schema v1, R5F) — 最终版     
+      2  
+      3  > 跨复位的 **R5F 崩溃黑匣子**:CPU 异常(未定义指令 / 预取中止 / 
+         数据中止=越界·野指针)发生时,把现场抓进 flash,**下次上电**经 CAN-
+         FD `0x100` 播出上次崩溃,用 `tools/sysinfo_parser.py` 反查到**函
+         数·源码行·变量**。本期只做 R5,M4 后续。
+      4 +>                                                               
+      5 +> **状态:已在 AWR2x44P EVM 上多次实测通过**(三种故障注入 C3 01/0
+        +2/03 全部:捕获→落 flash→自动冷复位→0x100 播报→脚本定位)。       
+      6  
+      7  与 `0x200/0x201 debugInfo`(本上电周期实时遥测)互补:debugInfo 看"
+         现在健不健康",systemInfo 回答"**上次为什么挂了、挂在哪**"。
+      8  
+     ...
+       14  - 量产实车**无调试器**;唯一通道是 CAN 报文。
+       15  - SDK 默认的 R5 异常处理器(undef/prefetch/data-abort)只是 `whi
+           le(1)` **死循环**,什么都不留。
+       16  
+       15 -## 2. 总体数据流                                              
+       17 +## 2. 总体数据流(最终)                                        
+       18  
+       19  ```
+       18 -①【故障·异常向量】我们自己的 _vectors → wf_sys_*_handler(naked
+          - 汇编)                                                        
+       19 -     抓 R0-R12 / 任务SP·LR / 故障PC / CPSR 进 RAM 结构 gWfSysF
+          -aultRegs                                                      
+       20 -②【故障·C 入口】wf_sysinfo_fault_entry()(切到专用栈)          
+       21 -     读 CP15 DFSR/IFSR/DFAR/IFAR → 组记录(+CRC)→ 裸 Flash_writ
+          -e 写入"已擦好的"槽                                            
+       22 -     → BSW_SocRest()(实测可用的 PMIC 冷复位)                  
+       23 -③【下次上电·boot】wf_sysinfo_init()                           
+       24 -     读 flash 槽 → 找最新有效记录 → 追加一条 boot-tick → 老化 
+          -判断 → 建发送任务                                             
+       25 -④【下次上电·发送任务】把记录打成 0x100 两帧(head + regs),**周 
+          -期常发(每 1s,不自删)**——工具任何时候接上都能读到,不只开机头一 
+          -秒                                                            
+       26 -⑤【离线】sysinfo_parser.py 解析 + 用 .xer5f 反查函数/行/变量  
+       20 +①【故障·异常向量】我们自己的 _vectors(纯 ARM 汇编)→ wf_sys_<ty
+          +pe>_handler                                                   
+       21 +     置 gWfSysFtype、按类型修正异常 LR → wf_sys_capture_common
+       22 +     抓 R0-R12 / 任务态 SP·LR(stm ^)/ 故障 PC / SPSR 进 gWfSys
+          +FaultRegs                                                     
+       23 +②【故障·仍在 abort 模式】切到专用栈 → bl wf_sys_write_crash() 
+       24 +     读 CP15 DFSR/IFSR/DFAR/IFAR,在 RAM 里组好整条记录 gWfSysP
+          +endingRec(+CRC16)                                             
+       25 +     —— 注意:这一步【绝不碰 flash、不复位】                   
+       26 +③【故障·返回】capture_common 置 gWfSysCrashPending=1,改写异常 
+          +返回到                                                        
+       27 +     wf_sys_crash_park(用原 SPSR → SYS 模式、开中断、空转),让 
+          +调度器继续跑                                                  
+       28 +④【flush 任务(prio 5,开机常驻)】轮询到 gWfSysCrashPending:    
+       29 +     Flash_eraseBlk(整块) → Flash_write(slot0, gWfSysPendingRe
+          +c) → vTaskDelay(50ms)                                         
+       30 +     → BSW_SocRest()(实测可用的 PMIC 冷复位,不返回)           
+       31 +⑤【下次上电·boot】wf_sysinfo_init():读 slot0 → 追加一条 boot-t
+          +ick → 老化判断 → 建发送任务                                   
+       32 +⑥【下次上电·发送任务(prio 2)】把记录打成 0x100 两帧(head+regs)
+          +,**每 1s 常发**                                               
+       33 +⑦【离线】sysinfo_parser.py 解析 + 用 .xer5f 反查函数/行/变量  
+       34  ```
+       35  
+       29 -## 3. 关键设计:擦 / 写 分离 + 防丢失保留                      
+       36 +## 3. 关键修复:为什么是"置标志 + flush 任务",而不是在异常里直 
+          +接写                                                          
+       37  
+       31 -**为什么不在故障里擦**:擦 64KB 要几百 ms、且 abort 上下文脆弱 
+          -。所以:                                                       
+       32 -- **擦**:只在**启动**(健康上下文)做——记录老化后才擦。         
+       33 -- **写**:只在**故障路径**做——往**预先擦好**的槽里 `Flash_write
+          -`(NOR 1→0,~ms,快且安全)。                                     
+       38 +这是整个功能的**核心教训**,踩过两个大坑:                      
+       39  
+       35 -**为什么不"读出即擦"**(防丢失,用户提出的真漏洞):若崩溃后那次上
+          -电没人录到 0x100,擦了就永久丢。改为:                          
+       36 -- **每次上电都重发**该记录(且本次上电内每 1s 周期常发),于是任 
+          -何时刻接上工具都能读到、且后续每次上电都是一次抓取机会。      
+       37 -- **靠上电计数老化**:距最新一次故障满 `WF_SYSINFO_RETENTION_CY
+          -CLES`(默认 20)个上电周期、仍无新故障,才擦整块。               
+       40 +**坑 1 —— 不能在 abort 模式 / 被劫持的任务上下文里写 flash 或 
+          +复位。**                                                      
+       41 +`Flash_eraseBlk` / `Flash_write` 内部用**计数忙等**轮询 NOR 的
+          + WIP(写完成),这个忙等**只有调度器在跑时才会正常结束**;在 abort
+          + 模式(无抢占)里它会提前超时,把芯片留在"擦了一半 / 写了一半"的 
+          +状态 → 记录损坏。`BSW_SocRest`(PMIC 复位)是一长串 `ClockP_usle
+          +ep`/MIBSPI/`DebugP_log`,每一步都 yield,**只有真正的 FreeRTOS  
+          +任务能跑完**;在 abort 模式里调它直接挂死。                    
+       42 +→ **方案**:异常处理器只在 RAM 里组记录 + 置 `gWfSysCrashPendin
+          +g`,改写返回到 `wf_sys_crash_park`(SYS 态、开中断、空转)让调度 
+          +器活着;一个 prio 5 的 **flush 任务**在干净的任务上下文里完成擦
+          ++写+复位。                                                    
+       43  
+       39 -## 4. Flash 布局(`0x3F0000`,64KB,擦除粒度 64KB)               
+       44 +**坑 2(THE bug,记录长期写不进的真因)—— 向量里的 handler 地址带
+          +了 Thumb 位。**                                               
+       45 +最早 handler 用 C 的 `__attribute__((naked, target("arm")))`  
+          +写。即便代码是 ARM,**符号也会被标成 THUMB**,于是向量表里 `.wor
+          +d handler` 的最低位=1。CPU 取到奇地址 → 以 **Thumb 态**进入一 
+          +段 **ARM 字节** → 执行垃圾 → 不停重故障,handler 实际**从没正确
+          +跑过**(表现为:flash 块被擦了却没有记录)。                     
+       46 +→ **方案**:把向量表 + 所有 handler 写成**文件作用域的纯 ARM `_
+          +_asm__` 块**,显式 `.arm` + `.type <sym>, %function`,符号被标成
+          + ARM,向量字为偶 → 进入即 ARM 态。(用 `tiarmobjdump` 验证向量字
+          +为偶、handler 反汇编正常。)入口态必须 ARM,因为 `SCTLR.TE=0` 把
+          +异常入口态钉死为 ARM。                                        
+       47  
+       48 +**坑 3 —— "读出即擦"会丢、且 NOR 不能重复 program 同一页。**  
+       49 +- 防丢失:崩溃后那次上电若没人录到 0x100,擦了就永久丢 → 改为** 
+          +每次上电都重发**(且本上电内每 1s 常发),并**靠上电计数老化**(见
+          + §4),满 `RETENTION_CYCLES` 个无新故障的上电周期才擦。         
+       50 +- 上电计数 tick:NOR 一页(256B)**只有第一次 program 可靠**,重复
+          + program 同一页的不同字不稳。所以**每次上电占一整页**(`WF_SYS_
+          +TICK_STRIDE=256`),tick 数才不会卡在 1、老化才会触发。         
+       51 +                                                              
+       52 +## 4. Flash 布局(`0x3F0000`,64KB,擦除粒度 64KB)— 单槽         
+       53 +                                                              
+       54  | 区 | 偏移 | 内容 |
+       55  |---|---|---|
+       43 -| 记录槽 | `0x0000`–`0x07FF` | 4 槽 × 512B,每槽一条 `WFSysCras
+          -hRec_s`(magic/seq/bootTick/类型 + R0-R12/PC/LR/SP/CPSR + DFSR/
+          -IFSR/DFAR/IFAR + 16 字栈 + CRC16);`magic=0xFFFFFFFF` 即空槽,故
+          -障时写**第一个空槽** → 保留最近 4 次 |                        
+       44 -| 上电计数 | `0x0800`–`0xFFFF` | append-only:每次上电把第一个 
+          -`0xFFFFFFFF` 字写成 `0`;非 FF 字数 = 自上次擦除以来的上电次数(
+          -=当前 bootTick)。二分查找边界,无需每次擦 |                    
+       56 +| 记录槽 | `0x0000`–`0x07FF` | **单槽实际只用 slot0**(512B,一 
+          +条 `WFSysCrashRec_s`)。flush 任务每次崩溃**先擦整块再写 slot0*
+          +*,所以"最新崩溃覆盖旧的"。`SLOT_COUNT=4` 仅作布局保留,slot1–3 
+          +永远空(boot 仍扫 4 槽,纯为健壮性 + slot0 诊断快照)。 |        
+       57 +| 上电计数 | `0x0800`–`0xFFFF` | append-only,**每次上电 progra
+          +m 一整页**(stride=256):把该页首字 `0xFFFFFFFF→0`;已 program 的
+          +页数 = 自上次擦除以来的上电次数(=当前 bootTick)。二分查找边界,
+          +无需每次擦。 |                                                
+       58  
+       46 -**老化规则**:`bootTickNow − 最新记录.bootTick ≥ RETENTION` 才 
+          -擦(新故障刷新窗口);无记录且计数区将满时也擦做housekeeping。   
+       59 +**老化规则**(`wf_sysinfo_init` 第 3 步):                      
+       60 +- `gWfSysTxValid && (bootTickNow − 最新记录.bootTick) ≥ RETENT
+          +ION_CYCLES` → 擦(新故障刷新窗口)。                            
+       61 +- 无有效记录且 tick 区将满 → 擦(housekeeping)。               
+       62 +- 无有效记录、recCount=0、但 slot0 magic 非 0xFF(残留垃圾)→ 擦
+          +。                                                            
+       63 +- 注:记录是 flush 任务擦后才写的,所以记录里的 `bootTick=0`;擦 
+          +动作把 tick 区也清零,老化窗口从复位后重新计。                 
+       64  
+       48 -## 5. 异常捕获(R5 / ARMv7-R)                                  
+       65 +## 5. 异常捕获(R5 / ARMv7-R)要点                              
+       66  
+       50 -- 不复用 SDK 的 `HwiP_*_handler` 名字(它们和我们仍需要的 `HwiP
+          -_irq/fiq` 同处一个归档 .o,同名覆盖会重定义)。改为**自带 `_vect
+          -ors`**(放 `.vectors`→`RESET_VECTORS` 0x0),undef/prefetch/data 
+          -指向我们的 `wf_sys_*_handler`,其余(reset/svc/reserved/irq/fiq)
+          -仍指 SDK。`--undef_sym=_vectors` 由我们的表满足,SDK 的纯 `_vec
+          -tors` 对象不被拉入,无冲突。                                   
+       51 -- 进入异常时 R0-R12 仍是故障上下文(尚未被改),SP/LR 是 banked →
+          - 用 `stm {sp,lr}^` 取任务态;故障 PC 由异常 LR 按类型修正(data 
+          -−8 / prefetch −4 / undef ARM −4·Thumb −2)。处理器/向量必须 ARM
+          - 态(`target("arm")`),因为入口态由 `SCTLR.TE=0` 钉死为 ARM。   
+       52 -- **关键:绝不在 abort 模式、也不在被劫持的任务上下文里写 flash
+          -/复位。** QSPI 驱动 `QSPI_writeCmd` 内有 `SemaphoreP_pend(lock
+          -Obj, WAIT_FOREVER)`、`BSW_SocRest` 走 MIBSPI——它们必须在**干净
+          -的任务上下文**跑(实测:在 abort 模式调会挂起被中断任务;让崩溃任
+          -务"返回"自己跑也不干净)。                                     
+       53 -- **方案:置标志 + 专用 flush 任务。** 处理器抓完寄存器后:① 置 
+          -`gWfSysCrashPending=1`(纯全局写,无 RTOS 调用)② 改写异常返回到 
+          -`wf_sys_crash_park`(SYS 模式、**开中断**、空转)→ 让调度器能跑 
+          -。一个开机就常驻的**高优先级 flush 任务**(`wf_sys_flush_task`,
+          -prio 5)轮询该标志,命中后在**完全正常的任务上下文**里读 CP15、`
+          -Flash_write` 落记录、`BSW_SocRest` 复位。                     
+       54 -- **重入守卫** `gWfSysInFault`:写入中再故障直接复位,不死循环。
+       67 +- **自带 `_vectors`**(放 `.vectors`→`RESET_VECTORS` 0x0):undef
+          +/prefetch/data 指向我们的 `wf_sys_*_handler`,reset/svc/reserve
+          +d/irq/fiq 仍指 SDK(`_c_int00`/`HwiP_*`)。`--undef_sym=_vectors
+          +` 由我们的表满足,SDK 那个纯 `_vectors` 对象不被拉入,无重定义冲
+          +突。不复用 SDK 的 `HwiP_*_abort` 名字(同归档冲突)。           
+       68 +- 进异常时 R0-R12 仍是故障现场;SP/LR 是 banked → `stm {sp,lr}^
+          +` 取任务态。**故障 PC 由异常 LR 按类型修正**:data `−8`、prefet
+          +ch `−4`、undef ARM `−4` / Thumb `−2`(读 SPSR 的 T 位判定)。三 
+          +种都已实测 PC 精确落在出错指令。                              
+       69 +- **重入守卫** `gWfSysInFault`:写入途中再故障直接走复位,不死循
+          +环。                                                          
+       70 +- 栈回溯只读 R5 数据 RAM(TCMB / MSS_L2)且字对齐(`wf_sys_readab
+          +le64`),防野 SP 触发二次致命 abort。                           
+       71  
+       56 -## 6. CAN 0x100 帧格式(2×64B=128B,CRC16-CCITT-FALSE 覆盖 0..61
+          -)                                                             
+       72 +## 6. CAN 0x100 帧格式(2×64B=128B,CRC16-CCITT-FALSE 覆盖 byte 
+          +0..61)                                                        
+       73  
+       58 -公共头(两帧):`byte0` schemaVer|msgIndex,`1` rolling,`2` valid(
+          -1=有记录),`3` faultType,`4` recCount,`5` core。               
+       59 -- **head(msg0)**:seq / bootTickFault / bootTickNow / PC / LR /
+          - SP / CPSR / DFSR / IFSR / DFAR / IFAR。                      
+       74 +公共头(两帧 byte0..5):`0` schemaVer|msgIndex、`1` rolling、`2`
+          + valid(1=有记录)、`3` faultType、`4` recCount、`5` core。     
+       75 +- **head(msg0,payload@byte6)**:`+0` seq、`+4` bootTickFault、`
+          ++8` bootTickNow、`+12` PC、`+16` LR、`+20` SP、`+24` CPSR、`+2
+          +8` DFSR、`+32` IFSR、`+36` DFAR、`+40` IFAR、`+44` dbgMagic、`
+          ++48` dbgCrcStored、`+50` dbgCrcCalc、`+52` retentionCycles。  
+       76  - **regs(msg1)**:R0–R12。
+       61 -- 16 字栈回溯只存 flash(128B 放不下),需要时用 CCS/J-Link 读。 
+       77 +- 16 字栈回溯只存 flash(128B 放不下);需要时用 CCS/J-Link 读 sl
+          +ot0。                                                         
+       78  
+       79  ## 7. 解析脚本 `tools/sysinfo_parser.py`
+       80  
+       65 -- 解析 `.asc`/hex,校验 CRC/schema,取**最新**一对 head+regs。  
+       66 -- **符号化**(精确,用户要求):`PC/LR` 经 `llvm-symbolizer` + `.x
+          -er5f` → **函数 + 源码行**;`DFAR`(数据故障地址)经 `llvm-nm` 符 
+          -号表 → **变量(+偏移)**;`DFSR/IFSR` 解码出原因(对齐/权限/越界/ 
+          -外部 abort + 读写)。                                          
+       67 -- 默认 ELF=`mmw_ddm/awr2x44P_mmw_demo_mssDDM.xer5f`,工具链=`$R
+          -5F_CLANG_INSTALL_PATH/bin`;`--elf`/`--toolchain` 可覆盖。无工 
+          -具链时退化为只给原始地址+故障解码。                           
+       81 +- 解析 `.asc`(CANFD `Rx <id>` 格式)/hex,校验 CRC/schema,取**最
+          +新**一对 head+regs。                                          
+       82 +- **符号化**:`PC/LR` 经 `llvm-symbolizer` + `.xer5f` → 函数+源
+          +码行;`DFAR` 经 `llvm-nm` → 变量(+偏移);`DFSR/IFSR` 解码原因(对
+          +齐/权限/越界/外部 abort + 读写)。                             
+       83 +- **不可解析地址不再吐 `??:0:0`**:符号化失败时给清晰中文/英文 
+          +提示。尤其:                                                   
+       84 +  - **预取中止**的 PC/IFAR 是**坏跳转目标**(无符号)→ IFAR 行明
+          +确指引"看 caller LR(调用点)"。                                
+       85 +  - **叶子函数崩溃**时 LR 指向"上上层"(叶子不更新 LR,ARM 固有 
+          +特性);**PC 永远准确**,定位以 PC 为准。                        
+       86 +- 还输出 `flash slot0:`(magic/CRC 诊断)和 `aging:`(第几周期、 
+          +还差几个干净周期自动清除)两行。                               
+       87 +- 默认 ELF=`mmw_ddm/awr2x44P_mmw_demo_mssDDM.xer5f`,工具链=`$R
+          +5F_CLANG_INSTALL_PATH/bin`;`--elf`/`--toolchain` 可覆盖。无工 
+          +具链时退化为原始地址+故障解码。                               
+       88  
+       89  ```
+       90  python tools/sysinfo_parser.py capture.asc
+       71 -# FAULT: data-abort on R5F (seq=7, 3 power-cycle(s) ago)      
+       91 +# FAULT: data-abort on R5F (seq=1, 1 power-cycle(s) ago)      
+       92  # faulting PC : 0x...  myFunc (src/foo.c:123)
+       93  # DFAR (addr) : 0x...  -> gMyArray+0x40
+       74 -# DFSR        : ...    permission fault (MPU) [write]         
+       94 +# DFSR        : 0x0D   permission fault (MPU) [write]         
+       95 +# aging: this fault is 1 power-cycle(s) old; auto-clears at 3 
+          +-> 2 clean cycle(s) left                                      
+       96  ```
+       97  
+       77 -## 8. 开关 / 参数                                             
+       98 +## 8. 清除(像 UDS Clear DTC)+ 老化计数                        
+       99  
+       79 -`mss/wf_sysinfo.h`:`WF_SYSINFO_ENABLE`(量产 D sample 置 0 即整
+          -功能编译消失)、`WF_SYSINFO_FLASH_OFF`(0x3F0000)、`WF_SYSINFO_S
+          -LOT_COUNT`(4)、`WF_SYSINFO_RETENTION_CYCLES`(20)、`WF_SYSINFO_
+          -TX_FIRST_MS`(300)、`WF_SYSINFO_TX_PERIOD_MS`(1000)、`WF_SYSINF
+          -O_FAULT_INJECT`(自检注入,量产置 0)。                          
+      100 +- **手动清除**:故障定位并修复后,往 `WF_SYS_INJECT_CAN_ID=0xC3`
+          + 发一帧 `data[0]=WF_SYS_CLEAR_CODE=0xCC`。发送任务下个周期擦掉
+          + systemInfo 块 → 0x100 报 `valid=0`(clean),不再回放旧故障。** 
+          +此功能不受 FAULT_INJECT 开关影响,量产保留。**                 
+      101 +- **自动老化**:即使不手动清,满 `WF_SYSINFO_RETENTION_CYCLES`( 
+          +默认 3)个无新故障的上电周期后自动擦。                         
+      102 +- 0x100 head 里带 `retentionCycles` + `bootTickNow`,脚本据此显
+          +示"第 N 次上电无异常 / 还差 M 个周期自动清除"。               
+      103  
+       81 -## 9. 复位策略                                                
+      104 +## 9. 开关 / 参数(`mss/wf_sysinfo.h`)                         
+      105  
+       83 -故障记录落 flash 后调 `BSW_SocRest()`(`PMIC_SysReset`,实测可用
+          -的冷复位)自动复位 → 雷达自愈,重启即播报上次故障。"复位会不会掩
+          -盖故障":不会,**0x100 报文本身就是故障判据**,而且保留 N 周期反 
+          -复重发。                                                      
+      106 +| 宏 | 值 | 说明 |                                            
+      107 +|---|---|---|                                                 
+      108 +| `WF_SYSINFO_ENABLE` | 1 | 置 0 → 整功能编译消失 |           
+      109 +| `WF_SYSINFO_FLASH_OFF` | 0x3F0000 | 64KB 自由块 |           
+      110 +| `WF_SYSINFO_RETENTION_CYCLES` | 3 | 自动老化的无故障上电周期
+          +数 |                                                          
+      111 +| `WF_SYSINFO_TX_FIRST_MS` / `_PERIOD_MS` | 300 / 1000 | 首发 
+          +/ 周期 |                                                      
+      112 +| `WF_SYS_CLEAR_CODE` | 0xCC | 清除指令(0xC3 帧 data[0]) |    
+      113 +| **`WF_SYSINFO_FAULT_INJECT`** | **1** | **自检注入;⚠️ 量产必
+          +须置 0** |                                                    
+      114  
+       85 -## 10. ⚠️ 台架验证点(无法在构建外验证,必须上板确认)           
+      115 +## 10. 自检方法(CAN 触发崩溃,不用改代码)                      
+      116  
+       87 -1. ✅ **`_vectors` 覆盖生效且正常启动** —— 已实测(系统健康、0x
+          -100 在发)。                                                   
+       88 -2. ✅ **数据中止捕获 + CAN 注入触发** —— 已实测(注入瞬间 0x100
+          - 停=处理器被进、任务崩)。                                     
+       89 -3. **恢复上下文方案有效**:abort 处理器改写返回 → `wf_sys_crash
+          -_recover` 在 SYS 任务态跑 → `Flash_write` 落记录 + `BSW_SocRes
+          -t` 复位。**这是上一版的核心修复**(上一版直接在 abort 模式调 `F
+          -lash_write`,被 QSPI 锁 `SemaphoreP_pend` 挂起,记录没落、不复位
+          -)。待实测:注入后**自动重启 + 下次上电 0x100 报出 `valid=1` +  
+          -脚本定位**。                                                  
+       90 -4. `msr SP_usr`/`msr spsr`/`movs pc,lr` 银行寄存器与异常返回在
+          - ti-arm-clang 下编译通过。                                    
+       91 -5. **clean 全量重编**。                                       
+       92 -                                                              
+       93 -## 11. 自检方法(CAN 触发崩溃,不用改代码)                      
+       94 -                                                              
+       95 -`WF_SYSINFO_FAULT_INJECT=1` 时,往 **CAN-A `WF_SYS_INJECT_CAN_I
+          -D=0xC3`** 发一帧,`data[0]` 选故障类型:                        
+      117 +`WF_SYSINFO_FAULT_INJECT=1` 时,往 **CAN-A `0xC3`** 发一帧,`dat
+          +a[0]`:                                                        
+      118  - `1` = data abort(写 `0xDEAD0000`)、`2` = prefetch abort(调用
+            `0xDEAD0000`)、`3` = undefined(`udf #0`)。
+      119 +- `0xCC` = 清除(见 §8,不受注入开关限制)。                     
+      120  
+       98 -发送任务下个周期消费该标志、**在任务上下文里故意崩溃** → 走捕 
+          -获→写flash→复位。**期望**:雷达自动重启(证明 abort 上下文 `Flas
+          -h_write`+`BSW_SocRest` 可用)→ 重启后 0x100 周期播报该记录 → `s
+          -ysinfo_parser.py` 解出 `FAULT: data-abort`、PC→注入点、`DFAR=0
+          -xDEAD0000`。                                                  
+      121 +发送任务下个周期消费标志 → 在任务上下文故意崩溃 → 捕获→落 flas
+          +h→自动复位 → 重启后 0x100 播报 → 脚本定位。三种已实测:        
+      122 +- C3 01 → PC=`wf_sys_do_inject`、`DFAR=0xDEAD0000`、`DFSR=0x0D
+          +`、R9=注入值。                                                
+      123 +- C3 02 → IFSR=0x0D、IFAR=0xDEAD0000,LR→调用点。              
+      124 +- C3 03 → PC=`wf_sys_do_inject` 的 `udf` 那行,精确。          
+      125  
+      100 -> 不依赖任何业务条件,确定性触发。量产置 `WF_SYSINFO_FAULT_INJE
+          -CT=0` 即整段编译消失。                                        
+      101 -> 也可临时在代码里直接写 `*(volatile uint32_t*)0xDEAD0000=1;`,
+          -但 CAN 触发免去反复重编。                                     
+      126 +## 11. 台架验证状态                                           
+      127  
+      103 -## 12. 后续                                                   
+      128 +1. ✅ `_vectors` 覆盖生效且正常启动(系统健康、0x100 在发)。   
+      129 +2. ✅ 数据中止 / 预取中止 / 未定义指令三类捕获 + CAN 注入触发 
+          +。                                                            
+      130 +3. ✅ 置标志 + flush 任务方案:abort 处理器改写返回 → SYS 任务 
+          +态 park → flush 任务擦+写+复位。                              
+      131 +4. ✅ 自动重启 + 下次上电 0x100 `valid=1` + 脚本定位到函数/行/
+          +变量。                                                        
+      132 +5. ✅ 手动清除(0xCC)+ 自动老化(RETENTION_CYCLES)。            
+      133  
+      134 +## 12. 后续 / 量产前                                          
+      135 +                                                              
+      136 +- **量产关闭注入**:`WF_SYSINFO_FAULT_INJECT=0`(本模块)、`WF_DE
+          +BUG_FAULT_INJECT=0`(debugInfo 模块,若有)。诊断字段(dbgMagic/db
+          +gCrc)可保留(便于现场分析)或后续精简。                         
+      137  - M4(CM4)崩溃捕获:M4 无 QSPI 所有权 → 经共享内存交 R5 落 flash
+           (Phase 2)。
+      106 -- 可选:把 16 字栈回溯也走第 3 帧或单独诊断会话传出。          
+      107 -- WDT→PMIC 自动恢复联动(与 debugInfo 的待办 ④ 合并)。         
+      138 +- 可选:16 字栈回溯走第 3 帧或单独诊断会话传出。               
+      139 +- WDT→PMIC 自动恢复联动(与 debugInfo 待办合并)。              
+
+● Final verification — confirm the dead vars are fully gone and nothing else
+  references them:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== dead vars in source (should
+      be empty) ==="…)
+  ⎿  === dead vars in source (should be empty) ===
+     (none — clean)
+     === stale .S in source tree (should be empty) ===
+     … +6 lines (ctrl+o to expand)
+
+● All clean. (systeminfo_record.txt still mentions the old name, but that's your
+  /export transcript log, not source — left untouched.)
+
+  Let me confirm the exact production-gate macro names so my reminder is
+  accurate:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && grep -rn "FAULT_INJECT"
+      mss/wf_sysinfo.h mss/wf_debu…)  ⎿  mss/wf_sysinfo.h:100:#define WF_SYSINFO_FAULT_INJECT        (1U)
+
+● 只有一个量产门:WF_SYSINFO_FAULT_INJECT(debugInfo 没有注入开关,之前总结里的
+  WF_DEBUG_FAULT_INJECT 不存在,忽略)。
+
+  收尾完成。总结一下这次做的:
+
+  ✅ 已完成的收尾
+
+  1. 解析器毛刺(本轮主任务)
+  sysinfo_parser.py:未映射地址不再吐 ??:0:0,改清晰提示;预取中止的 IFAR 行指引看
+  caller LR。纯脚本改动,不用重编固件。
+
+  2. 死代码清理(wf_sysinfo.c) — 全部行为等价(删掉的条件在单槽设计下从不触发):
+  - 删 gWfSysNextSlot / gWfSysNextSeq(单槽设计下只写
+  slot0,无需预算槽位/序号,只写不读的死变量)。
+  - 删"槽满则擦"分支(slot1–3 永远空,该条件永不触发)。
+  - 注释更新为单槽语义。
+
+  3. 删除陈旧文件
+  mss/wf_sysinfo_fault_asm.S(汇编早已移进 .c 的文件作用域 __asm__ 块,且不在
+  makefile 里)→ git rm。两处残留注释(mss_main.c、wf_sysinfo.c)改指向 .c 内的
+  asm。
+
+  4. 诊断字段 —— 保留(dbgMagic/dbgCrc 成本低、现场分析有用;解析器依赖它们的
+  flash slot0: 行)。
+
+  5. 设计笔记重写
+  docs/systemInfo_design_note.md 全部更新到最终架构:单槽、flush
+  任务擦+写+复位、THE bug(Thumb 位向量)修复、清除指令、tick
+  每页、retention=3、三类故障实测状态。
+
+  ⚠️ 量产前必做
+
+  - mss/wf_sysinfo.h:100 → WF_SYSINFO_FAULT_INJECT (0U)(关闭 0xC3 注入;清除指令
+  0xCC 不受影响,保留)。
+
+  📌 两点提醒
+
+  - 第 2、3 项动了固件,需要重编 + 重新烧录。改动是行为等价的,但建议烧录后发一次 
+  C3 01 做 sanity(确认捕获→复位→0x100 链路没被清理动作影响),就可以收工。
+  - Phase 2(M4 崩溃捕获)按计划后续再做。
+
+  要我现在帮你跑一次 clean 全量重编验证编译通过吗?(需要 setenv.bat
+  环境,我可以试着跑。)
+
+✻ Worked for 11m 26s
+
+> D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\ti 
+  \demo\awr2x44P\mmw_ddm\tools\testsysinfo.txt 这个是最新的解析parse C3         
+  01、02、03的内容                                                              
+
+  Read 1 file (ctrl+o to expand)
+
+● All three are clean and correct — the ??:0:0 glitch is gone. Let me verify
+  each:
+
+  C3 01 (data abort) ✅
+  - PC → wf_sys_do_inject (wf_sysinfo.c:555) — the write line
+  - DFSR=0x808 correctly decoded as synchronous external abort [write] (the bus
+  rejected the write to 0xDEAD0000 — a valid alternative to the MPU permission
+  fault, depends on region)
+  - DFAR=0xDEAD0000 (not a known symbol; stack/heap/peripheral) — clean
+  - R0=0xDEAD0000 (addr), R1=0x1234 (value) ✓
+
+  C3 02 (prefetch) ✅
+  - PC → 0xDEAD0000 (not a known symbol; bad/unmapped address) — clean
+  - LR → wf_sys_do_inject — correct! that's the real call site for prefetch
+  - IFAR=0xDEAD0000 (unmapped / bad jump target -- see caller LR above) — clean
+  ✓
+
+  C3 03 (undef) ✅
+  - PC → wf_sys_do_inject (wf_sysinfo.c:563) — the udf line, precise ✓
+
+  One tiny leftover: the prefetch LR shows wf_sysinfo.c:0:9 (line 0 —
+  llvm-symbolizer couldn't pin the exact line for that return address). The
+  function name is right, but :0:9 is a bit ugly. Let me read the symbolizer and
+  suppress the bogus :0 line too:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(sysinfo_parser.py)
+  ⎿  Added 6 lines
+      229              return None                         # not a real s
+           ymbol
+      230          if loc.startswith("??"):
+      231              loc = ""
+      232 +        elif loc:                                             
+      233 +            # llvm-symbolizer couldn't pin an exact line -> "f
+          +ile:0:col"; the function name                                 
+      234 +            # is still good (e.g. a fn-pointer call site), so 
+          +keep the file, drop the ":0:col".                             
+      235 +            parts = loc.rsplit(":", 2)                        
+      236 +            if len(parts) == 3 and parts[1] == "0":           
+      237 +                loc = parts[0]                                
+      238          return "%s  (%s)" % (func, loc) if loc else func
+      239  
+      240      def _load_data_syms(self, toolchain):
+
+● Now let me re-run the parser on the actual prefetch capture to confirm the
+  :0:9 is cleaned:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python -c "import
+      ast;ast.parse(open('sysinfo_…)
+  ⎿  syntax OK
+     --- prefetch re-parse (LR line) ---
+     faulting PC : 0xDEAD0000  (not a known symbol; bad/unmapped address)
+     … +5 lines (ctrl+o to expand)
+
+● 完美,:0:9 也清掉了:
+  caller   LR : 0x0000120B  wf_sys_do_inject  (...\mss\wf_sysinfo.c)
+  函数名 + 文件保留,去掉了无意义的 :0:9(同样是纯脚本改动,不用重编固件)。
+
+  三类故障全部验证通过 ✅(testsysinfo.txt 确认)
+
+  ┌──────┬────────────────┬──────────────────────────────────────────┬──────┐
+  │ 注入 │     FAULT      │                 关键定位                 │ 显示 │
+  ├──────┼────────────────┼──────────────────────────────────────────┼──────┤
+  │ C3   │ data-abort     │ PC→wf_sys_do_inject, DFAR=0xDEAD0000,    │ 干净 │
+  │ 01   │                │ DFSR=外部abort[write]                    │      │
+  ├──────┼────────────────┼──────────────────────────────────────────┼──────┤
+  │ C3   │ prefetch-abort │ LR→wf_sys_do_inject(调用点), IFAR=坏目标 │ 干净 │
+  │ 02   │                │                                          │      │
+  ├──────┼────────────────┼──────────────────────────────────────────┼──────┤
+  │ C3   │ undefined      │ PC→wf_sys_do_inject(udf 那行)            │ 干净 │
+  │ 03   │                │                                          │      │
+  └──────┴────────────────┴──────────────────────────────────────────┴──────┘
+
+  ▎ 顺带一提:C3 01 这次 DFSR=0x808(synchronous external abort)而非之前的 
+  ▎ 0x0D(MPU permission)——都是对 0xDEAD0000 写访问的合法故障码,取决于该地址落在 
+  ▎ MPU 区内还是纯总线空洞。解析器两种都能正确解码。
+
+  收尾全部完成
+
+  1. ✅ 解析器毛刺(??:0:0 + 行0 :0:9)—— 纯脚本,已验证
+  2. ✅ 死代码清理(gWfSysNextSlot/gWfSysNextSeq + 槽满擦条件)—— 行为等价
+  3. ✅ 删陈旧 wf_sysinfo_fault_asm.S + 修注释
+  4. ✅ 设计笔记重写到最终架构
+  5. ✅ 诊断字段保留
+
+  还剩两件你来定
+
+  - 量产门:wf_sysinfo.h:100 → WF_SYSINFO_FAULT_INJECT (0U)。
+  - 固件清理需重编 + 重烧:改动行为等价,但建议烧录后发一次 C3 01 做
+  sanity(确认链路没被清理影响)。重编后 wf_sysinfo.c 行号会平移(我删了约 14
+  行),解析器用配套 .xer5f 自动对得上,无需担心。
+
+  要我现在跑一次 clean 全量重编验证编译通过吗?
+
+✻ Worked for 1m 34s
+
+> 什么意思，是需要我把WF_SYSINFO_FAULT_INJECT设置成0么，第二件事什么意思        
+
+● 两件事我说清楚:
+
+  第一件:WF_SYSINFO_FAULT_INJECT = 0
+
+  现在不用改,保持 1。 这是给最终量产(给客户/装车)时才做的。
+
+  - 它 = 1 → 打开了"CAN 注入崩溃"自检功能(你发 C3 01/02/03
+  能手动触发崩溃来测试)。
+  - 它 = 0 → 这段自检代码整个不编译进去。
+
+  为什么量产要置 0:装车后如果有人(或误发)往 0xC3 发一帧,雷达就会真的崩溃 + 
+  复位。这在实车上是危险的。所以测试阶段留 1,真正出货前改成 0。
+
+  ▎ 现在你还在测,别动它。等到要发量产固件那一刻再改。清除指令 0xCC 
+  ▎ 不受这个开关影响,量产照样能用。
+
+  第二件:我改了 C 代码,所以要重新编译+烧录
+
+  刚才"收尾"时我删了 wf_sysinfo.c
+  里的死代码(没用到的变量和永不触发的判断)。这是改了固件源码。
+
+  - 你现在板子上跑的,还是改之前的旧固件。
+  - 我删的这些是死代码,逻辑上完全等价(不改变任何行为)。
+  - 但既然源码动了,严谨起见应该:重新编译 → 烧录 → 发一次 C3 01 
+  确认捕获→复位→0x100 这条链路还正常。
+
+  确认没问题就彻底收工了。
+
+  ---
+  所以你现在要做的就一件(可选,且不急):把清理后的固件重编一次、烧进去、发个 C3 01
+  验证。
+
+  要我现在帮你跑一次完整重编(make 
+  all)确认能编译通过吗?编不过的话我马上修——这样你烧录前就知道没问题。
+
+✻ Sautéed for 19s
+
+> 我已经编译好并且测试好了，结果如下_00_07\source\kernel\freertos/FreeRTOS-Kern 
+  el/tasks.c:2317:5)                                                            
+  task     SP : 0x00081C00                                                      
+  CPSR        : 0x6000003F                                                      
+  DFSR        : 0x00000808  synchronous external abort [write]                  
+  DFAR (addr) : 0xDEAD0000  (not a known symbol; stack/heap/peripheral)         
+  ----------------------------------------------------------------              
+    R0 =0xDEAD0000  R1 =0x00001234  R2 =0x1027FE5D  R3 =0x00000311              
+    R4 =0x00000000  R5 =0x000013A5  R6 =0x00000053  R7 =0x00080008              
+    R8 =0xFFFFFFFF  R9 =0x00000054  R10=0x000012B5  R11=0x00080000              
+    R12=0x000F0000                                                              
+  ================================================================              
+
+● 完美收工 🎉
+
+  这次是清理后重编的固件跑 C3 01,结果和清理前完全一致:
+  - DFSR=0x808 synchronous external abort [write] ✓
+  - DFAR=0xDEAD0000(干净,无 ??:0:0)✓
+  - R0=0xDEAD0000(地址)、R1=0x1234(写入值)✓
+  - LR→tasks.c:2317(叶子函数残留,正常)
+
+  说明死代码清理是行为等价的 —— 捕获→落 flash→自动复位→0x100
+  播报→脚本定位这条链路一点没受影响。
+
+  systemInfo / dumptrace 全部完成 ✅
+
+  ┌─────────────────────────────────────────┬─────────┐
+  │                   项                    │  状态   │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 三类故障捕获(undef/prefetch/data-abort) │ ✅ 实测 │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 落 flash(单槽 0x3F0000)+ 自动冷复位     │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 跨复位 0x100 CAN-FD 播报(128B/2帧)      │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 解析脚本定位到函数/源码行/变量          │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 防丢失保留 + 上电老化(retention=3)      │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 手动清除(0xCC,UDS Clear DTC 风格)       │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 老化计数随 CAN 发出                     │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 解析器毛刺(??:0:0 / :0:9)               │ ✅      │
+  ├─────────────────────────────────────────┼─────────┤
+  │ 死代码清理 + 删陈旧 .S + 设计笔记重写   │ ✅      │
+  └─────────────────────────────────────────┴─────────┘
+
+  唯一遗留(等你出货那天再做)
+
+  - 量产固件:wf_sysinfo.h → WF_SYSINFO_FAULT_INJECT (0U)。现在测试阶段保持 1。
+
+  需要的话,后续可以接着做 Phase 2(M4 
+  崩溃捕获),或者其它任务。这块就这样稳定下来了。
+
+✻ Brewed for 24s
+
+> 我看了下你写的design文档，里面没有设计说明欸，这个是怎么设计的，原理是什么，  
+  有没有什么缺陷，怎么快速入门指南之类的                                        
+
+● 文档确实偏"实现细节",缺了总览原理、已知缺陷、快速入门这三块。我来补上。先读一
+  下当前文件头部锚点:
+
+  Read 1 file (ctrl+o to expand)
+
+● Now inserting the three new sections — quick-start + design-principle overview
+  after the intro:
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\systemInfo_design_note.md)
+  ⎿  Added 47 lines
+       8  
+       9  ---
+      10  
+      11 +## 0. 快速入门(TL;DR)                                          
+      12 +                                                               
+      13 +**平时**:什么都不用做。雷达开机后每秒自动播两帧 `0x100`;`valid=
+         +0` 表示历史干净,`valid=1` 表示上次有崩溃记录。                 
+      14 +                                                               
+      15 +**怀疑崩溃过 / 要读上次崩溃**:                                 
+      16 +1. 用 CANoe / Kvaser 录几秒总线,存成 `.asc`。                  
+      17 +2. 在 `mmw_ddm/tools/` 下跑:                                   
+      18 +   ```                                                         
+      19 +   python sysinfo_parser.py 你的录制.asc                       
+      20 +   ```                                                         
+      21 +   (需 `R5F_CLANG_INSTALL_PATH` 指向 ti-arm-clang;脚本默认用 `m
+         +mw_ddm/awr2x44P_mmw_demo_mssDDM.xer5f` 反查符号。)             
+      22 +3. 看输出:`FAULT:` 哪类故障、`faulting PC` 哪个函数/源码行、`DF
+         +AR/IFAR` 哪个地址/变量、`aging:` 还差几个周期自动清除。        
+      23 +                                                               
+      24 +**主动自检(确认功能在工作)**:往 **CAN-A `0x103`(标准帧 id 0xC3)
+         +** 发一帧,`data[0]`:                                           
+      25 +- `0x01` = data abort、`0x02` = prefetch abort、`0x03` = undefi
+         +ned instruction。                                              
+      26 +- 雷达会**故意崩溃 → 自动冷复位**,重启后 `0x100` 播报该次记录。
+      27 +                                                               
+      28 +**修好后清除**(像 UDS Clear DTC):同一个 `0xC3` 发 `data[0]=0xCC
+         +` → 记录立即擦除,`0x100` 回到 `valid=0`。                      
+      29 +> 不手动清也行:连续 `WF_SYSINFO_RETENTION_CYCLES`(默认 3)个无新
+         +故障的上电周期后自动擦。                                       
+      30 +                                                               
+      31 +**量产出货前**:`mss/wf_sysinfo.h` 把 `WF_SYSINFO_FAULT_INJECT` 
+         +改成 `0`(关闭 0xC3 注入,防误触发;清除 0xCC 不受影响)。         
+      32 +                                                               
+      33 +---                                                            
+      34 +                                                               
+      35 +## 0.5 设计原理(核心思想)                                      
+      36 +                                                               
+      37 +**要解决的问题三连**(都是这颗芯片 + 实车的硬约束):             
+      38 +1. 实车**没有调试器**——崩溃了没人能接 J-Link 看,唯一出口是 CAN 
+         +。                                                             
+      39 +2. 这颗芯片**只有冷复位(POR,RAM 物理清零)**——崩溃现场不能"存 RA
+         +M 等下次上电再看",一掉电就没了。                               
+      40 +3. SDK 默认的异常处理器是 **`while(1)` 死循环**——崩了就卡死,什 
+         +么都不留,连"崩过"都不知道。                                    
+      41 +                                                               
+      42 +**核心思想(一句话)**:在异常发生的那一瞬间,把 CPU 寄存器现场抓进
+         + RAM;再由一个**仍然存活的任务**把现场持久化到 **flash** 并触发*
+         +*冷复位**自愈;**下次上电**把记录经 **CAN** 播出,离线用 **ELF 符
+         +号表**反查到源码行/变量。                                      
+      43 +                                                               
+      44 +```                                                            
+      45 +崩溃瞬间          →   下次上电           →   离线              
+      46 +[异常向量抓现场]      [CAN 0x100 播报]       [脚本 + .xer5f 反 
+         +查]                                                            
+      47 +   ↓(RAM)              ↑(flash 读)            函数/行/变量     
+      48 +[任务落 flash+复位] → [boot 读 flash] ──────────┘              
+      49 +```                                                            
+      50 +                                                               
+      51 +**三个用踩坑换来的关键设计决策**(细节见 §3):                   
+      52 +- **A. 异常里只"抓 + 置标志",持久化交给真任务**:flash 写和 PMIC
+         + 复位都依赖调度器在跑,不能在 abort 上下文做。                  
+      53 +- **B. 向量表/处理器必须是纯 ARM 汇编**:C 的 `naked` 函数符号会
+         +带 Thumb 位,导致 CPU 用错指令态进入 → 长期写不进记录的真凶。   
+      54 +- **C. 擦/写分离 + 每页一 tick + 单槽**:迁就 NOR flash"擦慢、只
+         +能 1→0、同页不能重复 program"的物理特性。                      
+      55 +                                                               
+      56 +---                                                            
+      57 +                                                               
+      58  ## 1. 出发点与硬约束
+      59  
+      60  - 本芯片**只有 PMIC 冷复位(=POR,RAM 物理清零)**,没有保 RAM 的热
+          复位 → 崩溃记录**必须在故障当下落 flash**,不能靠"存 RAM、下次上
+          电再写"。
+
+● I wrote a confusing CAN id. Let me fix it — the inject frame is standard id
+  0xC3 (not 0x103):
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\systemInfo_design_note.md)
+  ⎿  Added 1 line, removed 1 line
+      21     (需 `R5F_CLANG_INSTALL_PATH` 指向 ti-arm-clang;脚本默认用 `m
+          mw_ddm/awr2x44P_mmw_demo_mssDDM.xer5f` 反查符号。)
+      22  3. 看输出:`FAULT:` 哪类故障、`faulting PC` 哪个函数/源码行、`DF
+          AR/IFAR` 哪个地址/变量、`aging:` 还差几个周期自动清除。
+      23  
+      24 -**主动自检(确认功能在工作)**:往 **CAN-A `0x103`(标准帧 id 0xC3)
+         -** 发一帧,`data[0]`:                                           
+      24 +**主动自检(确认功能在工作)**:往 **CAN-A 标准帧 id `0xC3`**(`WF_
+         +SYS_INJECT_CAN_ID`,落在 MCAN 接受窗 0xC0–0xC4 内)发一帧,`data[0
+         +]`:                                                            
+      25  - `0x01` = data abort、`0x02` = prefetch abort、`0x03` = undefi
+          ned instruction。
+      26  - 雷达会**故意崩溃 → 自动冷复位**,重启后 `0x100` 播报该次记录。
+      27  
+
+● Now the 已知缺陷与权衡 section. Let me read the tail to anchor it before §12:
+
+  Read 1 file (ctrl+o to expand)
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\systemInfo_design_note.md)
+  ⎿  Added 28 lines, removed 2 lines
+      178  4. ✅ 自动重启 + 下次上电 0x100 `valid=1` + 脚本定位到函数/行/
+           变量。
+      179  5. ✅ 手动清除(0xCC)+ 自动老化(RETENTION_CYCLES)。
+      180  
+      181 -## 12. 后续 / 量产前                                          
+      181 +## 12. 已知缺陷与权衡(必读)                                   
+      182  
+      183 -- **量产关闭注入**:`WF_SYSINFO_FAULT_INJECT=0`(本模块)、`WF_DE
+          -BUG_FAULT_INJECT=0`(debugInfo 模块,若有)。诊断字段(dbgMagic/db
+          -gCrc)可保留(便于现场分析)或后续精简。                         
+      183 +这套黑匣子是**尽力而为(best-effort)**的诊断,不是形式化可证的。
+          +以下缺陷按严重度排:                                           
+      184 +                                                              
+      185 +1. **【结构性·最重要】依赖调度器还活着。** 现场是在异常里抓进 
+          +RAM 的,但真正落 flash + 复位靠一个 prio-5 的 FreeRTOS 任务。如
+          +果崩溃**把调度器本身搞死了**(关中断死锁、踩坏 SysTick/PendSV、
+          +在不可恢复的临界区里炸),flush 任务永远不被调度 → **这次记录写 
+          +不进 flash → 丢失**。能抓的是"任务态里的崩溃"(绝大多数业务 bug
+          +),抓不了"内核/中断态的彻底死机"。                             
+      186 +   - *缓解方向*:加独立硬件看门狗(WDT)兜底复位 + 在异常里直接写
+          +一个最小标志到某个保留寄存器/RTC 域(若有);本期未做。          
+      187 +                                                              
+      188 +2. **【取舍】单槽,只留最近一次崩溃。** flush 任务每次擦整块再 
+          +写 slot0,新崩溃覆盖旧的。连环不同崩溃只看得到最后一次。这是为 
+          +了写入可靠性(NOR 同页不能重复 program)换来的简化。            
+      189 +                                                              
+      190 +3. **【取舍】崩溃 / 复位死循环的风险。** 若故障是确定性的、一 
+          +上电就触发(比如初始化里就有野指针),会形成"崩溃→落flash→复位→又
+          +崩溃"的环,雷达起不来,且反复擦同一 64KB 块**加速 flash 磨损**。
+          +`gWfSysInFault` 只能防单次上电内的二次故障,**防不了跨复位的环*
+          +*。                                                           
+      191 +   - *缓解方向*:boot 时若发现"上电计数飙升但一直有新故障",进入
+          +安全模式不再自动复位;本期未做。                               
+      192 +                                                              
+      193 +4. **定位精度依赖符号。** 数据中止能给 `DFAR`,但只有当它落在**
+          +全局符号**上才反查得出变量名;越界到**栈/堆/外设**地址只能给裸 
+          +地址。预取/未定义的 PC 跳到野地址时无符号,要靠 `LR`;而**叶子函
+          +数**崩溃时 LR 还偏一层(ARM 不更新叶子的 LR)。                 
+      194 +                                                              
+      195 +5. **CAN 上只有两层(PC + LR),完整调用栈要现场读 flash。** 16  
+          +字栈回溯只存 flash(128B 帧放不下),要完整 backtrace 得用 CCS/J-
+          +Link 读 slot0。                                               
+      196 +                                                              
+      197 +6. **记录里 `bootTick=0`(丢了"崩在第几个上电周期")。** flush  
+          +擦块时把 tick 区也清了,所以记录内不保留崩溃发生的绝对周期;老化
+          +窗口是复位后重新计的。单槽设计的取舍。                        
+      198 +                                                              
+      199 +7. **只覆盖 R5。** M4(CM4)、DSS(C66x)的崩溃这套看不到(M4 无 QS
+          +PI 所有权,Phase 2 经共享内存交 R5 落盘)。                     
+      200 +                                                              
+      201 +8. **依赖自定义 `_vectors` 覆盖 SDK 向量。** 若 SDK 升级改了向
+          +量机制,或别的模块也要覆盖向量,会冲突,需要重新核对 §5 的覆盖方 
+          +式。                                                          
+      202 +                                                              
+      203 +9. **CRC16(非加密),16 位有极低碰撞概率;`50ms` settle、flush `p
+          +rio 5` 等是经验值**,极端负载下复位前的落盘可能被抢占延迟(实测 
+          +足够)。                                                       
+      204 +                                                              
+      205 +> 一句话总结:**它能抓住绝大多数"任务里崩了"的场景并精确定位;抓
+          +不住"把内核/中断彻底搞死"的硬死机。** 对后者,长期方案是叠加硬 
+          +件 WDT。                                                      
+      206 +                                                              
+      207 +## 13. 后续 / 量产前                                          
+      208 +                                                              
+      209 +- **量产关闭注入**:`WF_SYSINFO_FAULT_INJECT=0`(本模块)。诊断字
+          +段(dbgMagic/dbgCrc)可保留(便于现场分析)或后续精简。           
+      210  - M4(CM4)崩溃捕获:M4 无 QSPI 所有权 → 经共享内存交 R5 落 flash
+           (Phase 2)。
+      211  - 可选:16 字栈回溯走第 3 帧或单独诊断会话传出。
+      212  - WDT→PMIC 自动恢复联动(与 debugInfo 待办合并)。
+
+● 文档补全了。现在 docs/systemInfo_design_note.md
+  是一份完整的设计文档,新增了你要的三块:
+
+  新增内容
+
+  ## 0. 快速入门(TL;DR) —— 放在最前面,5 个场景一看就会用:
+  - 平时:无操作,看 0x100 的 valid 位
+  - 读崩溃:录 .asc → python sysinfo_parser.py xxx.asc
+  - 主动自检:0xC3 发 01/02/03
+  - 清除:0xC3 发 0xCC
+  - 量产:WF_SYSINFO_FAULT_INJECT=0
+
+  ## 0.5 设计原理(核心思想) —— 先讲为什么这么设计:
+  - 三个硬约束(无调试器 / 无保RAM复位 / SDK默认死循环)
+  - 一句话核心思想 + 一张数据流小图
+  - 三个"踩坑换来的"关键决策(A 异常只抓+真任务落盘 / B 纯ARM向量 / C
+  擦写分离·NOR特性)
+
+  ## 12. 已知缺陷与权衡(必读) —— 诚实列了 9 条缺陷,按严重度排,最重要的一条:
+
+  ▎ ⚠️ 依赖调度器还活着。能抓"任务里崩了"(绝大多数业务 
+  ▎ bug),抓不了"把内核/中断态彻底搞死"的硬死机——那种 flush 
+  ▎ 任务起不来,记录会丢。长期方案是叠加硬件 WDT 兜底。
+
+  其它还包括:单槽只留最近一次、崩溃-复位死循环风险 + flash
+  磨损、定位精度依赖符号、只覆盖 R5、依赖自定义向量覆盖等,每条都给了缓解方向。
+
+  顺带修正
+
+  - 删掉了之前误写的 WF_DEBUG_FAULT_INJECT(确认不存在)。
+  - 自检 CAN id 写清楚是标准帧 0xC3(在 MCAN 接受窗 0xC0–0xC4 内),不是之前手误的
+  0x103。
+
+  这下文档对接手的人友好多了:快速入门会用 → 原理懂为什么 →
+  缺陷知道边界在哪。要不要我也给 debugInfo(0x200/0x201)补一份同样结构的设计笔记?
+
+✻ Crunched for 7m 42s
+
+> 好的，补一份把                                                                
+
+● I need to understand the debugInfo feature thoroughly before documenting it.
+  Let me read its source and parser.
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== debug files ===" && ls -la
+      mss/wf_debug_in…)
+  ⎿  === debug files ===
+     -rw-r--r-- 1 Administrator 197121   26559 Jun 28 20:02 docs/debugInfo_
+     design_note.md
+     … +138 lines (ctrl+o to expand)
+
+● There's already a docs/debugInfo_design_note.md (26 KB). Let me read it plus
+  the header to see what it covers before duplicating — I'll likely restructure
+  it to match the systemInfo doc rather than create a second file.
+
+  Read 1 file (ctrl+o to expand)
+
+● The header gives a good feature picture. Now let me read the existing design
+  note to see what's already there and what structure it has:
+
+  Read 1 file (ctrl+o to expand)
+
+● This debugInfo doc already exists and is very thorough (375 lines) — actually
+  more detailed than the systemInfo one. Rather than create a duplicate, the
+  right move is to bring it to parity with the systemInfo structure by adding
+  the three things it's missing: a 快速入门 (TL;DR) up top, a 设计原理核心思想
+  overview, and a dedicated 已知缺陷与权衡 section (it has 待办 but no honest
+  limitations section). I'll also fix the stale "未上硬件验证" status.
+
+  Adding the quick-start + principle overview at the top:
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\debugInfo_design_note.md)
+  ⎿  Added 44 lines, removed 1 line
+       2  
+       3  > 运行时调试报文 — 实车无调试器环境下的"飞行记录仪"
+       4  > 模块代码:`mss/wf_debug_info.c` / `mss/wf_debug_info.h` ｜ 解
+          析:`tools/debuginfo_parser.py`
+       5 -> 作者:Peter Zhu ｜ 状态:设计/落地阶段(未上硬件验证)           
+       5 +> 作者:Peter Zhu ｜ 状态:已在 AWR2x44P EVM 上实测迭代(本周期黑 
+         +匣子 / CPU 负载 / 总线估算 / 注入自检均已验证);WDT 闭环仍为待办
+         +(§10)。                                                        
+       6  
+       7  ---
+       8  
+       9 +## 0. 快速入门(TL;DR)                                          
+      10 +                                                               
+      11 +**平时**:什么都不用做。雷达每 **66ms** 自动连发两帧 `0x200`(hot
+         +)+ `0x201`(detail),一张完整体检快照。                          
+      12 +                                                               
+      13 +**做一次体检 / 录到了一段总线想看健不健康**:                   
+      14 +1. 用 CANoe / Kvaser 录几秒,存成 `.asc`。                      
+      15 +2. 在 `mmw_ddm/tools/` 下跑(日常首选 `--summary`):             
+      16 +   ```                                                         
+      17 +   python debuginfo_parser.py 你的录制.asc --summary           
+      18 +   ```                                                         
+      19 +3. **只看末行 `VERDICT`**:                                     
+      20 +   - `OK` → 收工。                                             
+      21 +   - `OK (firmware) - only bench/environment faults` → 固件正常
+         +,只有台架/环境事(CANoe 未 ACK、无同步主节点…),通常不动固件。   
+      22 +   - `NEEDS ATTENTION` → 看每条 `[!]` 行(已带"是什么 + 下一步")
+         +。                                                             
+      23 +4. 要逐帧明细加 `--full`;录制开场有缓冲假象用 `--skip 0.05s` 滤
+         +掉。                                                           
+      24 +                                                               
+      25 +**主动自检(确认监控真的在工作)**:往 **CAN-A 标准帧 id `0xC2`**(
+         +`WF_DBG_INJECT_CAN_ID`)发一帧,`data[0]`:                       
+      26 +- `1`=软 assert(写黑匣子)、`2`=挂起 RspTask(任务失活+丢帧)、`3`
+         +=真延迟一帧 80ms(超时)、`4`=强制过温。                         
+      27 +- 期望报告见 §12。                                             
+      28 +                                                               
+      29 +**量产出货前**:`mss/wf_debug_info.h` → `WF_DEBUG_INFO_ENABLE=0`
+         +(整模块编译消失),或只把注入 `WF_DEBUG_FAULT_INJECT=0`(留监控、 
+         +关 0xC2 注入)。                                                
+      30 +                                                               
+      31 +---                                                            
+      32 +                                                               
+      33 +## 0.5 设计原理(核心思想)                                      
+      34 +                                                               
+      35 +**要解决的问题**:实车整机只有一条 CAN 总线,**接不了调试器** —— 
+         +看不到内存/栈,打不了断点,释放版 `assert` 命中即静默死循环。出问
+         +题时几乎没有观测手段(详见 §1)。                                
+      36 +                                                               
+      37 +**核心思想(一句话)**:把散落在算法流水线 / 任务 / 资源 / 故障各 
+         +处的运行时状态,用极轻量的单行埋点聚成一张全局快照;由一个**独立 
+         +、最少依赖的发送任务**每 66ms 把它打成两条 CAN-FD 播出;离线用 `
+         +debuginfo_parser.py` 解析并**自动判读出一句话结论**。它回答"** 
+         +现在健不健康、慢在哪、谁死了**",与 systemInfo("**上次为什么挂了
+         +**")互补。                                                     
+      38 +                                                               
+      39 +```                                                            
+      40 +  算法/任务/资源各处          独立发送任务(66ms)         离线  
+      41 +  ┌──────────────┐          ┌────────────────┐        ┌────────
+         +─────────┐                                                     
+      42 +  │ 单行埋点      │  写全局   │ 评估存活/健康   │  CAN   │ pars
+         +er --summary │                                                 
+      43 +  │ mark_stage    │ ───────► │ 发 0x200 + 0x201│ ─────► │ → VER
+         +DICT 一句话  │                                                 
+      44 +  │ task_alive 等 │  gWfDbg  │ rollingCounter++│        │   +  
+         +逐项告警      │                                                
+      45 +  └──────────────┘          └────────────────┘        └────────
+         +─────────┘                                                     
+      46 +```                                                            
+      47 +                                                               
+      48 +**为什么它是"可靠日志"而不是普通 printf**:靠五条设计原则(**粘滞
+         +位 / 峰值锁存读后清 / 滚动计数+CRC / 公共头每帧带 / 采集发送解 
+         +耦**)—— 这是方法论核心,详见 **§3**。其中"采集/发送解耦 + 独立任
+         +务"最关键:报告器必须依赖最少、隔离最高,才能在被监控的任务崩溃时
+         +**自己还活着把它报出来**。                                     
+      49 +                                                               
+      50 +---                                                            
+      51 +                                                               
+      52  ## 1. 出发点:一个硬约束
+      53  
+      54  实车上整机只有一条 CAN 总线,**接不了调试器**:看不到内存、看不到
+          栈、打不了断点、释放版 `assert` 命中即静默死循环。出问题时几乎
+          没有观测手段。
+
+● Now adding the 已知缺陷与权衡 section before the appendices:
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\debugInfo_design_note.md)
+  ⎿  Added 28 lines
+      326  
+      327  ---
+      328  
+      329 +## 13. 已知缺陷与权衡(必读)                                   
+      330 +                                                              
+      331 +这是**尽力而为(best-effort)**的运行时遥测,不是形式化保证。按重
+          +要度排:                                                       
+      332 +                                                              
+      333 +1. **【结构性】只能报告"别人死了",报告不了"自己/内核彻底死了" 
+          +。** 发送是独立 prio-2 任务,隔离度已做到最高,但仍依赖调度器/Sy
+          +sTick 在跑。若崩溃把内核或中断打死,66ms 报文会**停**——此时"报 
+          +文消失 + `rollingCounter` 停 + `uptime` 不再涨"本身是信号,但**
+          +拿不到死时的快照**。"挂死那一刻发生了什么"要靠 systemInfo(异常
+          +向量直接抓)+ 硬件 WDT,不归本模块。                            
+      334 +                                                              
+      335 +2. **覆盖面 = 埋点覆盖面。** debugInfo 只看到你**手动埋了点** 
+          +的地方(`wf_debug_mark_*`)。新增流水阶段 / 新任务 / 新错误路径,
+          +必须同步加埋点,否则是盲区。它不是自动全覆盖的。               
+      336 +                                                              
+      337 +3. **黑匣子只管本上电周期(普通 RAM,POR 清空)。** assert 死点只
+          +在**本次上电**的后续帧里持续带出(粘滞位 + bbLine);一旦冷复位就
+          +清。跨复位崩溃回读不归它,归 systemInfo。                      
+      338 +                                                              
+      339 +4. **各阶段 `tMax` 是墙钟(含抢占),只能当趋势,不是纯算法耗时。*
+          +* 只有 `CPU load` 那几个 run-time-stats 百分比是真 CPU 时间(免
+          +抢占)。把 `tMax_DOA` 之类当"该算法绝对耗时"会被高优先级抢占抬 
+          +高而误判 —— 这是最常见的使用陷阱。                            
+      340 +                                                              
+      341 +5. **CAN 总线负载是 parser 端粗估(±1–1.5%),且只算本节点 TX。**
+          + 不是实测占用:没算 RX、别的 ECU、位填充动态位。判总线是否吃得 
+          +下,**最终以 `txStall`/`tec`/`busOffEver` 实测背压为准**。"两台
+          +相加≈全总线"只在本网络仅 FR+FL 两节点时成立。                 
+      342 +                                                              
+      343 +6. **112B 载荷零余量。** 两帧各 56B 已占满,**加任何新监测字段 
+          +必须先腾位**(去冗余或砍字段)并 `schemaVer+1`。扩展性受限,这是 
+          +双帧不分页换来的取舍。                                        
+      344 +                                                              
+      345 +7. **粘滞位本上电周期"只置不清"。** 好处是不漏瞬态故障;代价是 
+          +某位一旦亮过就一直亮,**分不清"还在发生"还是"发生过一次"**——要 
+          +区分得配合对应计数器的趋势(是否还在涨)。                      
+      346 +                                                              
+      347 +8. **`schemaVer` 手动维护,漏改会静默误读。** 固件改了字段布局 
+          +却忘了 +schemaVer 且同步改 parser,会被悄悄错解。`integrity sch
+          +ema err` 只有在版本号**变了**才报得出,版本号没动的错位它发现不
+          +了。                                                          
+      348 +                                                              
+      349 +9. **栈水位依赖填充图样(0xA5/0x00)。** 若栈未被初始化填充、或 
+          +已被踩穿覆盖了图样,`stackFree16` 读数会失真。它是"快溢出预警",
+          +不是精确测量。                                                
+      350 +                                                              
+      351 +10. **黑匣子只传文件名 16 位 hash,不传文件名。** 省字节;parser
+          + 要有 `hash→文件名` 映射表才能反查到文件,且理论上有 hash 碰撞 
+          +可能(行号 `bbLine` 仍是精确的)。                              
+      352 +                                                              
+      353 +> 一句话:**它让"实时状态"变成"可靠、可离线判读的日志",覆盖绝大
+          +多数"慢了 / 断了 / 某任务死了 / 资源紧张"的场景;但它依赖系统整
+          +体还活着,且只看到你埋了点的地方。** 终极的"硬死机 + 自动复位自
+          +救"要靠 systemInfo + 硬件 WDT(§10 待办①)。                    
+      354 +                                                              
+      355 +---                                                           
+      356 +                                                              
+      357  ## 附录 A:字节偏移表(解析权威 spec)
+      358  
+      359  > 偏移为**帧内绝对字节**(0–63),小端。固件真相源是 `wf_debug_in
+           fo.c` 的 `wf_dbg_build_hot()` / `wf_dbg_build_det()`;**改 sche
+           ma 时先改本表,`debuginfo_parser.py` 照本表实现**。`schemaVer` 
+           当前 = 4,字段变更需 +1。两帧公共头同上表(§5)。**两条各 56B 载
+           荷正好占满,零余量** —— 加新字段需先腾位。
+
+● Let me verify the inject macro names — earlier I told you
+  WF_DEBUG_FAULT_INJECT doesn't exist, but the debugInfo doc references it
+  (likely in a separate wf_debug_inject.*). Let me check before I leave an
+  inconsistency:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== WF_DEBUG_FAULT_INJECT define
+      ===" && grep…)
+  ⎿  === WF_DEBUG_FAULT_INJECT define ===
+     mss/wf_debug_inject.h:20:#define WF_DEBUG_FAULT_INJECT           (0U)
+        /* 0 = off (production) */
+     … +4 lines (ctrl+o to expand)
+
+● Confirmed: WF_DEBUG_FAULT_INJECT does exist — it's in mss/wf_debug_inject.h (a
+  separate file my earlier grep missed), and it's already 0 (production-safe).
+  I owe you a correction on that. Let me fix the quick-start to note the inject
+  gate accurately:
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\debugInfo_design_note.md)
+  ⎿  Added 2 lines, removed 2 lines
+      22     - `NEEDS ATTENTION` → 看每条 `[!]` 行(已带"是什么 + 下一步")
+          。
+      23  4. 要逐帧明细加 `--full`;录制开场有缓冲假象用 `--skip 0.05s` 滤
+          掉。
+      24  
+      25 -**主动自检(确认监控真的在工作)**:往 **CAN-A 标准帧 id `0xC2`**(
+         -`WF_DBG_INJECT_CAN_ID`)发一帧,`data[0]`:                       
+      25 +**主动自检(确认监控真的在工作)**:先把 `mss/wf_debug_inject.h`  
+         +的 `WF_DEBUG_FAULT_INJECT` 置 `1`(默认 `0`=关)并重编;然后往 **C
+         +AN-A 标准帧 id `0xC2`**(`WF_DBG_INJECT_CAN_ID`)发一帧,`data[0]`
+         +:                                                              
+      26  - `1`=软 assert(写黑匣子)、`2`=挂起 RspTask(任务失活+丢帧)、`3`
+          =真延迟一帧 80ms(超时)、`4`=强制过温。
+      27  - 期望报告见 §12。
+      28  
+      29 -**量产出货前**:`mss/wf_debug_info.h` → `WF_DEBUG_INFO_ENABLE=0`
+         -(整模块编译消失),或只把注入 `WF_DEBUG_FAULT_INJECT=0`(留监控、 
+         -关 0xC2 注入)。                                                
+      29 +**量产出货前**:`mss/wf_debug_info.h` → `WF_DEBUG_INFO_ENABLE=0`
+         +(整模块编译消失);注入开关 `mss/wf_debug_inject.h` 的 `WF_DEBUG_
+         +FAULT_INJECT` 保持 `0`(留监控、只关 0xC2 注入)。               
+      30  
+      31  ---
+      32  
+
+● Let me do a final structure check on the enhanced debugInfo doc:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== section headers in order ==="
+      && grep -n "…)
+  ⎿  === section headers in order ===
+     9:## 0. 快速入门(TL;DR)
+     33:## 0.5 设计原理(核心思想)
+     … +16 lines (ctrl+o to expand)
+
+● Structure is clean and ordered. Done.
+
+  debugInfo 设计笔记已补齐
+
+  发现 docs/debugInfo_design_note.md 早就存在且很完整(375 行,比 systemInfo
+  那份还详细),所以我没有重复造一份,而是把它补到和 systemInfo 同样的结构 ——
+  加了它缺的三块:
+
+  - ## 0. 快速入门(TL;DR) —— 平时/体检/VERDICT
+  看法/自检注入/量产开关,五条一看就会用。
+  - ## 0.5 设计原理(核心思想) —— 一句话核心思想 + 数据流小图 +
+  "为什么是可靠日志而非 printf"(指向 §3 的五原则,不重复)。
+  - ## 13. 已知缺陷与权衡(必读) —— 诚实列 10 条,最重要的一条:
+  ▎ ⚠️ 只能报告"别人死了",报告不了"自己/内核彻底死了" —— 内核/中断被打死时 66ms 
+  报文会停(报文消失本身是信号,但拿不到死时快照)。硬死机靠 systemInfo + 硬件 
+  WDT。
+
+  - 其它含:覆盖面=埋点覆盖面、tMax 是墙钟只能看趋势、总线负载是粗估、112B
+  零余量、粘滞位分不清"还在/曾经"、schemaVer 漏改静默误读等。
+
+  顺手把 stale 的状态行(原"未上硬件验证")改成了"已在 EVM 实测迭代"。
+
+  ⚠️ 一处更正(我之前说错了)
+
+  我前面在 systemInfo 收尾时说"WF_DEBUG_FAULT_INJECT
+  不存在"——是我错了。它确实存在,在 mss/wf_debug_inject.h(一个独立文件,我当时只
+  grep 了 wf_debug_info.h 没找到),而且当前已经是 0(注入默认关闭,量产安全)。
+
+  所以两个模块的注入门是各自独立的:
+  - systemInfo:wf_sysinfo.h → WF_SYSINFO_FAULT_INJECT(现在是
+  1,测试用,出货前改 0)。
+  - debugInfo:wf_debug_inject.h → WF_DEBUG_FAULT_INJECT(现在已是 0)。
+
+  两份设计文档(systemInfo + debugInfo)现在结构一致、对接手的人都友好了。
+
+✻ Baked for 5m 36s
+
+> 这个是实车两个雷达录制的数据，解析的debuginfo  ctrl=3744B, rsp=2832B,         
+  canout=3664B, canrec=3520B, tsync=3584B, wfdbg=3456B                          
+  integrity      : CRC err=0  schema err=0  rolling gaps=0  missing hot/det=0/0 
+  ----------------------------------------------------------------              
+  VERDICT: OK — no faults, no integrity issues.                                 
+  ================================================================              
+● 实车 VERDICT: OK —— 这是第一次在实车(非台架)拿到全绿,很关键:
+
+  - 栈全部 kB 级余量(最低 rsp=2832B,远高于 256B 警戒线)→ 无溢出风险。
+  - rolling gaps=0 / missing 0/0:在活的多 ECU 总线上一帧没丢、半帧没缺 →
+  总线带宽 + 收发都健康。
+  - schema err=0:固件 ↔ 解析脚本版本对得上。
+  - CRC err=0:无误码。
+
+  整条 debugInfo 链路(埋点→发送→总线→解析→判读)在实车端验证通过。
+
+  不过你说"两个雷达",我得确认一个关键设计点:debugInfo 的 ID 是写死的
+  0x200/0x201,跟雷达位置(FR/FL)无关。让我查一下固件是否按 DEV_POS 给 CAN ID
+  加偏移:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && echo "=== debugInfo/systemInfo CAN id
+      defines ===" &…)
+  ⎿  === debugInfo/systemInfo CAN id defines ===
+     mss/wf_debug_info.h:20:#define WF_DEBUG_INFO_CAN_ID_HOT        (0x200U
+     )
+     … +16 lines (ctrl+o to expand)
+
+● 确认了:这几个诊断 ID 全是写死的常量,没有按 DEV_POS(FR/FL)做偏移:
+
+  ┌───────────────────┬───────────────┬────────────────┐
+  │       报文        │      ID       │    FR 和 FL    │
+  ├───────────────────┼───────────────┼────────────────┤
+  │ debugInfo hot/det │ 0x200 / 0x201 │ 两台都用同一个 │
+  ├───────────────────┼───────────────┼────────────────┤
+  │ systemInfo        │ 0x100         │ 两台都用同一个 │
+  ├───────────────────┼───────────────┼────────────────┤
+  │ 注入              │ 0xC2 / 0xC3   │ 两台都用同一个 │
+  └───────────────────┴───────────────┴────────────────┘
+
+  ⚠️ 这在"两个雷达同总线"下是个真问题
+
+  如果 FR + FL 挂在同一条 CAN 总线、且都在发,会有两层后果:
+
+  1. 总线层(更严重):两个节点用相同 ID、不同数据发送,仲裁段分不出胜负(ID
+  一样),进到数据段后第一个不同位就触发 bit error → 错误帧 → 双方重传,tec
+  会涨,严重时 bus 抖动。这不只是解析问题,是实打实的总线冲突。
+
+  2. 解析层:收到一帧 0x200 你分不清是 FR 还是 FL 的;两路 rolling
+  计数交织,debuginfo_parser.py 按 rolling 配对会错乱。
+
+  但你这份解析是干净的(rolling gaps=0)——这反而说明问题
+
+  如果两台真的都在往这条总线发 0x200/0x201,交织后 rolling
+  序列不可能连续(会在两台各自的计数间跳),rolling gaps 必然非 0。现在
+  gaps=0,强烈暗示:这份 capture 实际上只有一台雷达的 debugInfo 进来了。
+
+  可能的解释(需要你确认):
+  - 两台雷达其实各走一条总线到网关 → 那就没冲突,各自独立,完全 OK。
+  - 或者录的时候只有一台在发 debugInfo(另一台没上电/没开/被冲突压住了)。
+
+  想确认一下你的拓扑
+
+  请告诉我:FR 和 FL 是同一条 CAN 总线,还是各自独立总线?
+
+  - 各自独立总线:现状没问题,ID 复用反而省心,不用改。
+  - 同一条总线:建议给诊断 ID 按位置加偏移(改动很小,集中在几个 #define),例如:
+  |            | FR          | FL                                             |
+  |------------|-------------|------------------------------------------------|
+  | debugInfo  | 0x200/0x201 | 0x210/0x211                                    |
+  | systemInfo | 0x100       | 0x110                                          |
+  | 注入       | 0xC2/0xC3   | 0xC4/0xC5(注意 0xC4 在 MCAN 接受窗边界,需核对) |
+
+  - 解析脚本加个 --pos FR/FL 或自动按 ID 段分流即可区分两台。
+
+  你先告诉我拓扑,我再决定要不要动这块 + 怎么动。顺便:如果你把完整的 
+  --summary(timing margin、CPU load、tec/busOff、bus load
+  那几行)贴上来,我可以再帮你看一眼实车的余量。
+
+✻ Churned for 2m 2s
+
+> 不是的哦， 这个版本debuginfo有两条发送，        if (dir_flag ==               
+  FRONT_LEFT_RADAR)                                                             
+          {                                                                     
+              wf_dbg_emit(WF_DEBUG_INFO_CAN_ID_HOT, WF_DEBUG_INFO_MSG_HOT,      
+                          wf_dbg_build_hot, frame);                             
+              wf_dbg_emit(WF_DEBUG_INFO_CAN_ID_DET, WF_DEBUG_INFO_MSG_DET,      
+                          wf_dbg_build_det, frame);                             
+          }                                                                     
+          else if(dir_flag == FRONT_RIGTH_RADAR)                                
+          {                                                                     
+              wf_dbg_emit(WF_DEBUG_INFO_CAN_ID_HOT+2, WF_DEBUG_INFO_MSG_HOT,    
+                          wf_dbg_build_hot, frame);                             
+              wf_dbg_emit(WF_DEBUG_INFO_CAN_ID_DET+2, WF_DEBUG_INFO_MSG_DET,    
+                          wf_dbg_build_det, frame);                             
+          }是这么写的                                                           
+  ⎿  You've hit your session limit · resets 4pm (Asia/Shanghai)
+     /upgrade or /usage-credits to finish what you’re working on.
+
+✻ Brewed for 0s
+
+> 是这样的，debuginfo的FR canid为0x202和0x203，然后是两个雷达的两条can输出，接  
+  到一个二合一的can线上了，我理解是电气合并了，你看下这个解析脚本怎么弄比较好， 
+  要能分别看出两边的debuginfo的结果，然后能看到总的can负载，也能看到FR和FL各自  
+  的                                                                            
+
+● Now it's clear: FL→0x200/0x201, FR→0x202/0x203 (CAN_ID+2), both electrically
+  merged onto one bus. No collision — FR is offset by +2. You want the parser to
+  split FL/FR, show each separately, plus total + per-radar CAN load.
+
+  Key issue I need to check first: the doc says the parser classifies hot/det by
+  msgIndex in the frame header, not by CAN ID. If so, it currently can't tell
+  FL's hot from FR's hot (both msgIndex=0). I need to read the parser to see
+  exactly how it keys frames before redesigning. Let me read it.
+
+  Read 1 file (ctrl+o to expand)
+
+● Now I fully understand the architecture. The critical finding: the parser keys
+  hot/det by msgIndex, and want_ids = {0x200, 0x201} — so FR's 0x202/0x203 are 
+  currently silently dropped. Your "clean" result was FL only; FR was never
+  parsed.
+
+  I'll modify the parser to:
+  1. Accept all four IDs, route by CAN ID into two separate per-radar monitors
+  (FL=0x200/0x201, FR=0x202/0x203).
+  2. Print a separate summary per radar.
+  3. Add a combined bus-load total (FL + FR) plus each radar's own.
+
+  Let me implement. First, the radar-stream config:
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 20 lines
+      43  # "base hex|dec" header (Vector default = hex), so these are th
+          e real 0x200/0x201.
+      44  ID_HOT = 0x200   # 512
+      45  ID_DET = 0x201   # 513
+      46 +                                                               
+      47 +# --- Multi-radar split ---------------------------------------
+         +----------------                                               
+      48 +# Two radars share one (electrically merged) CAN bus. Each rada
+         +r offsets its                                                  
+      49 +# debugInfo ids by its position so they do NOT collide (firmwar
+         +e wf_debug_info.c:                                             
+      50 +# FL emits CAN_ID, FR emits CAN_ID + 2):                       
+      51 +#   FL (FRONT_LEFT)  -> 0x200 / 0x201                          
+      52 +#   FR (FRONT_RIGHT) -> 0x202 / 0x203                          
+      53 +# Frames are routed to a per-radar monitor BY CAN ID (the in-fr
+         +ame msgIndex only                                              
+      54 +# tells hot vs det WITHIN one radar, so it cannot distinguish F
+         +L from FR).                                                    
+      55 +RADARS = [                                                     
+      56 +    ("FL", 0x200, 0x201),                                      
+      57 +    ("FR", 0x202, 0x203),                                      
+      58 +]                                                              
+      59 +RADAR_IDS = {name: (hot, det) for name, hot, det in RADARS}    
+      60 +ID_TO_RADAR = {}                                               
+      61 +for _name, _hot, _det in RADARS:                               
+      62 +    ID_TO_RADAR[_hot] = _name                                  
+      63 +    ID_TO_RADAR[_det] = _name                                  
+      64 +ALL_WANT_IDS = set(ID_TO_RADAR.keys())                         
+      65 +                                                               
+      66  CRC_COVER = 62
+      67  SCHEMA_VER_EXPECTED = 4
+      68  FRAME_BUDGET_100US = 660          # 66ms in 0.1ms units (matche
+          s firmware)
+
+● Now the bus-load helpers (refactored so I can compute per-radar and total):
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 14 lines
+       83                   + CAN_FIXED_DAT_BITS * CAN_DAT_BITS_US      #
+            ~78 us
+       84  CAN_US_PER_BYTE = 8 * CAN_DAT_BITS_US                        #
+            4.0 us
+       85  
+       86 +                                                              
+       87 +def bus_load_pct(fps, kbps):                                  
+       88 +    """Rough on-wire bus occupancy (%) from a node's TX frame/
+          +s + KB/s."""                                                  
+       89 +    bus_us_per_sec = fps * CAN_US_PER_FRAME + (kbps * 1024) * 
+          +CAN_US_PER_BYTE                                               
+       90 +    return bus_us_per_sec / 1e6 * 100.0                       
+       91 +                                                              
+       92 +                                                              
+       93 +def monitor_bus_load(mon):                                    
+       94 +    """(txFramesPerSec_peak, txKBytesPerSec_peak, busPct) for 
+          +one radar's monitor."""                                       
+       95 +    dm = mon.a["detmax"]                                      
+       96 +    fps = dm.get("txFramesPerSec", 0)                         
+       97 +    kbps = dm.get("txKBytesPerSec", 0)                        
+       98 +    return fps, kbps, bus_load_pct(fps, kbps)                 
+       99 +                                                              
+      100  FAULT_BITS = [
+      101      "OVERRUN", "FRAME_DROP", "SYNC_LOST", "CAN_ERR", "OVER_TEM
+           P", "DTC_ACTIVE",
+      102      "TASK_DEAD", "STACK_LOW", "BLACKBOX", "VEHICLE_TIMEOUT", "
+           ASSERT", "CAN_TX_STALL",
+
+● Now update the readers to yield the CAN id, and print_line/print_summary to
+  take a radar label:
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 1 line, removed 1 line
+      471                  ts = float(toks[0])
+      472              except ValueError:
+      473                  ts = None
+      474 -            yield ts, data                                    
+      474 +            yield ts, msg_id, data                            
+      475  
+      476  
+      477  def iter_hex(path, want_ids):
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 2 lines, removed 1 line
+      492              except ValueError:
+      493                  continue
+      494              if len(data) == FRAME_LEN:
+      495 -                yield ts, data                                
+      495 +                # hex dumps carry no CAN id -> cannot split ra
+          +dars; single stream.                                          
+      496 +                yield ts, None, data                          
+      497  
+      498  
+      499  # ------------------------------------------------------------
+           --------------- #
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 3 lines, removed 2 lines
+      503      return f"{ts:10.4f}" if isinstance(ts, float) else "      
+           -   "
+      504  
+      505  
+      506 -def print_line(f):                                            
+      506 +def print_line(f, label=""):                                  
+      507      faults = ",".join(f["faults"]) or "-"
+      508 -    print(f"[{fmt_ts(f['ts'])}] {f['half']:3s} roll={f['rollin
+          -g']:3d} "                                                     
+      508 +    tag = f"{label:2s} " if label else ""                     
+      509 +    print(f"[{fmt_ts(f['ts'])}] {tag}{f['half']:3s} roll={f['r
+          +olling']:3d} "                                                
+      510            f"sensor={f['sensorState']} sync={f['timeSyncState']
+           } "
+      511            f"alive={','.join(f['aliveTasks']) or '-'} faults={f
+           aults}")
+      512      for w in f["warnings"]:
+
+● Now update print_summary to accept a label header and use the bus-load helper:
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 6 lines, removed 2 lines
+      526              print(f"     {k:22s} = {v}")
+      527  
+      528  
+      529 -def print_summary(mon):                                       
+      529 +def print_summary(mon, label=None):                           
+      530      a = mon.a
+      531      faults = _bits(a["fault_union"], FAULT_BITS)
+      532      hm, dm = a["hotmax"], a["detmax"]
+      533      dur = (a["ts_last"] - a["ts_first"]) if (a["ts_first"] is 
+           not None and a["ts_last"] is not None) else None
+      534  
+      535      print("=" * 64)
+      536 -    print("debugInfo capture summary")                        
+      536 +    if label and label in RADAR_IDS:                          
+      537 +        hot, det = RADAR_IDS[label]                           
+      538 +        print(f"debugInfo summary  —  {label}  ({hot:#05x}/{de
+          +t:#05x})")                                                    
+      539 +    else:                                                     
+      540 +        print("debugInfo capture summary")                    
+      541      print("=" * 64)
+      542      line = f"frames={mon.frame_count}  cycles={a['cycles']}"
+      543      if dur is not None:
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 4 lines, removed 8 lines
+      558            f"rsp(algo)={hm.get('cpuRspPct', 0)}%  canout={hm.ge
+           t('cpuCanoutPct', 0)}%")
+      559      print(f"CAN-A  tec max={dm.get('tec', 0)}  rec max={dm.get
+           ('rec', 0)}  "
+      560            f"busOffEver={dm.get('busOffEverCount', 0)}  txStall
+            max={dm.get('canTxStallCount', 0)}  CEL max={dm.get('canErrLo
+           gCnt', 0)}")
+      561 -    fps = dm.get('txFramesPerSec', 0)                         
+      562 -    kbps = dm.get('txKBytesPerSec', 0)                        
+      563 -    # rough on-wire bus load (this node only): fixed per-frame
+          - + per-byte payload                                           
+      564 -    busUsPerSec = fps * CAN_US_PER_FRAME + (kbps * 1024) * CAN
+          -_US_PER_BYTE                                                  
+      565 -    busPct = busUsPerSec / 1e6 * 100.0                        
+      566 -    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s 
+          - (radar's own bus contribution)")                             
+      567 -    print(f"est. bus load (this node): ~{busPct:.0f}%  "      
+      568 -          f"(500K/2M; rough, TX only — sum FR+FL for whole-bus
+          - total)")                                                     
+      561 +    fps, kbps, busPct = monitor_bus_load(mon)                 
+      562 +    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s 
+          + (this radar's own bus contribution)")                        
+      563 +    print(f"est. bus load (this radar): ~{busPct:.0f}%  "     
+      564 +          f"(500K/2M; rough, TX only — see combined total belo
+          +w)")                                                          
+      565      print(f"TimeSync  crcErr={dm.get('crcErrorCount', 0)}  inv
+           alid={dm.get('invalidFrameCount', 0)}  jump={dm.get('offsetJum
+           pCount', 0)}")
+      566      print(f"blackbox record: {'YES' if a['bb_seen'] else 'no'}
+              assertLive max={dm.get('assertCountLive', 0)}   lastErrorCo
+           de={a['lastErr']}")
+      567      if a["stack_min"]:
+
+● Now the main() rewrite — route to per-radar monitors and print per-radar
+  summaries + combined bus total:
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 48 lines, removed 15 lines
+      619      if fmt == "auto":
+      620          fmt = "asc" if args.input.lower().endswith(".asc") els
+           e "hex"
+      621      reader = iter_asc if fmt == "asc" else iter_hex
+      622 -    want_ids = {ID_HOT, ID_DET}                               
+      622 +    want_ids = ALL_WANT_IDS                                   
+      623  
+      624 -    mon = DebugInfoMonitor()                                  
+      624 +    # One monitor per radar, created lazily as its frames firs
+          +t appear, so a                                                
+      625 +    # single-radar capture reports only the radar actually pre
+          +sent. "single" is                                             
+      626 +    # the fallback bucket for id-less hex input.              
+      627 +    monitors = {}        # name -> DebugInfoMonitor           
+      628 +    order = []           # first-seen radar order             
+      629 +                                                              
+      630 +    def get_mon(name):                                        
+      631 +        m = monitors.get(name)                                
+      632 +        if m is None:                                         
+      633 +            m = DebugInfoMonitor()                            
+      634 +            monitors[name] = m                                
+      635 +            order.append(name)                                
+      636 +        return m                                              
+      637 +                                                              
+      638      read_idx = 0
+      626 -    for ts, data in reader(args.input, want_ids):             
+      639 +    for ts, msg_id, data in reader(args.input, want_ids):     
+      640          read_idx += 1
+      641          if read_idx <= skip_frames:
+      642              continue
+      643          if skip_time is not None and isinstance(ts, float) and
+            ts < skip_time:
+      644              continue
+      645 +        name = ID_TO_RADAR.get(msg_id, "single") if msg_id is 
+          +not None else "single"                                        
+      646 +        mon = get_mon(name)                                   
+      647          f = mon.feed(ts, data)
+      648          if not args.summary:
+      634 -            print_line(f)                                     
+      649 +            print_line(f, label=(name if name != "single" else
+          + ""))                                                         
+      650              if args.full and f["completed_cycle"] is not None:
+      651                  print_snapshot(f["completed_cycle"])
+      652  
+      638 -    snap, warns = mon.flush()                                 
+      639 -    if not args.summary:                                      
+      640 -        for w in warns:                                       
+      641 -            print(f"            !! {w}")                      
+      642 -        if args.full and snap is not None:                    
+      643 -            print_snapshot(snap)                              
+      653 +    for name in order:                                        
+      654 +        snap, warns = monitors[name].flush()                  
+      655 +        if not args.summary:                                  
+      656 +            for w in warns:                                   
+      657 +                print(f"            !! {w}")                  
+      658 +            if args.full and snap is not None:                
+      659 +                print_snapshot(snap)                          
+      660  
+      645 -    if mon.frame_count == 0:                                  
+      646 -        print(f"no 0x{ID_HOT:X}/0x{ID_DET:X} frames found (for
+          -mat={fmt}). Check --format.",                                 
+      647 -              file=sys.stderr)                                
+      661 +    total_frames = sum(m.frame_count for m in monitors.values(
+          +))                                                            
+      662 +    if total_frames == 0:                                     
+      663 +        ids = "/".join(f"0x{i:X}" for i in sorted(ALL_WANT_IDS
+          +))                                                            
+      664 +        print(f"no {ids} frames found (format={fmt}). Check --
+          +format.", file=sys.stderr)                                    
+      665          sys.exit(1)
+      666  
+      667      if args.summary:
+      651 -        print_summary(mon)                                    
+      668 +        loads = []                                            
+      669 +        for name in order:                                    
+      670 +            print_summary(monitors[name], label=(name if name 
+          +!= "single" else None))                                       
+      671 +            fps, kbps, pct = monitor_bus_load(monitors[name]) 
+      672 +            loads.append((name, fps, kbps, pct))              
+      673 +        # Combined whole-bus total when more than one radar wa
+          +s seen.                                                       
+      674 +        real = [x for x in loads if x[0] != "single"]         
+      675 +        if len(real) > 1:                                     
+      676 +            total = sum(x[3] for x in real)                   
+      677 +            print("=" * 64)                                   
+      678 +            print("combined CAN-A bus load  (all radars on thi
+          +s merged bus, TX only, rough)")                               
+      679 +            print("  " + "   ".join(f"{n}~{p:.0f}%" for n, _f,
+          + _k, p in real)                                               
+      680 +                  + f"   ->  TOTAL ~{total:.0f}%")            
+      681 +            print("  (500K/2M; per-radar TX estimate summed; j
+          +udge headroom with "                                          
+      682 +                  "txStall/tec/busOff, not this %.)")         
+      683 +            print("=" * 64)                                   
+      684      else:
+      653 -        print(f"\n{mon.frame_count} frames decoded. (run with 
+          ---summary for a health verdict)")                             
+      685 +        seen = ", ".join(f"{n}={monitors[n].frame_count}" for 
+          +n in order)                                                   
+      686 +        print(f"\n{total_frames} frames decoded ({seen}). (run
+          + with --summary for a health verdict)")                       
+      687  
+      688  
+      689  if __name__ == "__main__":
+
+● Let me update the module docstring, then test the dual-radar routing with a
+  synthetic two-radar .asc:
+
+● Update(debuginfo_parser.py)
+  ⎿  Added 7 lines, removed 1 line
+      22  The frame half is taken from header byte0[3:0] (msgIndex), not 
+          the CAN id, so hex
+      23  dumps without an id still decode correctly.
+      24  
+      25 +Multi-radar (merged bus): two radars share one electrically-mer
+         +ged CAN bus and                                                
+      26 +offset their debugInfo ids by position (FL=0x200/0x201, FR=0x20
+         +2/0x203). Frames are                                           
+      27 +routed BY CAN ID into a separate per-radar monitor, so .asc cap
+         +tures get one summary                                          
+      28 +per radar plus a combined whole-bus TX-load total. (msgIndex on
+         +ly separates hot/det                                           
+      29 +within one radar, so id-less hex dumps fall back to a single me
+         +rged stream.)                                                  
+      30 +                                                               
+      31  Inputs (auto-detected by extension, or --format)
+      26 -  - CANoe/CANalyzer .asc  (classic + CAN-FD lines), frames with
+         - id 0x200 or 0x201                                             
+      32 +  - CANoe/CANalyzer .asc  (classic + CAN-FD lines), ids 0x200/0
+         +x201 (FL) + 0x202/0x203 (FR)                                   
+      33    - hex dump: one frame per line, 64 hex bytes (optional leadin
+          g float timestamp)
+      34  
+      35  Usage
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python -c "import
+      ast;ast.parse(open('debuginf…)
+  ⎿  Traceback (most recent call last):
+       File "<string>", line 1, in <module>
+         import ast;ast.parse(open('debuginfo_parser.py').read());print('sy
+     … +5 lines (ctrl+o to expand)
+
+● GBK codec issue in the syntax-check one-liner only (Windows default encoding
+  reading the UTF-8 file). The parser itself runs fine. Let me regenerate and
+  run directly:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python -X utf8 -c "import
+      ast;ast.parse(open('…)
+  ⎿  syntax OK
+     wrote dualtest.asc
+     ======== RUN --summary ========
+     … +47 lines (ctrl+o to expand)
+
+● Dual-radar split works (the ?? are just my Bash tool's GBK decoding of the
+  em-dash in subprocess output — your console renders them fine, as your earlier
+  paste showed). Results:
+  - FL (0x200/0x201): 300 fps/18KB/s → ~10%
+  - FR (0x202/0x203): 450 fps/28KB/s → ~15%
+  - Combined TOTAL ~25%
+
+  Now let me verify against a real vehicle capture that actually contains FR
+  frames, and confirm single-radar captures still work:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && echo "=== which recent .asc
+      contain FR ids (Rx…)
+  ⎿  === which recent .asc contain FR ids (Rx 202/203)? ===
+     0  debuginfo_20260630_135155.asc
+     0  debuginfo_20260630_135122.asc
+     … +4 lines (ctrl+o to expand)
+
+● None of the bench captures have FR. Let me search all captures for any FR
+  frames:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && echo "=== any .asc with FR
+      (202/203)? ===" &&…)
+  ⎿  === any .asc with FR (202/203)? ===
+     198  debuginfo_20260629_111728.asc
+     === single-radar regression: latest bench capture ===
+     … +6 lines (ctrl+o to expand)
+
+● Single-radar bench capture still works (only FL summary, no combined total —
+  correct). And there's a real dual-radar capture:
+  debuginfo_20260629_111728.asc. Let me run the parser on it — the real test:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python debuginfo_parser.py
+      debuginfo_20260629_…)
+  ⎿  ================================================================
+     debugInfo summary  ��  FL  (0x200/0x201)
+     ================================================================
+     … +44 lines (ctrl+o to expand)
+
+● Works on the real vehicle capture — both radars split correctly:
+  - FL (0x200/0x201): 1342 frames, TX ~34 fps → ~1%
+  - FR (0x202/0x203): 198 frames, TX ~30 fps → ~1%
+  - Combined TOTAL ~2%
+
+  Let me verify per-frame (non-summary) mode doesn't break, then clean up the
+  test file:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && echo "=== per-frame mode (label
+      prefix FL/FR)…)
+  ⎿  === per-frame mode (label prefix FL/FR) ===
+     [    1.0000] FL hot roll=  1 sensor=STARTED sync=SYNCED alive=RSP,CANO
+     UT,CANREC,TIMESYNC,CTRL faults=-
+     … +14 lines (ctrl+o to expand)
+
+● Per-frame mode also labels FL/FR correctly. The parser changes are done and
+  validated on real data.
+
+  Let me add a short note to the design note so the docs reflect the
+  now-shipping dual-radar scheme (currently they only mention 0x200/0x201):
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00
+        _01\ti\demo\awr2x44P\mmw_ddm\docs\debugInfo_design_note.md)
+  ⎿  Added 15 lines
+      417  
+      418  `tools/debuginfo_parser.py` —— 按附录 A 实现:双 ID 收 + rollin
+           g 配对 + 派生 marginMin + 粘滞位/状态/复位原因解名 + 连续性/丢
+           半帧/趋势告警。输入支持 CANoe `.asc`(经典/CANFD,按 asc 头 `bas
+           e hex|dec` 解析 ID)与十六进制行。帧的 hot/det 归属取自帧头 `ms
+           gIndex`(不靠 CAN ID),hex dump 无 ID 也能解析。纯 stdlib,Python
+            3.7+。
+      419  
+      420 +### 多雷达(合并总线)自动分流                                  
+      421 +                                                              
+      422 +两台雷达电气合并到同一条 CAN 总线,固件按位置给 debugInfo ID 加
+          +偏移(`wf_debug_info.c`:FL 发 `CAN_ID`,FR 发 `CAN_ID+2`):      
+      423 +                                                              
+      424 +| 雷达 | hot / det |                                          
+      425 +|---|---|                                                     
+      426 +| **FL**(FRONT_LEFT) | `0x200` / `0x201` |                    
+      427 +| **FR**(FRONT_RIGHT) | `0x202` / `0x203` |                   
+      428 +                                                              
+      429 +解析脚本**按 CAN ID 路由到各自的 monitor**(`msgIndex` 只在单台
+          +内区分 hot/det,分不出 FL/FR),所以一份 `.asc` 会输出:**每台雷达
+          +一份独立 summary + VERDICT**,末尾再给一行**全总线 TX 负载合计*
+          +*(FL% + FR% → TOTAL%)。                                       
+      430 +                                                              
+      431 +- ID↔位置的映射集中在脚本顶部 `RADARS` 列表;换偏移/加后雷达(RL
+          +/RR)改这一处即可。                                            
+      432 +- 只录到一台时只出一份 summary、不打合计行(向后兼容单雷达老 ca
+          +pture)。                                                      
+      433 +- ⚠️ **旧版脚本 `want_ids` 只收 `0x200/0x201`,会静默丢掉 FR 的
+          + `0x202/0x203`** —— 即只解析了 FL。务必用本版解析合并总线的录 
+          +制。                                                          
+      434 +                                                              
+      435  ### 用法
+      436  
+      437  ```bash
+
+● 完成,解析脚本已支持双雷达,在你的真实整车录制上验证通过。
+
+  改了什么
+
+  debuginfo_parser.py 现在按 CAN ID 把 FL / FR 分流到各自的 monitor:
+
+  ┌──────┬─────────────┬─────────────────────────────────────────────────┐
+  │ 雷达 │     ID      │                    你会看到                     │
+  ├──────┼─────────────┼─────────────────────────────────────────────────┤
+  │ FL   │ 0x200/0x201 │ 独立 summary + VERDICT                          │
+  ├──────┼─────────────┼─────────────────────────────────────────────────┤
+  │ FR   │ 0x202/0x203 │ 独立 summary + VERDICT                          │
+  ├──────┼─────────────┼─────────────────────────────────────────────────┤
+  │ 合计 │ —           │ 末尾一行 FL~X% FR~Y% → TOTAL ~Z% 全总线 TX 负载 │
+  └──────┴─────────────┴─────────────────────────────────────────────────┘
+
+  - 单台录制仍只出一份(向后兼容)。
+  - ID↔位置映射集中在脚本顶部 RADARS 列表,以后加 RL/RR 改一处即可。
+  - 逐帧模式每行带 FL/FR 前缀,末尾 FL=… FR=… 帧数统计。
+
+  ⚠️ 一个重要发现
+
+  你之前那份"VERDICT OK"其实只是 FL 一台! 旧脚本 want_ids 只收 0x200/0x201,把 FR
+  的 0x202/0x203 静默丢掉了——FR 根本没被解析。现在两台都看得到了。
+
+  在真实录制上验证(debuginfo_20260629_111728.asc)
+
+  FL (0x200/0x201): 1342 帧, 629s, TX 34 fps → ~1%   VERDICT OK
+  FR (0x202/0x203):  198 帧, 6.5s, TX 30 fps → ~1%   VERDICT OK
+  combined TOTAL ~2%
+
+  顺带两点观察(这份录制本身):
+  1. 两台都只到 sensorState=OPENED,没到 STARTED —— frameStart 0→0、timing 全
+  0、rsp=0%,说明这段录制里雷达开了但没启动信号链(没在出对象)。真正跑起来(STARTED
+  、在发对象)时每台负载会高不少,判总线余量看那时的 TOTAL%(以及
+  txStall/tec/busOff 实测背压)。
+  2. FR 只录到 6.5s(FL 录了 629s)—— FR
+  在这段里上电/发送的时间很短,数据样本小,看结论时心里有数。
+
+  文档
+
+  debugInfo 设计笔记 附录 C 加了"多雷达合并总线自动分流"小节(ID 表 + 路由原理 +
+  旧脚本丢 FR 的警告)。
+
+  要不要我顺手给 systemInfo 解析脚本(0x100)也加同样的 FL/FR 分流?它现在也是单
+  ID,合并总线上 FR 的 systemInfo 会和 FL 的 0x100 撞——需要确认 systemInfo
+  固件那边 FR 是不是也做了 +offset。
+
+✻ Sautéed for 6m 30s

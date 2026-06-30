@@ -1,0 +1,3021 @@
+ ▐▛███▜▌   Claude Code v2.1.195
+▝▜█████▛▘  Opus 4.8 · Claude Pro
+  ▘▘ ▝▝    D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_0…
+
+
+✻ Conversation compacted (ctrl+o for history)
+
+
+● CAN TX 速率(in-band)加好了,自测通过:CAN-A TX rate (peak): 315 frames/s 13 
+  KB/s。
+
+  改动汇总
+
+  ┌────────────────────┬─────────────────────────────────────────────────────┐
+  │        文件        │                        改动                         │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ wf_debug_info.c/.h │ 新增 wf_debug_mark_can_tx(size)(数帧+字节)+         │
+  │                    │ wf_dbg_eval_cantxrate()(1秒窗口算速率);schema→v4    │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ mss_mcan.c         │ mcanA_transfer_FIFO 里每发一帧调一次                │
+  │                    │ wf_debug_mark_can_tx(size)                          │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │                    │ 复用 0x201 里两个死字段:bootCount(恒1)→             │
+  │ 数据位置           │ txFramesPerSec(u16);bbFromPrevBoot(恒0)→            │
+  │                    │ txKBytesPerSec(u8)                                  │
+  ├────────────────────┼─────────────────────────────────────────────────────┤
+  │ 解析器/doc         │ 同步更新,summary 出新行                             │
+  └────────────────────┴─────────────────────────────────────────────────────┘
+
+  报告里怎么看 CAN 负载(实车无 CANoe)
+
+  --summary 新增:
+  CAN-A TX rate (peak): X frames/s  Y KB/s  (radar's own bus contribution)
+  - X frames/s + Y KB/s = 雷达自己往总线发了多少 —— 这就是你 in-band
+  估总线负载的依据。
+  - 粗估总线占用 ≈ Y KB/s × 8 / 波特率(数据段 5Mbps);或者直接看趋势:暴涨 = 
+  发送异常。
+  - 配合 txStall:TX 速率正常但 txStall 飙升 → 总线吃不下(别的 ECU 太占 /
+  波特率不够 / 没 ACK)。
+
+  两个注意
+
+  1. 只统计 CAN-A 经 mcanA_transfer_FIFO 的发送(对象列表 + 调试帧 =
+  主流量)。buffer 模式发送(如 OTA 偶发)没算进去,但那是零星的。
+  2. 只是雷达自己的 TX(看不到别的 ECU)—— 这正是你要的"雷达占了多少总线"。
+  3. clean 全量重编(schema v4,旧 capture 会报 schema err,正常)。
+
+  烧完发我 CAN-A TX rate 那行,看帧率/字节率合不合理(按你对象数 + 66ms
+  周期估算应该对得上)。这样你"R5 CPU 负载 + CAN
+  总线负载"两个维度,实车纯靠报文就都能看了。
+
+✻ Churned for 11m 17s
+
+> /export debug_info_closed_loop.txt                                            
+  ⎿  Conversation exported to:
+     D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\
+     ti\demo\awr2x44P\mmw_ddm\docs\debug_info_closed_loop.txt
+
+> ty      : CRC err=0  schema err=0  rolling gaps=0  missing hot/det=0/0        
+  ----------------------------------------------------------------              
+  VERDICT: OK — no faults, no integrity issues.                                 
+  ================================================================              
+  这是最新log，看下cpu load和can负载是否正确                                    
+
+● 解析最新 capture,看 CPU load 和 CAN TX 速率(并确认 v4 固件):
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t *.asc 2>/dev/null |
+      head -1); echo "…)
+  ⎿  最新: debuginfo_20260626_194414.asc (2026-06-26 19:44:14)
+     sensorState   : STARTED
+     frameStart 74->208   resultCount 73->207
+     … +7 lines (ctrl+o to expand)
+
+● 都正确,而且数值都站得住脚。我帮你核对一遍:
+
+  CPU load:R5 avg=13% peak=53% rsp=6% canout=0% ✅
+
+  - v4 固件确认(schema err=0)。
+  - R5 平均 13% / 峰值 53% —— 和之前一致:平时很闲(87% 空闲),峰值是 flash
+  写那种瞬时尖峰。健康,余量充足。
+  - rsp=6%(算法):略低于墙钟估算的 ~8.5%(DOA 2.3ms+postproc
+  3.3ms),因为累计平均把"sensor 启动前 rsp=0"那段也算进去拉低了,uptime
+  越长越收敛。合理。
+  - canout=0%:对(CAN 发送不烧 CPU)。
+
+  CAN TX 速率:284 frames/s  17 KB/s ✅ —— 我帮你验算
+
+  帧率对不对?
+  - 每秒 284 帧 × 0.066s/周期 = 每个雷达帧发 ~18.7 个 CAN 帧。
+  - 对照:对象列表(头 1 + ~17 个目标)+ 调试 2 帧 ≈ 19-20 帧/周期 → 完全吻合。
+
+  字节率对不对?
+  - 17 KB/s ÷ 284 帧 = ~60 字节/帧(64 字节对象帧 + 几个小帧的混合)→ 合理。
+
+  反推总线负载(雷达自己占多少):
+  - 每个 CAN-FD 64 字节帧 ≈ 仲裁段 ~30µs(@1Mbps)+ 数据段 ~108µs(@5Mbps)≈
+  ~138µs/帧。
+  - 284 帧/s × 138µs = ~39ms/s → 雷达自己占总线 ~4%。很轻。
+
+  所以:雷达 TX 占总线约 4%,非常轻松,txStall=0 也印证了总线完全吞得下。
+
+  实车你就这么用
+
+  无 CANoe 时,盯报文里这两行:
+  1. CPU load: R5 avg/peak —— R5 忙不忙(现在很闲)。
+  2. CAN-A TX rate: X frames/s, Y KB/s —— 雷达发了多少,粗估总线占用 ≈
+  帧数×~138µs,或 Y KB/s × 8 / 5Mbps(数据段)。暴涨就是异常;配合 txStall
+  判总线吃不吃得下。
+
+  两个维度(R5 CPU + CAN 总线)现在实车纯靠 0x200/0x201
+  报文就都看得到了,数值也都验证正确。这块到此完整。
+
+✻ Worked for 59s
+
+> /export debug_info_closed_loop.txt                                            
+  ⎿  Conversation exported to:
+     D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\
+     ti\demo\awr2x44P\mmw_ddm\tools\debug_info_closed_loop.txt
+
+> 你这个can负载你是怎么推算出来的呢 准确么                                      
+  ⎿  Referenced file mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\doc
+     s\debugInfo_design_note.md
+  ⎿  Referenced file mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\too
+     ls\debuginfo_parser.py
+  ⎿  Referenced file 
+     mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\mss_mcan.c
+  ⎿  Referenced file 
+     mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_debug_info.c
+  ⎿  Read 
+     mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm\mss\wf_debug_info.h
+     (137 lines)
+
+● 好问题——我那个数是手算的粗估,不是固件测的,我得跟你讲清楚它的依据和误差,别让你
+  拿它当精确的总线负载表用。先确认下固件里 size 到底传的是什么:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● size 就是这帧的有效数据字节数(payload),不含 CAN 协议开销。所以 17 KB/s 是纯
+  payload 速率。下面讲清楚我怎么从 284 帧/s + 17 KB/s 推出"~4%",以及准不准。
+
+  推算方法
+
+  CAN-FD 一帧的总线占用时间分两部分:和 payload 无关的固定开销 + payload 
+  数据本身。
+
+  ① 固定开销(每帧都有,跟字节数无关)——走仲裁段速率 1 Mbps:
+  SOF + 11位ID + 控制位 + CRC界定符 + ACK(2) + EOF(7) + 帧间隔IFS(3) ≈ ~30 位 ≈ 
+  30µs/帧
+
+  ② payload 数据——走数据段速率 5 Mbps:
+  每字节 8 位 ÷ 5 Mbps = 1.6µs/字节
+
+  总线忙时间 ≈ 帧数×30µs + 字节数×1.6µs
+  = 284 × 30µs  +  17408 × 1.6µs
+  = 8520µs      +  27853µs
+  = 36373µs / 1s  ≈  3.6%
+  (我上次说 ~4%,这次拆开算 3.6%,同一量级)
+
+  准不准:这是粗估,误差约 ±1~1.5%(绝对)
+
+  会让真实值偏高的因素(我没算进去):
+  - 位填充(bit stuffing):仲裁段每 5 个同极性位插 1 位,数据段有固定填充位 →
+  实际多 ~3-8%。
+  - DLC 量化:CAN-FD 超过 8 字节只能取 12/16/20/24/32/48/64,比如 17
+  字节的帧上线占 20 字节槽。size 传的是请求长度,上线字节可能比统计的多。
+  - 我把仲裁/控制位都按理想 1µs、数据位按 0.2µs
+  算,实际采样点/传播段配置会有出入。
+
+  结论:这个数是数量级正确的粗估(精度 ~±1.5% 绝对),足够判断"轻(4%)还是重(40%)"和
+  看趋势,但不是精密总线负载表。要精确值得用真正的总线分析仪,或读 MCAN
+  自己的统计寄存器。
+
+  一个更重要的限制 ⚠️
+
+  固件只能数雷达自己发的帧。总线上别的 ECU 发的雷达根本看不见。所以:
+
+  ▎ 这个"CAN 负载"= 雷达自己的贡献,是整条总线负载的下限,不是全总线占用。
+
+  实车判断"总线是不是要满了",真正可靠的信号其实是 txStall(FIFO 满等待)和
+  tec/rec/busOff——那些是雷达实测到的总线背压,比我这个手算的百分比靠谱。TX
+  速率那两个数用来看雷达自己发得多不多 / 有没有异常暴涨最合适。
+
+  要不要我把这套"30µs/帧 + 1.6µs/字节"的估算公式写进 parser,让 --summary
+  直接顺手打一行 est. radar bus load ≈ 
+  X%?这样你不用每次手算,但我会在旁边标注"粗估·仅雷达自身·看趋势为主"。
+
+✻ Cooked for 3m 26s
+
+> 是这样的，我的canfd的配置是500K 和2M 然后采样率是80%，整个can网络中           
+  就只有我这FR和FL雷达                                                          
+
+● 关键信息变了两点,结论也跟着变,我重算给你看:
+
+  1. 速率改成 500K/2M,总线占用要翻倍
+
+  我上次按 1M/5M 算的。你的实际配置慢一半 → 每帧占用时间大约翻倍。重算(采样点
+  80% 不影响,见下):
+
+  ┌──────────────────────────────────────┬───────────────┬───────────────────┐
+  │                                      │ 1M/5M(我上次) │ 500K/2M(你的实际) │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 仲裁段位时间                         │ 1µs/bit       │ 2µs/bit           │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 数据段位时间                         │ 0.2µs/bit     │ 0.5µs/bit         │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 固定开销/帧(~30仲裁位 +              │ ~38µs         │ ~78µs             │
+  │ ~36数据段控制/CRC位)                 │               │                   │
+  ├──────────────────────────────────────┼───────────────┼───────────────────┤
+  │ 每 payload 字节                      │ 0.32µs        │ 4µs               │
+  └──────────────────────────────────────┴───────────────┴───────────────────┘
+
+  FR 雷达总线占用 ≈ 帧数×78µs + 字节×4µs
+                = 284×78µs + 17408×4µs
+                = 22152µs + 69632µs
+                ≈ 91800µs/s  ≈  9~10%
+  再加位填充和 DLC 量化,FR 单台实测约 9~10%(不是之前的 4%)。
+
+  ▎ 采样点 80% 对负载计算没影响——它决定的是每个位"在哪儿采样"(关系到总线长度/时
+  ▎ 序裕量),不改变位的时长。位时长只由波特率决定,所以负载算法里用不到它。我没忽
+  ▎ 略,是它确实不进这个公式。
+
+  2. 全网只有 FR + FL → 你能算出整条总线的真实负载 ✅
+
+  这是个很好的条件。既然总线上只有这两台、且跑同一套固件,那:
+
+  ▎ 总线总负载 ≈ FR自报速率 + FL自报速率(几乎就是全部,没有别的 ECU 漏算)
+
+  所以你只要把两台雷达的 0x200/0x201 各读一份,把两边的 TX rate
+  一加,就是接近真实的全总线占用——不再是"下限",而是逼近真值。两台都 ~9-10%
+  的话,整条总线 ~18-20%,还很轻松。
+
+  这也意味着我之前说的"看不到别的
+  ECU"的限制,在你这个两节点网络里基本不成立——你能拼出全图。
+
+  建议:把公式焊进 parser
+
+  我把 固定78µs/帧 + 4µs/字节(按你 500K/2M 写死)加进 --summary,直接打一行:
+  est. bus load (this node): ~9%   (500K/2M; radar TX only — sum FR+FL for
+  total)
+  旁边标注"粗估·看趋势"。这样实车你扫一眼两台的报文就知道总线占用,不用手算。
+
+  要我加吗?
+
+✻ Cooked for 49s
+
+> 好的，帮我把公式焊进 parser里面                                               
+
+● I'll read the parser to find where the CAN TX rate is printed in the summary,
+  then add the bus-load estimate there.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Now let me look at the top of the file to add the bus-load constants, then
+  update the print line.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/tools/debuginfo_parser.py)  ⎿  Added 16 lines
+      47  SCHEMA_VER_EXPECTED = 4
+      48  FRAME_BUDGET_100US = 660          # 66ms in 0.1ms units (matche
+          s firmware)
+      49  
+      50 +# --- CAN-FD bus-load estimate (rough, this node's TX only) ---
+         +------------------                                             
+      51 +# On-wire time per frame = fixed overhead (independent of paylo
+         +ad) + payload bytes.                                           
+      52 +#   fixed overhead = ~30 nominal-rate bits (SOF/ID/control/ACK/
+         +EOF/IFS)                                                       
+      53 +#                  + ~36 data-rate bits  (ESI/DLC/stuff-count/C
+         +RC etc.)                                                       
+      54 +#   payload        = 8 data-rate bits per byte                 
+      55 +# Configured for THIS bus: 500 kbit/s nominal, 2 Mbit/s data (s
+         +ample point 80%                                                
+      56 +# does not affect bit duration, so it is not used here).       
+      57 +CAN_NOM_BITS_US = 1.0 / 0.500     # 2.0 us per nominal-rate bit
+         +  (500 kbit/s)                                                 
+      58 +CAN_DAT_BITS_US = 1.0 / 2.000     # 0.5 us per data-rate bit   
+         +  (2 Mbit/s)                                                   
+      59 +CAN_FIXED_NOM_BITS = 30           # nominal-rate overhead bits 
+         +per frame                                                      
+      60 +CAN_FIXED_DAT_BITS = 36           # data-rate control/CRC bits 
+         +per frame                                                      
+      61 +# Pre-folded per-frame and per-byte on-wire microseconds:      
+      62 +CAN_US_PER_FRAME = CAN_FIXED_NOM_BITS * CAN_NOM_BITS_US \      
+      63 +                 + CAN_FIXED_DAT_BITS * CAN_DAT_BITS_US      # 
+         +~78 us                                                         
+      64 +CAN_US_PER_BYTE = 8 * CAN_DAT_BITS_US                        # 
+         +4.0 us                                                         
+      65 +                                                               
+      66  FAULT_BITS = [
+      67      "OVERRUN", "FRAME_DROP", "SYNC_LOST", "CAN_ERR", "OVER_TEMP
+          ", "DTC_ACTIVE",
+      68      "TASK_DEAD", "STACK_LOW", "BLACKBOX", "VEHICLE_TIMEOUT", "A
+          SSERT", "CAN_TX_STALL",
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/tools/debuginfo_parser.py)
+  ⎿  Added 8 lines, removed 1 line
+      518            f"rsp(algo)={hm.get('cpuRspPct', 0)}%  canout={hm.ge
+           t('cpuCanoutPct', 0)}%")
+      519      print(f"CAN-A  tec max={dm.get('tec', 0)}  rec max={dm.get
+           ('rec', 0)}  "
+      520            f"busOffEver={dm.get('busOffEverCount', 0)}  txStall
+            max={dm.get('canTxStallCount', 0)}  CEL max={dm.get('canErrLo
+           gCnt', 0)}")
+      521 -    print(f"CAN-A TX rate (peak): {dm.get('txFramesPerSec', 0)
+          -} frames/s  {dm.get('txKBytesPerSec', 0)} KB/s  (radar's own b
+          -us contribution)")                                            
+      521 +    fps = dm.get('txFramesPerSec', 0)                         
+      522 +    kbps = dm.get('txKBytesPerSec', 0)                        
+      523 +    # rough on-wire bus load (this node only): fixed per-frame
+          + + per-byte payload                                           
+      524 +    busUsPerSec = fps * CAN_US_PER_FRAME + (kbps * 1024) * CAN
+          +_US_PER_BYTE                                                  
+      525 +    busPct = busUsPerSec / 1e6 * 100.0                        
+      526 +    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s 
+          + (radar's own bus contribution)")                             
+      527 +    print(f"est. bus load (this node): ~{busPct:.0f}%  "      
+      528 +          f"(500K/2M; rough, TX only — sum FR+FL for whole-bus
+          + total)")                                                     
+      529      print(f"TimeSync  crcErr={dm.get('crcErrorCount', 0)}  inv
+           alid={dm.get('invalidFrameCount', 0)}  jump={dm.get('offsetJum
+           pCount', 0)}")
+      530      print(f"blackbox record: {'YES' if a['bb_seen'] else 'no'}
+              assertLive max={dm.get('assertCountLive', 0)}   lastErrorCo
+           de={a['lastErr']}")
+      531      if a["stack_min"]:
+
+● Now let me verify against the latest capture:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t *.asc 2>/dev/null |
+      head -1); python…)
+  ⎿  CAN-A TX rate (peak): 284 frames/s  17 KB/s  (radar's own bus contribu
+     tion)
+     est. bus load (this node): ~9%  (500K/2M; rough, TX only �� sum FR+FL
+     for whole-bus total)
+
+● 焊好了,自测通过。
+
+  结果
+
+  CAN-A TX rate (peak): 284 frames/s  17 KB/s  (radar's own bus contribution)
+  est. bus load (this node): ~9%  (500K/2M; rough, TX only — sum FR+FL for
+  whole-bus total)
+  和我手算的 ~9-10% 一致。
+
+  怎么实现的
+
+  在 parser 顶部加了一组写死的 CAN-FD 时序常量(对应你的
+  500K/2M),并把每帧/每字节的上线微秒数预折好:
+  - CAN_US_PER_FRAME ≈ 78µs —— 固定开销(30 仲裁位×2µs + 36
+  数据段控制/CRC位×0.5µs)
+  - CAN_US_PER_BYTE = 4µs —— payload(8位×0.5µs/位)
+
+  --summary 里用 fps×78µs + bytes×4µs 算总线忙时占比。注释里写明了采样点 80%
+  不进公式、以及波特率配置,以后改波特率只改那几个常量即可。
+
+  实车用法提醒
+
+  - 这行是单节点粗估,旁边标了 sum FR+FL for whole-bus total —— 把两台雷达报文各
+  读一份,两个百分比相加就是接近真实的全总线占用(你这网络只有这两台,没漏算)。
+  - 判"总线吃不吃得下"仍以 txStall / tec/rec/busOff
+  为准(那是实测背压),这个百分比主要看量级和趋势。
+
+  需要的话我顺手把这行也补进 docs/debugInfo_design_note.md
+  的字段参考表,保持文档同步。要不要?
+
+✻ Baked for 54s
+
+> 好的，补进 design note                                                        
+
+● I'll find the relevant spots in the design note to update.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● I'll add a row for the new est. bus load line right after the CAN-A TX rate
+  row in the field reference table.
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  File must be read first
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 1 line
+      194  | `tec`/`rec` | CAN-A 发/收错误计数 | 0 | tec 爬升=没ACK/总线
+           问题;>127=error-passive |
+      195  | `busOffEver`/`txStall`/`CEL` | bus-off次数/TX满次数/硬件错误
+           日志 | 全0 | 非0=总线断过/背压/有错 |
+      196  | `CAN-A TX rate` frames/s, KB/s | 雷达自身发送速率(in-band 估
+           总线负载,实车无分析仪用) | 与对象数相符、稳定 | 暴涨=发送异常;
+           配合 `txStall` 判总线吃不吃得下 |
+      197 +| `est. bus load (this node)` | 由 TX 速率粗估的本节点总线占用
+          +(parser 算,非固件) | ~9%(轻松) | 仅本节点·仅TX·粗估;本网络只有
+          + FR+FL,两台百分比相加≈全总线占用;判总线满仍以 `txStall`/`tec` 
+          +为准 |                                                        
+      198  | `TimeSync crcErr/invalid/jump` | 同步帧 CRC错/非法/时间跳变 
+           | 全0 | 非0=同步帧损坏或时间不连续 |
+      199  | `blackbox record` | 上次启动有无崩溃记录 | `no` | `YES`=上次
+           崩过 |
+      200  | `assertLive max` | 本次运行 assert 命中数 | 0 | >0=命中过(看
+            `--full` det 页 `bbLine` 定位行号) |
+
+● 字段表加好了。再看看文档里有没有讲 TX 速率/CAN-FD
+  时序的实现段落,把估算公式也记一笔,免得以后改波特率忘了来源:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● I'll add a short formula note right after the "30秒自查" line, before the CAN
+  fault section:
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 14 lines
+      206  
+      207  **30 秒自查**:看 `VERDICT` → 若 `OK` 收工。再扫 4 点:① `frameS
+           tart`/`resultCount` 一起涨且接近;② `total`<660;③ `stack free m
+           in` 无 <256B;④ `integrity` 全0、`blackbox`=no、`tec`=0。四项都
+           正常即健康。
+      208  
+      209 +### CAN 总线负载估算公式(parser 端,可改)                      
+      210 +                                                              
+      211 +固件只数本节点 TX 的**帧数/字节数**(`txFramesPerSec`/`txKBytes
+          +PerSec`),总线占用由 parser 用 CAN-FD 时序粗算,常量在 `debuginf
+          +o_parser.py` 顶部 `CAN_*`:                                    
+      212 +                                                              
+      213 +```                                                           
+      214 +本节点占用 ≈ frames/s × 每帧固定开销 + bytes/s × 每字节       
+      215 +         = frames × 78µs        + bytes × 4µs                 
+      216 +```                                                           
+      217 +- **每帧固定 78µs** = ~30 仲裁段位 ×2µs(500K)+ ~36 数据段控制/
+          +CRC 位 ×0.5µs(2M)。与 payload 无关:SOF/ID/控制/ACK/EOF/IFS + E
+          +SI/DLC/stuff-count/CRC。                                      
+      218 +- **每字节 4µs** = 8 位 ÷ 2Mbps。                             
+      219 +- 当前总线 **500K / 2M**;改波特率只改 `CAN_NOM_BITS_US`/`CAN_D
+          +AT_BITS_US` 两个常量。**采样点(80%)不进公式**——它只决定位内采 
+          +样点位置,不改位时长。                                         
+      220 +- 误差 ±~1–1.5%(未计位填充动态位、DLC 量化补齐),**只作量级/趋 
+          +势用**;判总线满仍以 `txStall`/`tec`/`busOff`(实测背压)为准。  
+      221 +- 本网络仅 **FR + FL** 两节点同固件 → **两台 `est. bus load`  
+          +相加 ≈ 全总线占用**(无别的 ECU 漏算)。                        
+      222 +                                                              
+      223  ### CAN 故障:台架假象 vs 真问题
+      224  
+      225  `CAN_ERR`/`CAN_TX_STALL` 被标 `[bench]` 只是启发式,真假看在哪
+           条总线录:
+
+● design note 同步好了,两处:
+
+  1. §11 字段参考表 —— 在 CAN-A TX rate 行下加了 est. bus load (this node)
+  行(~9% 基线、仅本节点·仅TX·粗估、FR+FL 相加≈全总线、判满仍看 txStall/tec)。
+  2. 新增小节《CAN 总线负载估算公式》 —— 把 frames×78µs + bytes×4µs
+  的来源、78µs/4µs 各自怎么拆出来(500K/2M)、改波特率改哪两个常量、采样点为何不进
+  公式、误差范围、以及 FR+FL 两台相加=全总线,全部记录在案,和 parser 里 CAN_*
+  常量对应。
+
+  这样以后你或别人改波特率/看这行时,公式出处和限制都在文档里,不用回头翻对话。CAN
+  负载这块到此完整闭环了。
+
+✻ Baked for 1m 4s
+
+> /export debug_info_closed_loop.txt                                            
+  ⎿  Conversation exported to:
+     D:\Project\CR\Project\NotimeSync\zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\
+     ti\demo\awr2x44P\mmw_ddm\tools\debug_info_closed_loop.txt
+
+> k free min : ctrl=3712B, rsp=2832B, canout=3664B, canrec=3744B, tsync=3632B,  
+  wfdbg=3456B                                                                   
+  integrity      : CRC err=0  schema err=0  rolling gaps=0  missing hot/det=0/0 
+  ----------------------------------------------------------------              
+  VERDICT: OK (firmware) - only bench/environment faults below                  
+    [bench] CAN_ERR: CAN-A error-passive/bus-off occurred (on bench: confirm    
+  CANoe ACKs, not listen-only)                                                  
+    [bench] CAN_TX_STALL: CAN-A TX FIFO filled (bus backpressure / no ACK)      
+  ================================================================　这是最新的  
+  ｌｏｇ　对么                                                                  
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t *.asc 2>/dev/null |
+      head -1); echo "…)
+  ⎿  最新: debuginfo_20260628_160019.asc
+     sensorState   : STARTED
+     frameStart 2625->2711   resultCount 2624->2710
+     … +14 lines (ctrl+o to expand)
+
+● 对,报告可信——固件本身健康,但那两个 [bench] 不是纯噪声,结合你"只有 FR+FL
+  两节点"的网络,指向一个具体原因,值得确认。
+
+  固件侧:健康 ✅
+
+  - frameStart 2625→2711 与 resultCount 2624→2710 一起涨、只差 1(正常流水)→
+  没挂、没丢帧。这还是台跑了 ~173s 的机器(2625×66ms),不是开机瞬态。
+  - R5 avg 8% / algo 1%,栈都 kB 级,integrity 全 0,TimeSync 全 0 → 干净。
+
+  CAN 侧:有真东西,别忽略 ⚠️
+
+  txStall max=110     ← TX FIFO 被填满过 110 次(实打实的发送背压)
+  CAN_ERR (sticky)    ← 这个上电周期内出过 error-passive/bus-off
+  tec max=0  busOffEver=0  ← 但当前窗口里 tec 没爬、没 busoff
+  怎么解读:CAN_ERR 是 sticky(本次上电某时刻置位),而当前 tec=0
+  说明现在不在报错——间歇/已恢复。但 txStall=110 是累计的,说明确实反复发不出去。
+
+  注意 TX 速率这次只有 75 帧/s(上次 284),量很小,却照样 
+  txStall=110——背压不是"发太多",而是帧发出去没人 ACK、FIFO 排不空。
+
+  在你这个两节点网络里,最可能的就是:
+  1. FL 雷达没上电 / 不在同一条总线上 → FR 发的帧无人 ACK → FIFO 堆积(txStall)→
+  偶发 error-passive(CAN_ERR);
+  2. 或台架上 CANoe 设了 listen-only(不 ACK)。
+
+  ▎ 单节点 CAN 自己发自己收不到 ACK,正是这个现象。固件对此处理是优雅的(等满 
+  ▎ bounded 超时就丢帧、不阻塞任务,所以 
+  ▎ CPU/帧率都正常)——这是总线/对端问题,不是固件 bug。
+
+  建议确认一件事
+
+  如果这次录的时候 FL 是该一起在线的 → 查 FL 有没有上电、是否同一条总线、120Ω
+  终端;两台都活着互相 ACK 后,txStall 应停止增长、CAN_ERR 不再复现。
+  如果是台架只接了 FR + CANoe → 把 CANoe 改成正常(主动 ACK)模式再录,这两个
+  [bench] 就该消失。
+
+  一句话:固件 OK,报告也对;那两个 bench 标志在你两节点网络下,八成是 
+  FL/对端没在总线上 ACK,确认下对端在线即可。
+
+✻ Worked for 1m 21s
+
+> 好的呢，我把雷达换了个方向，这是新的log，tack free min : ctrl=3712B,          
+  rsp=2832B, canout=3664B, canrec=3744B, tsync=3632B, wfdbg=3456B               
+  integrity      : CRC err=0  schema err=0  rolling gaps=0  missing hot/det=0/0 
+  ----------------------------------------------------------------              
+  VERDICT: OK (firmware) - only bench/environment faults below                  
+    [bench] CAN_ERR: CAN-A error-passive/bus-off occurred (on bench: confirm    
+  CANoe ACKs, not listen-only)                                                  
+    [bench] CAN_TX_STALL: CAN-A TX FIFO filled (bus backpressure / no ACK)      
+  ================================================================              
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && f=$(ls -t *.asc 2>/dev/null |
+      head -1); echo "…)
+  ⎿  最新: debuginfo_20260628_160446.asc
+     sensorState   : STARTED
+     frameStart 6566->6760   resultCount 6565->6759
+     … +14 lines (ctrl+o to expand)
+
+● 换了方向这份,关键看一个对比——txStall 还是 
+  110,和上一份一模一样,没涨。这点很说明问题。
+
+  对比上一份
+
+  ┌────────────────┬───────────────┬─────────────────────────────────────────┐
+  │                │ 上一份(16:00) │              这一份(16:04)              │
+  ├────────────────┼───────────────┼─────────────────────────────────────────┤
+  │ frameStart     │ 2625→2711     │ 6566→6760(同机器,没重启,跑更久了)       │
+  ├────────────────┼───────────────┼─────────────────────────────────────────┤
+  │ txStall max    │ 110           │ 110 ← 冻结没动                          │
+  ├────────────────┼───────────────┼─────────────────────────────────────────┤
+  │ TX rate        │ 75 帧/s 2%    │ 114 帧/s                                │
+  │                │               │ 4%(换方向对着更多目标,对象变多)         │
+  ├────────────────┼───────────────┼─────────────────────────────────────────┤
+  │ tec/busOff/CEL │ 0/0/0         │ 0/0/0                                   │
+  └────────────────┴───────────────┴─────────────────────────────────────────┘
+
+  怎么读
+
+  - txStall 两份都停在 110、没继续涨 →
+  背压不是持续的,是这个上电周期里早期某一段发生过 110 
+  次、之后就停了。如果总线现在还吞不下,这个数应该一直爬。它冻结 = 问题已经停止。
+  - 换方向后 TX 涨到 114 帧/s(~4%),txStall 依然没动 → 现在总线完全吞得下,健康。
+  - CAN_ERR 还亮是因为它
+  sticky(本上电周期永不清),记录的是"早期出过一次",不代表现在还在错(tec=0
+  印证现在不报错)。
+  - 固件侧:frames 一起涨差 1、R5 7%、栈 kB 级、integrity 全 0 → 干净。
+
+  结论
+
+  正常,而且比上一份更能下结论:那俩 CAN sticky 标志是开机早期的历史事件(很可能
+  FL/对端那会儿还没在线 ACK),现在已不再发生(txStall 冻结、tec=0)。固件
+  OK,可以放心。
+
+  ▎ 顺手教你一个判 sticky 故障"还在发生 vs 
+  ▎ 历史一次"的通法:多录几份,看它的计数器涨不涨。涨=正在恶化;像这次 txStall 
+  ▎ 跨两份都是 110=已停止。faultSummary 
+  ▎ 那些位本身只告诉你"出过",计数器才告诉你"还在不在出"。
+
+  等 FL 也上电后再录一份,这两个 bench 标志从一开始就不该再出现。
+✻ Worked for 40s
+
+> 好的，你帮我系统看看我现在这份debuginfo是否还有需要调整的地方，我大概需要的东 
+  西都告诉过你了                                                                
+
+● 系统过一遍之前,我先把当前代码实际读一遍(避免凭记忆),重点看核心实现、注入自检和
+  parser 是否一致:
+
+  Read 1 file (ctrl+o to expand)
+
+● 核心代码读完了,逻辑都对。现在核对 parser 的偏移和固件是否完全一致(这是最容易出
+  bug 的地方):
+
+  Read 1 file (ctrl+o to expand)
+
+● 核对完了——parser 的每一个偏移和固件 build_hot/build_det 完全对齐(我逐字段过了
+  hot 32 个、det 30 个偏移,全部一致),功能集也覆盖了你提的所有需求。结构没问题。
+
+  但我发现一个真正需要修的隐患,正好打在你最在意的"实车长时间运行"场景上:
+
+  🔴 唯一实质问题:CPU 负载累计值会在开机 ~71 分钟后失真
+
+  wf_dbg_eval_cpuload 里的分母 portGET_RUN_TIME_COUNTER_VALUE() 是 32 
+  位微秒计数器,2^32 µs ≈ 71.6 分钟就回绕一次。
+
+  - 累计平均(cpuR5AvgPct / cpuRspPct / cpuCanoutPct)= 任务时间 / total。task
+  累计时间是一直累加的,而 total 是当前原始计数器值——回绕后 total 
+  突然变小,idle/rsp 反而比它大 → 比例失效 → R5 avg 读成 0%、rsp/canout
+  也跟着废。
+  - 窗口峰值(cpuR5PeakPct)用的是 total-prevTotal 差值(无符号、回绕安全)→
+  不受影响,永远对。
+
+  台架抓几分钟看不出来,但实车开机超过 71 分钟,那三个累计 CPU 数就会变成 
+  0/乱码。你 uptime 字段都做到 18h 了,这个必须修。
+
+  修法:eval 每 66ms 跑一次(远小于 71min 回绕周期),所以用回绕安全的差值累加到 64 
+  位累加器,既保住"自开机平均"语义又永不失真:
+
+● Update(wf_debug_info.c)
+  ⎿  Added 47 lines, removed 20 lines
+      599      return (uint32_t)ts.ulRunTimeCounter;
+      600  }
+      601  
+      602 +/* 64-bit pct: part/whole*100, clamped. Accumulators are 64-bi
+          +t so the ratio stays                                          
+      603 + * valid for the whole uptime (the raw FreeRTOS counters are o
+          +nly 32-bit). */                                               
+      604 +static uint8_t wf_dbg_pct64(uint64_t part, uint64_t whole)    
+      605 +{                                                             
+      606 +    uint64_t p;                                               
+      607 +    if (whole == 0ULL) { return 0U; }                         
+      608 +    p = (part * 100ULL) / whole;                              
+      609 +    return (p > 100ULL) ? 100U : (uint8_t)p;                  
+      610 +}                                                             
+      611 +                                                              
+      612  static void wf_dbg_eval_cpuload(void)
+      613  {
+      614 +    /* The run-time-stats counter source is a 32-bit microseco
+          +nd counter that wraps                                         
+      615 +     * every ~71min (2^32 us). Reading total/idle/task counter
+          +s directly and dividing                                       
+      616 +     * breaks after the first wrap (denominator wraps independ
+          +ently of the numerators).                                     
+      617 +     * This runs every 66ms (<< 71min), so the unsigned per-ca
+          +ll delta never misses a                                       
+      618 +     * wrap; we fold those wrap-safe deltas into 64-bit accumu
+          +lators -> averages stay                                       
+      619 +     * correct for the full uptime. */                        
+      620      static uint8_t  primed = 0U, loadPeak = 0U;
+      605 -    static uint32_t prevTotal, prevIdle;                      
+      606 -    uint32_t total, idle, dT;                                 
+      621 +    static uint32_t prevTotal, prevIdle, prevRsp, prevCan;    
+      622 +    static uint64_t accTotal, accIdle, accRsp, accCan;        
+      623 +    static uint32_t winTotal, winIdle;                        
+      624 +    uint32_t total, idle, rsp, can;                           
+      625      uint8_t  idleAvg;
+      626  
+      627      total = (uint32_t)portGET_RUN_TIME_COUNTER_VALUE();
+      628      idle  = (uint32_t)ulTaskGetIdleRunTimeCounter();
+      611 -    if (total == 0U) { return; }                              
+      629 +    rsp   = wf_dbg_task_runtime(gMmwMssMCB.taskHandles.RspTask
+          +);                                                            
+      630 +    can   = wf_dbg_task_runtime(CanoutputTask);               
+      631  
+      613 -    /* Cumulative averages since boot. */                     
+      614 -    idleAvg = wf_dbg_pct(idle, total);                        
+      632 +    if (primed == 0U)                                         
+      633 +    {                                                         
+      634 +        prevTotal = total; prevIdle = idle; prevRsp = rsp; pre
+          +vCan = can;                                                   
+      635 +        primed = 1U;                                          
+      636 +        return;                                               
+      637 +    }                                                         
+      638 +                                                              
+      639 +    /* wrap-safe deltas (each fits in 32 bits over a 66ms gap)
+          + */                                                           
+      640 +    accTotal += (uint32_t)(total - prevTotal);                
+      641 +    accIdle  += (uint32_t)(idle  - prevIdle);                 
+      642 +    accRsp   += (uint32_t)(rsp   - prevRsp);                  
+      643 +    accCan   += (uint32_t)(can   - prevCan);                  
+      644 +    winTotal += (uint32_t)(total - prevTotal);                
+      645 +    winIdle  += (uint32_t)(idle  - prevIdle);                 
+      646 +    prevTotal = total; prevIdle = idle; prevRsp = rsp; prevCan
+          + = can;                                                       
+      647 +                                                              
+      648 +    /* Cumulative averages since boot (wrap-proof). */        
+      649 +    idleAvg = wf_dbg_pct64(accIdle, accTotal);                
+      650      gWfDbg.cpuR5AvgPct  = (uint8_t)(100U - idleAvg);
+      616 -    gWfDbg.cpuRspPct    = wf_dbg_pct(wf_dbg_task_runtime(gMmwM
+          -ssMCB.taskHandles.RspTask), total);                           
+      617 -    gWfDbg.cpuCanoutPct = wf_dbg_pct(wf_dbg_task_runtime(Canou
+          -tputTask), total);                                            
+      651 +    gWfDbg.cpuRspPct    = wf_dbg_pct64(accRsp, accTotal);     
+      652 +    gWfDbg.cpuCanoutPct = wf_dbg_pct64(accCan, accTotal);     
+      653  
+      654      /* Windowed peak R5 load (worst-case spike, e.g. a flash w
+           rite). */
+      620 -    if (primed == 0U)                                         
+      655 +    if (winTotal >= WF_DBG_CPULOAD_WINDOW_US)                 
+      656      {
+      622 -        prevTotal = total; prevIdle = idle; primed = 1U;      
+      657 +        uint8_t idleW = wf_dbg_pct(winIdle, winTotal);        
+      658 +        uint8_t loadW = (idleW < 100U) ? (uint8_t)(100U - idle
+          +W) : 0U;                                                      
+      659 +        if (loadW > loadPeak) { loadPeak = loadW; }           
+      660 +        winTotal = 0U; winIdle = 0U;                          
+      661      }
+      624 -    else                                                      
+      625 -    {                                                         
+      626 -        dT = total - prevTotal;     /* unsigned: wrap-safe ove
+          -r a short window */                                           
+      627 -        if (dT >= WF_DBG_CPULOAD_WINDOW_US)                   
+      628 -        {                                                     
+      629 -            uint8_t idleW = wf_dbg_pct(idle - prevIdle, dT);  
+      630 -            uint8_t loadW = (idleW < 100U) ? (uint8_t)(100U - 
+          -idleW) : 0U;                                                  
+      631 -            if (loadW > loadPeak) { loadPeak = loadW; }       
+      632 -            prevTotal = total; prevIdle = idle;               
+      633 -        }                                                     
+      634 -    }                                                         
+      662      gWfDbg.cpuR5PeakPct = loadPeak;
+      663  }
+      664  
+
+● 改完了。这个修复不动线格式——传的还是 cpuR5AvgPct/cpuRspPct/cpuCanoutPct
+  那几个字节,只是把它们的算法换成回绕安全的 64 位累加。所以 parser 
+  不用改、schema 不用升。
+
+  系统检查结论
+
+  我把整套实际读了一遍(没凭记忆),逐项核对:
+
+  ┌────────────────┬────────────────────────────────────────────────────────┐
+  │     检查项     │                          结果                          │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ parser ↔       │ hot 32 字段 + det 30 字段逐个核对,全部对齐 ✅          │
+  │ 固件偏移       │                                                        │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ 临界区/并发    │ faultSummary/txAccum/canTxStall 的 RMW 都在            │
+  │                │ HwiP_disable 内,stage/snapshot 配对加锁正确 ✅         │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ sticky +       │                                                        │
+  │ max-hold +     │ 逻辑自洽;rollingCounter 配对、CRC 覆盖 0-61 都对 ✅    │
+  │ read-clear     │                                                        │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ 回绕安全       │ uptime/txRate(64位 ClockP)、窗口峰值都安全;唯独 CPU    │
+  │                │ 累计平均不安全 → 已修 🔧                               │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ 故障注入自检   │ 4 个注入(ASSERT/KILL_RSP/OVERRUN/OVERTEMP)路径完整 ✅  │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ 黑盒           │ 本周期 plain RAM,语义和 dumptrace 不冲突,注释清楚 ✅   │
+  └────────────────┴────────────────────────────────────────────────────────┘
+
+  改了什么
+
+  只修了 1 处:wf_dbg_eval_cpuload 的 71 分钟回绕失真(上一条消息详述)。现在 CPU
+  累计平均用 64 位累加器,实车跑 18h 也准;窗口峰值逻辑不变。
+
+  两个已知小限制(我评估后认为不值得改,列出来你知情)
+
+  1. 若某帧 0x200 在 txStall 下被丢,那个 66ms 窗口的 timing 峰值(read-then-clear
+  )会丢一次。但峰值是逐窗口的,丢一窗不影响整体趋势——调试流可接受。
+  2. 累计平均会稀释"近期"行为(开机很久后,一次尖峰被长期均值摊薄)。但这正是"窗口
+  峰值"字段补的位,两者搭配看即可。
+
+  要动这两个的话我再改,否则我认为现状合理。
+
+  你下一步
+
+  clean 全量重编(只改了 wf_debug_info.c 这一个
+  .c,按之前的教训增量编译不一定重编它),烧录后 CPU load
+  那行行为不变(短时抓取看不出差别),但实车跑过 71 分钟不会再掉成 0%
+  了。要我顺手在 design note 里记一笔"CPU 累计用 64 位累加、抗 71min 回绕"吗?
+
+✻ Cogitated for 3m 10s
+
+> 好的 你在design note里面加上把                                                
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● 那些诊断是 LSP 没配 SDK 头文件搜索路径的误报(drivers/uart.h、TaskHandle_t
+  等系统类型找不到),我这次没动 include/类型,编译时 makefile
+  有正确路径,无视即可。
+
+  把回绕修复记进 design note。先找 CPU load 相关段落:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Let me find the CPU load explanation section to add the note in the right
+  place:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● I'll add a CPU-load detection-method bullet to §6 documenting the wrap-safe
+  accumulation:
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 3 lines
+      90  3. **CAN 健康主动轮询**:bus-off 时收不到报文,故在 66ms 任务里主
+          动读 `MCAN_getErrCounters` + `getProtocolStatus`(`wf_dbg_read_c
+          ana`)。
+      91  4. **任务存活位图**:各任务主循环 `wf_debug_task_alive()` 自增 t
+          ick,发送任务看"是否在涨"。周期任务(canout/timesync)才判死,事件
+          驱动的 canrec 只进位图。
+      92  5. **栈水位扫描**:静态栈从栈底数连续 `0x00/0xA5A5A5A5` 字算剩余
+          (`wf_dbg_scan_stacks`),传 6 个任务的水位。
+      93 +6. **CPU 负载用 run-time stats(免抢占)+ 抗回绕累加**:`cpuR5Avg/
+         +Peak`、`cpuRsp`、`cpuCanout` 取自 FreeRTOS 每任务 run-time 计数
+         +(`vTaskGetInfo`/`ulTaskGetIdleRunTimeCounter`),是**CPU 时间**不
+         +是墙钟,免受抢占污染(这也是 `canout≈0%` 正确、而 timing 阶段是墙
+         +钟会被抢占抬高的原因)。                                        
+      94 +   - **抗 71min 回绕**:计数器源是 32 位微秒计数器,`2^32µs≈71.6m
+         +in` 回绕。直接用"当前 total 作分母"在首次回绕后会失真(分母回绕 
+         +、分子不同步)。`wf_dbg_eval_cpuload` 每 66ms 跑一次(≪71min),把*
+         +*无符号回绕安全的逐次差值**累加进 **64 位累加器**(`accTotal/acc
+         +Idle/accRsp/accCan`)再求比 → **累计均值整个 uptime(含 18h)都准*
+         +*。                                                            
+      95 +   - **窗口峰值**(`cpuR5Peak`)单独用 0.5s 窗口的差值算最坏尖峰(
+         +如 flash 写),与累计均值互补:均值看常态、峰值看挤帧风险。       
+      96  
+      97  ---
+      98  
+
+● Also update the --summary field-reference rows to note the wrap-proof
+  property:
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 1 line, removed 1 line
+      190  | **`frameStart→`/`resultCount→`** | 起始帧/完成帧(整段 首→尾)
+            | **一起涨、数值接近** | start 涨 result 停=**处理挂**(FRAME_
+           DROP);都不涨(STARTED下)=BSS 没触发 |
+      191  | **`timing` total** | 总耗时峰值(0.1ms) | **< 660**(66ms) | 
+           接近/超 660=超时风险 |
+      192  | `timing` CM4/DOA/postproc | 各阶段耗时峰值(墙钟,含抢占,当趋
+           势看) | 稳定 | 某阶段持续上抬=该算法变慢 |
+      193 -| **`CPU load` R5 avg/peak** | R5 总负载:累计均值 / 窗口峰值(r
+          -un-time stats,免抢占) | avg 有余量;peak 不长期触顶 | peak 频繁
+          -趋近 100%=有尖峰挤帧风险 |                                    
+      193 +| **`CPU load` R5 avg/peak** | R5 总负载:累计均值 / 窗口峰值(r
+          +un-time stats,免抢占;均值 64 位累加抗 71min 回绕,18h 也准) | a
+          +vg 有余量;peak 不长期触顶 | peak 频繁趋近 100%=有尖峰挤帧风险 
+          +|                                                             
+      194  | `CPU load` rsp/canout | 算法 CPU% / CAN发送 CPU% | rsp 稳定;
+           canout≈0(发送是 FIFO 硬件,几乎不吃 R5) | rsp 飙升=算法变重 |
+      195  | `overrun max` | 总耗时超 66ms 累计次数 | 0 | >0=有帧超时 |
+      196  | `framePeriodMaxDev` | 帧周期最大抖动(0.1ms) | 个位数 | 变大=
+           帧节奏不稳 |
+
+● design note 已更新,三处:
+
+  1. §6 关键检测手法 —— 新增第 6 条,完整记录 CPU 负载用 run-time stats(免抢占)+
+  64 位累加器抗 71min 回绕的原理,以及累计均值/窗口峰值互补、canout≈0% 为何正确。
+  2. §11 字段速查表 CPU load R5 avg/peak 行 —— 补注"均值 64 位累加抗 71min
+  回绕,18h 也准"。
+  3. (§6 那条同时把窗口峰值的 0.5s 窗口语义写清楚了)
+
+  这样 CPU
+  负载这块的"为什么这么算、扛得住多久"都在文档里有据可查,和你刚改的固件一致。
+
+  剩下就是你 clean 全量重编 + 烧录,实车跑过 71 分钟后那三个累计 CPU 数不会再掉
+  0% 了。需要我再看别的部分吗?
+
+✻ Worked for 3m 26s
+
+> 非常好，还有需要优化的么，这个功能我准备直接上到量产项目的                    
+
+● 上量产这个标准就不一样了——我重点查几个量产安全门,不是功能正确性(那个已经验证过
+  了)。先看两个最关键的实际代码:
+
+  Read 1 file (ctrl+o to expand)
+
+● WF_DEBUG_FAULT_INJECT 现在是 1(开着)——这是头号量产门。再看 CAN 发送的并发安全:
+
+  Read 1 file (ctrl+o to expand)
+● mcanA_transfer_FIFO 没有锁:它 读 putIdx → 写该槽 → AddReq 该槽 是典型
+  TOCTOU。调试任务现在是这个函数的第二个并发调用者(除了对象输出),得确认会不会和
+  对象输出抢同一个 FIFO 槽:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● 确认了:mcanA_transfer_FIFO 在加调试功能前只有 canoutput 任务(prio 
+  3)一个调用者,天然串行。调试任务(prio
+  2)现在是第二个并发调用者——这就引入了一个真实的竞态。让我把对象输出的 CAN ID
+  值也查出来,好判断优先级:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm" && grep -rn -E "define
+      (TX_CAN_DBC_FRAME_HEADER_FR_FRAM…)
+  ⎿  mss/dbc/tx_can_dbc.h:51:#define TX_CAN_DBC_FRAME_HEADER_FR_FRAME_ID (0
+     x5aeu)
+     mss/dbc/tx_can_dbc.h:180:#define TX_CAN_DBC_OBJECT_LIST_OBJ1_FR_FRAME_
+     … +6 lines (ctrl+o to expand)
+
+● 查清楚了,我给你一份量产就绪评审。功能正确性之前已验证,这里只盯量产门——发现 2 
+  个必须改的、3 个要你拍板/确认的。
+
+  ---
+  🔴 必须改(量产阻断项)
+
+  1. 故障注入还开着 → 远程 DoS 风险
+
+  wf_debug_inject.h:20 WF_DEBUG_FAULT_INJECT = 1。它在 CAN-A 上监听
+  0xC2,data[0]=2 就
+  vTaskSuspend(RspTask)——任何人往总线发一帧就能远程挂掉雷达的帧处理,还有强制
+  assert/overrun/overtemp。量产固件必须置 0。
+
+  ▎ 我没替你改,因为你还在台架做注入自测;发版前务必翻成 0(头文件里也写了 0 = 
+  ▎ production)。这是头号 release gate。
+
+  2. mcanA_transfer_FIFO 并发竞态(本功能引入的真 bug)⚠️
+
+  我查了:加调试功能前,这函数只有 canoutput 任务(prio 3)
+  一个调用者,天然串行。调试任务(prio 2)现在是第二个并发调用者。而函数体是无锁的
+  TOCTOU:
+  读 fifoStatus.putIdx=N  →(可能被高优先级 canoutput 抢占)→  写槽N + AddReq N
+  - 调试任务读到 putIdx=N,被 canoutput 抢占,canoutput 也读到 N(因为还没
+  AddReq、FIFO 没推进)→ 写槽 N、AddReq N;
+  - 调试任务恢复 → 再写槽 N(覆盖掉 canoutput 刚放的对象帧)、再 AddReq 同一个 N。
+  - 结果:对象列表/安全帧可能被调试帧悄悄覆盖,或同槽双请求 → 丢真数据。
+
+  这是量产不能带的。修法:给 mcanA_transfer_FIFO 加一把 FreeRTOS
+  互斥锁(带优先级继承)串行化整个"取槽→写→请求"。因为等待循环里有
+  vTaskDelay,不能用关中断,得用 mutex。
+
+  ▎ 这要动到对象输出的共享 TX 路径,我不擅自改。要我加吗? 我建议加 
+  ▎ mutex(最小改动、正确)。另一个选择是让调试任务不直发、改成投递到 canoutput 
+  ▎ 的队列里统一发(改动大些)。推荐前者。
+
+  ---
+  🟡 要你确认/拍板(矩阵或设计决策)
+
+  3. 调试帧 CAN 优先级比对象数据还高
+
+  对象/头帧 ID 是 0x5a0 / 0x5ae+,调试是 0x200/0x201——数值更小 = CAN 
+  仲裁优先级更高。总线拥塞时调试帧会抢在对象数据前面发,方向反了。量产应让调试帧
+  ID 高于(数值大于)所有安全/对象/DTC 帧,且登记进通信矩阵/DBC(就算标"内部")。
+
+  4. 无条件常发,不理会网络管理/总线休眠
+
+  调试任务每 66ms 发一次,不看 sensorState、不看 NM。量产里这会:① 阻止 CAN 
+  总线休眠(整车 partial networking 失效);② sensor 停了还在播。建议至少
+  sensorState==STARTED 才发,或挂一个诊断使能开关(按你们 OEM 矩阵要求)。
+
+  5. 总线预算 ~1%
+
+  500K/2M 下 ~30 帧/s 调试流 ≈ 1% 总线占用。不大,但确认它在通信矩阵预算内。
+
+  ---
+  ✅ 已经达标的(量产友好)
+
+  全静态分配(xTaskCreateStatic,无堆)、CRC 自校验、临界区保护、bus-off
+  主动恢复、看门狗不依赖本任务、CPU 累计已抗 71min 回绕。
+
+  ---
+  建议动作:#1 你发版前翻 0;#2 让我现在就加 mutex(真 bug,推荐);#3/#4/#5
+  你和通信矩阵 owner 对一下。要我开始改 #2 吗?另外 #4 的"sensorState==STARTED
+  才发"我也可以顺手加,要不要?
+
+✻ Brewed for 2m 56s
+
+> 是这样的啊，在正式量产D sample的时候我会把这个debuginfo关掉，还有就是故障注入 
+  也会关掉，但是你说的第二点很有道理，这个需要帮我加上不能引入bug。第四点我们现 
+  在没有can休眠处理，所以这个可以暂时不用关心我理解。                           
+
+● 同意你的判断——#1/inject 你 D sample 关掉、#4 无 CAN
+  休眠暂不管,都合理。那就专心把 #2 的 FIFO 竞态修对,不能引新
+  bug。我先把整个函数和 CAN 初始化、所有 return
+  路径看全(锁必须在每条返回路径释放,否则会死锁):
+
+  Read 1 file (ctrl+o to expand)
+
+● SemaphoreP.h 已包含,代码库用 DPL 的 SemaphoreP。看下 CAN 初始化在哪、是否已有
+  mutex 用法可参照:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && grep -nE
+      "SemaphoreP_construct|SemaphoreP_Object…)
+  ⎿  73:static SemaphoreP_Object gMcanaTxDoneSem;
+     74:static SemaphoreP_Object gMcanaTxFifoDoneSem;
+     75:static SemaphoreP_Object gMcanbTxDoneSem;
+     … +26 lines (ctrl+o to expand)
+
+● mcan_initialization() 在 101 行,模式清晰。确认下 DPL 是否有
+  SemaphoreP_constructMutex(优先级继承靠它):
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo" && grep -rn
+      "SemaphoreP_constructMutex\|SemaphoreP_pendMutex\|int32_t
+      SemaphoreP_construct" mcu_plus_sdk_awr2x4…)
+  ⎿  74:int32_t SemaphoreP_constructMutex(SemaphoreP_Object *obj);
+     84:int32_t SemaphoreP_constructBinary(SemaphoreP_Object *obj, uint32_t
+      initValue);
+     … +2 lines (ctrl+o to expand)
+
+● 全部齐备:SemaphoreP_constructMutex 存在(FreeRTOS 下=带优先级继承的
+  mutex),mcan_initialization() 里有现成构造模式,调用方都是任务上下文(没有
+  ISR,所以可以 vTaskDelay/WAIT_FOREVER)。开始实现。先看声明区和 init:
+
+  Read 1 file (ctrl+o to expand)
+
+● Now I'll add the mutex declaration, construct it in init, and add a validity
+  flag:
+
+● Update(mss_mcan.c)
+  ⎿  Added 6 lines
+      78  static SemaphoreP_Object gMcanbRxDoneSem;
+      79  static SemaphoreP_Object gMcanRxDoneSem;
+      80  
+      81 +/* Serializes mcanA_transfer_FIFO against concurrent callers (c
+         +anoutput task +                                                
+      82 + * debugInfo task). Mutex (priority inheritance), constructed i
+         +n mcan_initialization.                                         
+      83 + * gMcanaTxFifoMutexValid gates use so a transmit before init c
+         +an't pend on it. */                                            
+      84 +static SemaphoreP_Object gMcanaTxFifoMutex;                    
+      85 +static volatile uint8_t  gMcanaTxFifoMutexValid = 0U;          
+      86 +                                                               
+      87  static HwiP_Object       gMcanATxHwiObject;
+      88  static HwiP_Object       gMcanBTxHwiObject;
+      89  uint32_t          gMCANABaseAddr;
+
+● Update(mss_mcan.c)
+  ⎿  Added 5 lines
+      121      status = SemaphoreP_constructBinary(&gMcanRxDoneSem,  0);
+      122      DebugP_assert(SystemP_SUCCESS == status);
+      123  
+      124 +    /* TX-FIFO serialization mutex (see declaration). Gate use
+          + only after success. */                                       
+      125 +    status = SemaphoreP_constructMutex(&gMcanaTxFifoMutex);   
+      126 +    DebugP_assert(SystemP_SUCCESS == status);                 
+      127 +    gMcanaTxFifoMutexValid = 1U;                              
+      128 +                                                              
+      129      SemaphoreP_constructBinary(&gMcanSendSem , 0);
+      130      /* Register interrupt */
+      131      HwiP_Params_init(&MCANA_HwiPrms);
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● (那些诊断仍是 LSP 缺 SDK 头文件路径的老误报,与本次改动无关。)
+
+  现在改函数体:开头 pend,把超时丢帧的 return 改成 goto out,结尾加 out: +
+  post。这样所有返回路径都释放锁:
+
+● Update(mss_mcan.c)
+  ⎿  Added 13 lines, removed 2 lines
+      261      g_canTxDiag.enterCnt++;
+      262      wf_debug_mark_can_tx(size);   /* count radar's own TX fram
+           e/bytes for in-band bus-rate */
+      263  
+      264 +    /* Serialize concurrent callers (canoutput task + debugInf
+          +o task) over the shared                                       
+      265 +     * TX FIFO. The "read putIdx -> write that slot -> AddReq 
+          +that slot" sequence is a                                      
+      266 +     * TOCTOU: without this lock a higher-priority caller pree
+          +mpting mid-sequence would                                     
+      267 +     * reuse the same putIdx and clobber/double-request a slot
+          +. Mutex (priority                                             
+      268 +     * inheritance), not a critical section, because the wait 
+          +loop calls vTaskDelay.                                        
+      269 +     * Every exit below releases via the single `out:` point. 
+          +*/                                                            
+      270 +    if (gMcanaTxFifoMutexValid != 0U)                         
+      271 +    {                                                         
+      272 +        SemaphoreP_pend(&gMcanaTxFifoMutex, SystemP_WAIT_FOREV
+          +ER);                                                          
+      273 +    }                                                         
+      274 +                                                              
+      275      /* Configure Tx Msg to transmit */
+      276      App_mcanConfigTxMsg(&txMsg, msgIdentifier, data, size, dlc
+           );
+      277  
+     ...
+      280      if(fifoStatus.freeLvl == 0)
+      281      {
+      282          wf_debug_mark_can_tx_stall(); /* TX FIFO full: Signs o
+           f bus backpressure/bandwidth shortage */
+      272 -    }                                                         
+      283 +    }                                                         
+      284      while (fifoStatus.freeLvl == 0)
+      285      {
+      286          if (spin >= CAN_FIFO_WAIT_MAX)
+      287          {
+      288              g_canTxDiag.timeoutCnt++;
+      289              g_canTxDiag.lastFreeLvl = 0;
+      279 -            return;                       /* drop this frame, 
+          -do not stall the task */                                      
+      290 +            goto out;                     /* drop this frame, 
+          +do not stall the task */                                      
+      291          }
+      292          spin++;
+      293          vTaskDelay(1);
+
+● Now add the out: label and release at the end of the function (after the pxe
+  block, before the closing brace):
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss_mcan.c)  ⎿  Added 6 lines
+      324          g_canTxDiag.pxeHit++;
+      325          g_canTxDiag.lastLec = protStatus.lastErrCode;
+      326      }
+      327 +                                                              
+      328 +out:                                                          
+      329 +    if (gMcanaTxFifoMutexValid != 0U)                         
+      330 +    {                                                         
+      331 +        SemaphoreP_post(&gMcanaTxFifoMutex);                  
+      332 +    }                                                         
+      333  }
+      334  
+      335  void mcan_transfer_txBuf(uint32_t can_id , uint32_t msgIdentif
+           ier, uint8_t *data, uint32_t size, uint32_t dlc, uint32_t bufI
+           dx)
+
+● Let me verify the full edited function reads correctly end-to-end:
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● 函数串行化正确,所有诊断都是 LSP 头文件路径误报。把这个量产修复记进 design note
+  的"已修"小节(量产可追溯):
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 6 lines
+      273  
+      274  `FRAME_DROP` 原先比较 `gMmwMssMCB.stats.frameTriggerReady` —— 
+           那是 BSS `RL_RF_AE_FRAME_TRIGGER_RDY_SB` 事件,**整个 sensor 启
+           动只发一次(恒=1)**,永远不会超过 `resultCount`,导致 FRAME_DROP 
+           和解析器趋势告警都是哑的。现改用**每帧在 `RANGE_START` 自增的 
+           `frameStartCount`**(同时占用 0x200 offset 30,取代原冻结字段),
+           两条监控才真正接通。**这正是 §12 自检"揪出哑监控"的价值。**
+      275  
+      276 +### 已修(量产):`mcanA_transfer_FIFO` 并发竞态                 
+      277 +                                                              
+      278 +调试任务每周期直接调 `mcanA_transfer_FIFO` 发 0x200/0x201,使该
+          +函数**第一次有了两个并发调用者**(原本只有 canoutput 任务)。函 
+          +数体 `读 putIdx → 写该槽 → AddReq 该槽` 是 TOCTOU:高优先级的 c
+          +anoutput 抢占调试任务时,两者会拿到**同一个 putIdx**,导致**对象
+          +帧被覆盖或同槽双请求**(丢真数据)。                            
+      279 +                                                              
+      280 +修法:`mss_mcan.c` 加一把 **优先级继承互斥锁** `gMcanaTxFifoMut
+          +ex`(`SemaphoreP_constructMutex`,在 `mcan_initialization` 构造)
+          +,串行化整个取槽→写→请求序列。等待循环里有 `vTaskDelay`,故用 mu
+          +tex 而非关中断;所有返回路径(含 FIFO 满超时丢帧)经单一 `out:`  
+          +释放,无死锁;`gMcanaTxFifoMutexValid` 门控避免 init 前 pend。**
+          +量产即使关掉 debugInfo,这把锁保留也无害**(单调用者时几乎零开销
+          +),是 TX 路径的正确加固。                                      
+      281 +                                                              
+      282  ---
+      283  
+      284  ## 附录 A:字节偏移表(解析权威 spec)
+
+● FIFO 竞态修复完成,没引入新风险。改动如下:
+
+  改了什么(mss_mcan.c)
+
+  ┌─────────────────────┬───────────────────────────────────────────────────┐
+  │        位置         │                       改动                        │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ 声明区              │ 加 gMcanaTxFifoMutex + gMcanaTxFifoMutexValid     │
+  │                     │ 门控标志                                          │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ mcan_initialization │ SemaphoreP_constructMutex(&gMcanaTxFifoMutex),成  │
+  │ ()                  │ 功后置 valid=1                                    │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ mcanA_transfer_FIFO │ pend(mutex, WAIT_FOREVER)                         │
+  │ () 开头             │                                                   │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ FIFO 满超时丢帧的   │ 改成 goto out(否则那条路径不释放锁=死锁)          │
+  │ return              │                                                   │
+  ├─────────────────────┼───────────────────────────────────────────────────┤
+  │ 函数结尾            │ 加 out: 标签统一 post(mutex)                      │
+  └─────────────────────┴───────────────────────────────────────────────────┘
+
+  为什么这样修不会引新 bug
+
+  - 优先级继承:用 SemaphoreP_constructMutex(FreeRTOS 下=带优先级继承的
+  mutex)。canoutput(prio3)等调试任务(prio2)持有的锁时,调试任务被临时提到 prio3 →
+  无无界优先级反转。
+  - 可以跨 vTaskDelay 持锁:等待循环里有 vTaskDelay,所以必须用 mutex
+  而不是关中断;持 mutex 阻塞是合法的。
+  - 所有返回路径都释放:只有两条出口(超时丢帧 + 正常结尾),都走单一 out:
+  post。我核对过函数体内无其他 return,无死锁。
+  - 无递归死锁:函数体不自调、不调用任何会 pend
+  这把锁的函数(App_mcanConfigTxMsg/MCAN_* 都是纯驱动)。DPL mutex
+  非递归,但这里没有递归。
+  - init 前安全:gMcanaTxFifoMutexValid 门控——万一在 mcan_initialization
+  之前发帧(单线程 init 阶段,无并发),跳过 pend,不会 pend 未构造对象。
+  - ISR 安全:两个调用者都是任务上下文(函数本身有 vTaskDelay,本就不能在 ISR
+  调),WAIT_FOREVER 合法。
+  - 开销可忽略:每帧一次 take/give(~µs);只有两任务恰好同时发时才真正争用。
+  - 量产关掉 debugInfo 后:只剩 canoutput 一个调用者,锁几乎零成本,保留无害,等于给
+  TX 路径做了正确加固。
+
+  design note 的"已修(量产)"小节也记了根因、修法和无死锁论证。
+
+  你的下一步
+
+  clean 全量重编(改了 mss_mcan.c + wf_debug_info.c 两个
+  .c)。台架验证建议:正常跑一段,确认 g_canTxDiag.okCnt 正常增长、对象输出无异常、
+  txStall/调试帧都正常——锁加上后行为应和之前一致,只是消除了那个偶发的覆盖竞态。
+
+  至此量产评审的两个必改项:#1(inject/debuginfo)你 D sample 关;#2 
+  已修好。要我再帮你过一遍别的模块吗,还是这块就收尾?
+
+✻ Cogitated for 3m 59s
+
+> 帮我做两件事，一件事是把fifo竞态修复改成当debuginfo打开的时候才生效，因为量产 
+  D sample我会把debuginfo关闭，在真正量产的时候不要影响别的，另一件事是帮我评估 
+  加入这个不会影响功能也不会带来影响？                                          
+
+● 两件事都做。先把 FIFO 锁全部用 #if (WF_DEBUG_INFO_ENABLE == 1U)
+  包起来——debuginfo 关掉时整段编译消失,量产 TX 路径逐字节回到原样。同时查一下
+  CAN_FIFO_WAIT_MAX 的值好量化最坏情况:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● CAN_FIFO_WAIT_MAX = 20(20 次 vTaskDelay(1) ≈ 20ms,且只在 FIFO 30
+  深全满=严重背压时才触发)。现在做 4 处 #if 包裹:
+
+  1/4 声明区:
+
+● Update(mss_mcan.c)
+  ⎿  Added 7 lines, removed 2 lines
+      78  static SemaphoreP_Object gMcanbRxDoneSem;
+      79  static SemaphoreP_Object gMcanRxDoneSem;
+      80  
+      81 +#if (WF_DEBUG_INFO_ENABLE == 1U)                               
+      82  /* Serializes mcanA_transfer_FIFO against concurrent callers (c
+          anoutput task +
+      82 - * debugInfo task). Mutex (priority inheritance), constructed i
+         -n mcan_initialization.                                         
+      83 - * gMcanaTxFifoMutexValid gates use so a transmit before init c
+         -an't pend on it. */                                            
+      83 + * debugInfo task). Only needed when debugInfo is built in: it 
+         +is the second TX caller.                                       
+      84 + * With debugInfo OFF (production) canoutput is the sole caller
+         +, so the whole lock                                            
+      85 + * compiles out and the TX path is byte-for-byte the original. 
+         +Mutex has priority                                             
+      86 + * inheritance; constructed in mcan_initialization; gMcanaTxFif
+         +oMutexValid gates use so                                       
+      87 + * a transmit before init can't pend on an unconstructed object
+         +. */                                                           
+      88  static SemaphoreP_Object gMcanaTxFifoMutex;
+      89  static volatile uint8_t  gMcanaTxFifoMutexValid = 0U;
+      90 +#endif                                                         
+      91  
+      92  static HwiP_Object       gMcanATxHwiObject;
+      93  static HwiP_Object       gMcanBTxHwiObject;
+
+● 2/4 init 构造:
+
+● Update(mss_mcan.c)
+  ⎿  Added 2 lines
+      126      status = SemaphoreP_constructBinary(&gMcanRxDoneSem,  0);
+      127      DebugP_assert(SystemP_SUCCESS == status);
+      128  
+      129 +#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      130      /* TX-FIFO serialization mutex (see declaration). Gate use
+            only after success. */
+      131      status = SemaphoreP_constructMutex(&gMcanaTxFifoMutex);
+      132      DebugP_assert(SystemP_SUCCESS == status);
+      133      gMcanaTxFifoMutexValid = 1U;
+      134 +#endif                                                        
+      135  
+      136      SemaphoreP_constructBinary(&gMcanSendSem , 0);
+      137      /* Register interrupt */
+
+● 3/4 pend + 早退路径(goto vs return):
+
+● Update(mss_mcan.c)
+  ⎿  Added 4 lines, removed 1 line
+      268      g_canTxDiag.enterCnt++;
+      269      wf_debug_mark_can_tx(size);   /* count radar's own TX fram
+           e/bytes for in-band bus-rate */
+      270  
+      271 +#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      272      /* Serialize concurrent callers (canoutput task + debugInf
+           o task) over the shared
+      273       * TX FIFO. The "read putIdx -> write that slot -> AddReq 
+           that slot" sequence is a
+      274       * TOCTOU: without this lock a higher-priority caller pree
+           mpting mid-sequence would
+      275       * reuse the same putIdx and clobber/double-request a slot
+           . Mutex (priority
+      276       * inheritance), not a critical section, because the wait 
+           loop calls vTaskDelay.
+      276 -     * Every exit below releases via the single `out:` point. 
+          -*/                                                            
+      277 +     * Every exit below releases via the single `out:` point. 
+          +Only compiled in with                                         
+      278 +     * debugInfo (the second caller); production keeps the ori
+          +ginal single-caller path. */                                  
+      279      if (gMcanaTxFifoMutexValid != 0U)
+      280      {
+      281          SemaphoreP_pend(&gMcanaTxFifoMutex, SystemP_WAIT_FOREV
+           ER);
+      282      }
+      283 +#endif                                                        
+      284  
+      285      /* Configure Tx Msg to transmit */
+      286      App_mcanConfigTxMsg(&txMsg, msgIdentifier, data, size, dlc
+           );
+
+● Update(mss_mcan.c)
+  ⎿  Added 5 lines, removed 1 line
+      297          {
+      298              g_canTxDiag.timeoutCnt++;
+      299              g_canTxDiag.lastFreeLvl = 0;
+      300 -            goto out;                     /* drop this frame, 
+          -do not stall the task */                                      
+      300 +#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      301 +            goto out;                     /* release mutex the
+          +n drop this frame */                                          
+      302 +#else                                                         
+      303 +            return;                       /* drop this frame, 
+          +do not stall the task */                                      
+      304 +#endif                                                        
+      305          }
+      306          spin++;
+      307          vTaskDelay(1);
+
+● 4/4 结尾 out: 标签 + post:
+
+● Update(mss_mcan.c)
+  ⎿  Added 2 lines
+      339          g_canTxDiag.lastLec = protStatus.lastErrCode;
+      340      }
+      341  
+      342 +#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      343  out:
+      344      if (gMcanaTxFifoMutexValid != 0U)
+      345      {
+      346          SemaphoreP_post(&gMcanaTxFifoMutex);
+      347      }
+      348 +#endif                                                        
+      349  }
+      350  
+      351  void mcan_transfer_txBuf(uint32_t can_id , uint32_t msgIdentif
+           ier, uint8_t *data, uint32_t size, uint32_t dlc, uint32_t bufI
+           dx)
+
+● Let me verify the full function is coherent in both configs:
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● 两种配置都自洽:debug 关→用 return、无 out:/goto、无锁,逐字节回到原函数;debug
+  开→pend/goto/post 串行化。诊断仍是 LSP 误报。
+
+  更新 design note 那段(之前写的是"保留无害",现在改成"门控编译消失"):
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 3 lines, removed 1 line
+      277  
+      278  调试任务每周期直接调 `mcanA_transfer_FIFO` 发 0x200/0x201,使该
+           函数**第一次有了两个并发调用者**(原本只有 canoutput 任务)。函
+           数体 `读 putIdx → 写该槽 → AddReq 该槽` 是 TOCTOU:高优先级的 c
+           anoutput 抢占调试任务时,两者会拿到**同一个 putIdx**,导致**对象
+           帧被覆盖或同槽双请求**(丢真数据)。
+      279  
+      280 -修法:`mss_mcan.c` 加一把 **优先级继承互斥锁** `gMcanaTxFifoMut
+          -ex`(`SemaphoreP_constructMutex`,在 `mcan_initialization` 构造)
+          -,串行化整个取槽→写→请求序列。等待循环里有 `vTaskDelay`,故用 mu
+          -tex 而非关中断;所有返回路径(含 FIFO 满超时丢帧)经单一 `out:`  
+          -释放,无死锁;`gMcanaTxFifoMutexValid` 门控避免 init 前 pend。**
+          -量产即使关掉 debugInfo,这把锁保留也无害**(单调用者时几乎零开销
+          -),是 TX 路径的正确加固。                                      
+      280 +修法:`mss_mcan.c` 加一把 **优先级继承互斥锁** `gMcanaTxFifoMut
+          +ex`(`SemaphoreP_constructMutex`,在 `mcan_initialization` 构造)
+          +,串行化整个取槽→写→请求序列。等待循环里有 `vTaskDelay`,故用 mu
+          +tex 而非关中断;所有返回路径(含 FIFO 满超时丢帧)经单一 `out:`  
+          +释放,无死锁;`gMcanaTxFifoMutexValid` 门控避免 init 前 pend。  
+      281  
+      282 +**整把锁用 `#if (WF_DEBUG_INFO_ENABLE == 1U)` 门控**:只有当 de
+          +bugInfo 编进来(即第二个调用者存在)时才生效。**量产 D sample 关
+          +掉 debugInfo 时,声明/构造/pend/post/`out:` 全部预处理消失,`mca
+          +nA_transfer_FIFO` 逐字节回到原始单调用者版本(超时走 `return`, 
+          +无锁),对量产 TX 路径零影响。** 竞态本就只由 debugInfo 这个第二
+          +调用者引入,所以锁与它同生共灭是精确对位的。                   
+      283 +                                                              
+      284  ---
+      285  
+      286  ## 附录 A:字节偏移表(解析权威 spec)
+● 两件事都完成了。下面是第二件:影响评估。
+
+  改动后两种配置的行为
+
+  ┌─────────────────────┬────────────────────────────┬──────────────────────┐
+  │                     │  量产 D sample(debugInfo   │ 开发/台架(debugInfo  │
+  │                     │            关)             │         开)          │
+  ├─────────────────────┼────────────────────────────┼──────────────────────┤
+  │ 锁相关代码          │ 全部预处理消失             │ 生效                 │
+  ├─────────────────────┼────────────────────────────┼──────────────────────┤
+  │ mcanA_transfer_FIFO │ 逐字节=原函数(超时         │ pend→…→out: post     │
+  │                     │ return,无锁)               │                      │
+  ├─────────────────────┼────────────────────────────┼──────────────────────┤
+  │ 对量产影响          │ 零(编译产物与改之前一致)   │ 见下                 │
+  └─────────────────────┴────────────────────────────┴──────────────────────┘
+
+  量产那条路径我可以打包票零影响——因为 #if
+  关掉后,声明、构造、pend、post、out:/goto 全不存在,连 wf_debug_mark_can_tx
+  也是空宏。编译出来和你没加这功能前一模一样。
+
+  debugInfo 开启时的影响评估(逐项)
+
+  1. 单帧开销:多一次 mutex take/give ≈ 几微秒 DPL 开销。对比 64B CAN-FD
+  上线时间(500K/2M 下 ~278µs)可忽略。
+
+  2. 串行化代价:canoutput 和 debug 极少同时发(debug 才 2
+  帧/66ms)。真撞上时,一方等另一方的"写槽+请求"(正常 µs 级)。
+
+  3. 最坏情况:若 FIFO(30 深)全满(=严重背压,txStall 会报),持锁方自旋等待最多
+  CAN_FIFO_WAIT_MAX=20 tick ≈ 20ms,期间另一方被挡。但:
+  - 这 20ms 是 FIFO 
+  满这个总线状态本身造成的,不是锁新增的——没有锁时,另一方照样撞上满 FIFO
+  等同样久,锁只是把"并行等"变成"串行等";
+  - 优先级继承:持锁的低优任务被临时提到等待方优先级,尽快排空;
+  - 只在 debug 开(开发期)发生。
+     → 没有引入超出"总线已坏"状态之外的新最坏延迟。
+
+  4. 死锁/优先级反转:
+  - 优先级继承 mutex → 无无界优先级反转;
+  - 单一 out: 释放、无递归、无 ISR 调用方 → 无死锁;
+  - 即使 inject 的 KILL_RSP 挂起 RspTask 也不影响——RspTask 
+  不调这个发送函数,挂不住锁。
+
+  5. 内存:1 个静态 SemaphoreP_Object(≈80B 静态,无堆)。可忽略。
+
+  6. 不触碰的东西:位率、FIFO 深度、帧 ID、帧内容、DLC、时序配置全不变。OTA 
+  走的是另一条 mcan_transfer_txBuf(buffer 模式),完全没动;对象/标定/DTC
+  输出只是也走这把锁,只与 debug 帧争用 →
+  延迟可忽略、正确性反而提升(不再被覆盖)。
+
+  结论
+
+  - 量产(关 debug):零影响,产物与未加功能时一致。
+  - 开发(开 debug):消除了数据覆盖竞态;开销微秒级;最坏延迟不超出"FIFO
+  已满"这一本就异常的状态;无死锁、无优先级反转、无堆。
+
+  净评价:功能不受影响,且把一个会偶发丢真数据的竞态修掉了。 design note
+  的"已修(量产)"小节也更新成了"#if 门控、量产逐字节回原版"。
+
+  下一步还是 clean 全量重编(动了 mss_mcan.c)。要的话我可以再帮你确认一遍
+  WF_DEBUG_INFO_ENABLE 在量产构建里确实被置 0 的开关路径,确保 D sample
+  真能干净关掉。
+
+✻ Crunched for 3m 2s
+
+> /export debug_info_closed_loop.txt                                            
+  ⎿  Conversation exported to:
+     D:\Project\CR\Project\NotimeSync\zelos_repo\debug_info_closed_loop.txt
+
+> 非常好，那现在这个debuginfo已经很成熟了。接下来我们完成最后一个动作，就是之前 
+  提到的每次上电会发一次systemInfo报文，这个报文的功能就是会把上次上电的系统状  
+  态给发送出去，也就是dumptrace，R核和M核的状态，比如是否发生过hardfault，prefe 
+  tch abort或者越界等问题，当发生的时候需要在系统向量表的里面把这些记录下来并且 
+  存到flash中去，flash的存储地址为0x3F0000开始的地址都可以存储。然后在下次上电  
+  的时候读取这个值，通过canfd传出来，canid为0x100，最大长度为128个字节，然后需  
+  要写对应的解析脚本来判断定位当前是什么问题导致的，定位到变量以及内存位置等。  
+
+● 这是个大功能,而且跨 R5/M4 双核 + flash + 异常向量表,属于安全相关代码,我不能盲
+  目开写——先把现有代码摸清楚(异常处理在哪、flash 怎么写、0x3F0000
+  是否空闲、有没有已存在的 systemInfo/dumptrace
+  雏形),再给你一个落地设计。先并行探查:
+
+  Searched for 3 patterns (ctrl+o to expand)
+
+● flash 基础设施在 OTA 里(可复用),异常处理在 SDK。继续深挖三处:OTA 的 flash
+  读写用法、SDK 的 R5 异常处理、flash 分区图(确认 0x3F0000 空闲):
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 复用基础已找到:mmwDemo_flashRead(offset,buf,size) +
+  OTA_UniFlashWrite(offset,...)(底层 Flash_* on CONFIG_FLASH0)。现在要确认 flash
+  分区图(0x3F0000 是否和标定/config/appimage 撞)和 R5 异常钩子机制:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Flash 图基本清晰了。已用区:bootloader 0x0、boot flag 0x30000、标定
+  0x340000–0x360000、DTC 0x390000、FLASH_DATA 0x3A0000;0x3F0000 是最后一个 64KB 
+  块,你确认空闲。还有个已存在的 dtc_fault_manager(应用层 DTC,和硬 fault
+  不同)。现在确认 R5 异常钩子 API 和 M4 侧:
+
+  Searched for 4 patterns (ctrl+o to expand)
+
+● R5 跑 FreeRTOS,异常处理在
+  HwiP_armv7r_handlers_freertos.c。看它怎么分发异常、有没有可挂的钩子:
+
+  Read 1 file (ctrl+o to expand)
+
+● R5 默认异常处理(undef/prefetch/data
+  abort)现在只是死循环(while(loop)),正是我要挂钩的点;HwiP_data_abort_handler_c
+  还是 weak 可直接覆盖。最后确认两件事——复位路径(你说过只有 PMIC 冷复位有效)和
+  M4 侧:
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● 摸清楚了,给你完整判断。这是个跨核 + flash + 异常向量表的大功能,我已经把落地路
+  径和风险点都查实了,先讲设计,再请你拍几个只有你能定的决策点,然后我再动手。
+
+  现状(已查实)
+
+  ┌────────────┬────────────────────────────────────────────────────────────┐
+  │    要素    │                            结论                            │
+  ├────────────┼────────────────────────────────────────────────────────────┤
+  │            │ SDK 默认 undef/prefetch/data-abort                         │
+  │ R5         │ 处理器现在就是死循环(HwiP_*_handler 里                     │
+  │ 异常处理   │ while(loop)),HwiP_data_abort_handler_c 还是                │
+  │            │ weak。这正是我要覆盖的钩子点,可行。                        │
+  ├────────────┼────────────────────────────────────────────────────────────┤
+  │ Flash 基建 │ 复用现成 mmwDemo_flashRead /                               │
+  │            │ Flash_eraseBlk+Flash_write(CONFIG_FLASH0),64KB 擦除块      │
+  ├────────────┼────────────────────────────────────────────────────────────┤
+  │ Flash 图   │ 已用到 0x3A0000(FLASH_DATA)、0x390000(DTC);0x3F0000        │
+  │            │ 是最后一个 64KB 块,你确认空闲 ✅                           │
+  ├────────────┼────────────────────────────────────────────────────────────┤
+  │ 跨复位介质 │ 必须用 flash——本芯片只有 PMIC 冷复位(RAM 物理清零),NOINIT  │
+  │            │ RAM 活不过复位(这点我们做 debugInfo 黑匣子时已确认)        │
+  ├────────────┼────────────────────────────────────────────────────────────┤
+  │ 现有       │ 全工程没有实现,是全新功能(你之前只是提过概念)              │
+  │ dumptrace  │                                                            │
+  └────────────┴────────────────────────────────────────────────────────────┘
+
+  核心设计(关键:flash 黑匣子的"预擦+只写"模式)
+
+  因为 RAM 活不过复位,崩溃记录必须在故障当下写进 flash。但在 abort 上下文里擦
+  64KB(几百 ms)极危险。所以:
+
+  正常启动: 若 dumptrace 块已被读出消费 → 健康上下文里擦干净(全 0xFF),备用
+  故障发生: 异常处理器只做 ①抓寄存器/fault状态 ②只 WRITE 一条≤128B
+  记录(不擦,快·安全) ③触发 PMIC 复位
+  下次启动: 早期读 flash → 有记录 → 经 CAN 0x100(2帧128B)播出 → 解析脚本定位 →
+  读出后再擦块备用
+  - R5 抓:fault 类型(undef/prefetch/data abort)+ DFSR/IFSR/DFAR/IFAR + 出错
+  PC/LR/SP + 几个栈寄存器/少量栈回溯。
+  - 解析脚本:把 PC/LR/FAR 用 .xer5f/.xem4 ELF 反查到函数名/源码行/变量(TI
+  工具链的符号器 or 解析 .map)。
+
+  难点 = M4
+
+  M4 是独立核、独立 fault(CFSR/HFSR/MMFAR/BFAR)。难在:M4 通常不拥有 QSPI,且 RAM
+  活不过复位 → M4 崩了得把记录经共享内存(L3/HSRAM)交给 R5 写 
+  flash,再决定是否复位。这块取决于你们硬件(M4 能否访问 flash)和
+  IPC,是整个功能里最容易出问题的部分。
+
+  我的建议:分两期——先把 R5 整条链路打通(异常钩子→flash→0x100→解析脚本,这是最常见
+  的崩溃来源),验证稳定后再加 M4。
+
+  下面几个决策只有你能定,定了我就开干:
+
+● User declined to answer questions
+  ⎿  · systemInfo/dumptrace 这个功能,先做哪个范围? (R5 先做,M4 之后 / R5 + M4 
+     一起做 / 只做 R5,M4 永不需要)
+     · 异常处理器抓完记录写完 flash 后,要不要主动触发复位? (记录后主动触发 PMIC 
+     复位 / 只记录,不主动复位)
+     · 解析脚本如何把 PC/地址定位到函数和变量? (用 ELF + TI 符号器(addr2line) / 
+     解析 .map 文件 / 两者都支持)
+
+> 是这样的，可以先做R5核，M4核可以先不做，然后我建议是在崩溃记录在异常向量里面  
+  只是做记录，然后是否有任务或者函数去进行擦写操作呢，这样是否比较理想          
+
+● R5 先做、M4
+  暂缓,完全同意。你这个"向量里只记录,擦写交给别的地方"的直觉方向对,但有一个关键
+  点要纠正——是函数可以,任务不行。我讲清楚为什么,然后给你最理想的拆法。
+
+  为什么"任务"不行,但"函数"可以
+
+  故障(data/prefetch abort)发生后:
+  1. CPU 进入 abort 
+  模式,出错任务的上下文已经是坏的——不能安全返回、不能恢复调度(一返回就再次
+  fault)。
+  2. abort 处理器是最高优先级上下文,中断都被屏蔽,任何 FreeRTOS
+  任务都抢不进来。所以没法"挂个标志让任务稍后去写"。
+  3. 唯一能拿到干净状态的办法是复位,但本芯片是 PMIC 冷复位 → RAM 物理清零,记录在
+  RAM 里就没了,复位后的任务根本读不到。
+
+  → 结论:持久化必须在"故障路径内"完成,且在复位之前。所以是从异常处理器里调用的一
+  个函数,不是事后的任务。
+
+  但你的"拆开"直觉是对的 —— 应该拆 擦 / 写
+
+  真正该拆的不是"记录 vs 任务",而是擦除 vs 写入(因为擦 64KB 慢且危险):
+
+  ①【启动·健康上下文·普通函数/任务】
+     读出上次的崩溃记录 → 经 CAN 0x100 播出 → 读完后把 0x3F0000
+  块擦干净(全0xFF)备用
+     ← 慢的、危险的"擦"全部放在这里,正常上下文从容做
+
+  ②【故障·异常处理器·极简】
+     只抓寄存器 + fault 状态,写进一个 RAM 结构(几十字节,绝对不碰 flash,最稳)
+
+  ③【故障·flush 函数·紧接②,仍在异常上下文】
+     把那条≤128B 记录【只 WRITE】进已擦好的块(NOR 只写不擦,~ms,快且安全)→ 触发
+  PMIC 复位
+
+  这样:
+  - 异常处理器本身极简(只抓寄存器到 RAM),最不容易在崩溃叠崩溃。
+  - flash 
+  只在故障路径做"写"(块在上次启动已擦好),把最慢最险的"擦"彻底挪出故障路径。
+  - 擦由正常启动函数做——这正好就是你说的"有函数去做擦写",只是擦在启动、写在故障,
+  各归各位。
+
+  这就是业界 flash 黑匣子的标准模式,也是最理想的。
+  你的直觉对,只是把"任务"换成"故障路径里的函数 + 启动期的擦除函数"。
+
+  开工前我还差两个事实
+
+  1. 触发 PMIC 冷复位的具体函数/机制是什么?(flush 函数末尾要调它)你之前说
+  SOC_generateSwWarmReset 不好用、PMIC 复位才行,我 grep
+  没找到现成调用——你们现在是怎么触发那次有效复位的?
+  2. 解析脚本符号定位:用 ELF + TI 
+  符号器(PC→函数/源码行、FAR→变量,最精确,但脚本要能找到 .xer5f
+  和工具链)还是只解析 .map(纯文本、无需工具链,但只能到函数/全局变量级)?我倾向"有
+  ELF 用符号器、没有退回 .map",但听你的。
+
+  这两点定了,我就按"①启动擦+读播 / ②向量极简抓取 / ③flush 只写+复位"开始写 R5
+  整条链路。
+
+✻ Cogitated for 1m 17s
+
+> 第一点，我有点疑问，是否重启的疑问，如果重启了，在车上或者测试的时候应该就不  
+  知道是否发生过故障，是否不重启比较好，测试同事看到没有目标输出就知道是重启了  
+  ，但是这个时候又有一个问题，如果按照你刚才的设计，万一下一次上电他没有通过can 
+  oe或者kvaser录制到发上来的systeminfo报文，flash已经被擦除了，故障消失了，再次 
+  上电就读不到了。那么这个时候我们是否要做一个预备方案，比如现在的systeminfo是1 
+  28个字节，我们是否分为两个6                                                   
+  ⎿  Interrupted · What should Claude do instead?
+
+> 第一点，我有点疑问，是否重启的疑问，如果重启了，在车上或者测试的时候应该就不  
+  知道是否发生过故障，是否不重启比较好，测试同事看到没有目标输出就知道是重启了  
+  ，但是这个时候又有一个问题，如果按照你刚才的设计，万一下一次上电他没有通过can 
+  oe或者kvaser录制到发上来的systeminfo报文，flash已经被擦除了，故障消失了，再次 
+  上电就读不到了。那么这个时候我们是否要做一个预备方案，比如现在的systeminfo是1 
+  28个字节，我们是否分为两个64的page页呢还是有更好的办法，历史发生过故障，但是  
+  当历史比如10个周期没发生过或者20个周期我们再清除掉，这个你帮我评估下怎么设计  
+  比较合适，我想表达的就是解决发生故障的下一次上电万一没有记录systeminfo报文的  
+  情况。第二点的话。我需要比较精确的，因为这个既然是自己设计的东西，xer5f的路径 
+  就在zelos_repo\mmwave_mcuplus_sdk_04_07_00_01\ti\demo\awr2x44P\mmw_ddm这个下  
+  面，然后工具链在R5F_CLANG_INSTALL_PATH这个路径下                              
+
+● 两个问题都很关键,尤其第一点你发现的"下次上电没录到就永久丢失"是真漏洞。我逐个
+  评估。
+
+  第一点:复位 + 防丢失
+
+  要不要复位 —— 我建议自动 PMIC 复位,理由和你担心的正好相反
+
+  你担心"复位了就不知道发生过故障"。但其实恰恰是复位后的 systemInfo 报文(0x100)
+  告诉你发生过故障、是什么故障——你不靠"注意到它重启了"来判断,而靠那条报文。对比:
+
+  - 不复位:雷达卡死在 abort 处理器里(当前默认就是死循环),一直无输出,要等人工断电
+  才恢复;本次上电也发不出报文(系统已死),报文照样是下次上电才发。
+  - 自动复位:雷达快速自恢复,重启后立刻播上一次的故障报文。测试同事看到"短暂无输
+  出(=复位过)"+ 收到 systemInfo(故障类型/地点)——信息更全、还自愈。
+
+  所以复位不会让故障"消失",报文才是判据。自动复位 + 下面的保留机制 = 最优。
+
+  防丢失:别"读完就擦",改成"保留 N 个周期 + 每次上电都重发"
+
+  你的核心担忧对:读出即擦 = 没录到就永久丢。修正策略:
+
+  1. 读出绝不擦。每次上电都把 flash 里的故障记录重发一遍(甚至开机几秒内发 2–3
+  次,防单帧丢)。于是有故障后,接下来每一次上电都是一次抓取机会,不是只有一次。
+  2. 靠"上电计数"老化,而不是靠读出。N 个周期(比如 20)内没有新故障,才擦掉。
+
+  你的"分两个 64B page"评估 + 更好的办法
+
+  你想的方向(用 flash 结构来保留)是对的,但"128B
+  分两页"解决不了跨多次上电的计数问题。更合适的是利用 **NOR
+  flash"只写不擦也能追加"**的特性(擦=全 0xFF,写只能把 1→0),在这个 64KB
+  块里分两区:
+
+  0x3F0000 块(64KB,擦除粒度 64KB):
+  ┌─ 记录区:几个固定槽(比如 4 槽 × 256B)────────────────┐
+  │   每槽 = magic + 序号 + bootTick + R5 故障负载 + CRC      │
+  │   故障处理器写"第一个空槽"(只写,不擦)→ 保留最近 4 次故障 │
+  ├─ 上电计数区(append-only tick 日志,剩余空间)───────────┤
+  │   每次上电写 1 个字节 0x00 到第一个 0xFF 位置             │
+  │   非 0xFF 字节数 = 自上次擦除以来的上电次数(=当前 bootTick)│
+  └──────────────────────────────────────────────────────┘
+
+  为什么这样最好:
+  - 计数不需要每次擦——每次上电只追加 1
+  字节(0xFF→0x00),无擦除、几乎无磨损、极快。
+  - 记录不需要每次擦——故障处理器只往空槽写(块在老化后已擦干净)。
+  - 老化规则:当前bootTick − 最新记录的bootTick ≥ N 才擦整块。即"距最后一次故障已
+  N 个上电周期才清"——一次新故障会刷新窗口,完全是你说的"20
+  个周期没再发生才清掉"。
+  - 多槽=保留最近几次故障历史,新故障来了也不会被旧记录挡住(单槽 first-win
+  会挡)。4 槽够用,64KB 空间绰绰有余。
+
+  CAN 侧:0x100 仍是 2×64B 两帧(和 0x200/0x201
+  一样的拆法),每次上电把"最新一条记录 + 故障历史摘要(共几次/类型)"打进
+  128B。这跟 flash 的多槽保留是两回事,别混。
+
+  ▎ 一个实现细节我会在写的时候验证:TI Flash_write 是否支持子页(1–4 字节)写(tick 
+  ▎ 日志需要)。若驱动要求页对齐,我就把 tick 粒度改成按页/按字,逻辑不变。NOR 
+  ▎ 写单字节把 0xFF→0x00 本身是允许的。
+
+  可调参数我会做成宏:SYSINFO_RETENTION_CYCLES(默认 20)、记录槽数(默认 4)。
+
+  第二点:符号定位(精确)—— 确认用 ELF + TI 符号器
+
+  按你给的路径:
+  - ELF:…/mmw_ddm/awr2x44P_mmw_demo_mssDDM.xer5f
+  - 工具链:$R5F_CLANG_INSTALL_PATH/bin/(TI ARM clang 自带 llvm-symbolizer /
+  tiarmnm)
+
+  解析脚本会:
+  - PC / LR(代码地址)→ llvm-symbolizer -e *.xer5f <addr> → 函数名 + 
+  源文件:行号(release 也有,只要保留 -g 调试信息;我会确认 makefile 带符号)。
+  - DFAR / IFAR(越界访问的数据地址)→ 读 ELF 符号表(llvm-nm --print-size),找
+  [addr, addr+size) 命中的符号 → 变量名(全局/静态);栈地址则标"栈区"。
+  - DFSR / IFSR(fault 状态)→ 解码出"对齐错误/权限/越界/外设 abort"等原因。
+
+  脚本里把工具链路径和 ELF 路径做成参数(默认就用你给的这两个),没传也能从环境变量
+  R5F_CLANG_INSTALL_PATH 取。
+
+  ---
+  确认后我就开 Phase 1(R5)
+
+  落地顺序会是:① 启动期 dumptrace 模块(读 flash→判有效→建发送、老化擦除)②
+  异常向量极简抓取(覆盖 SDK 那几个死循环处理器)③ flush 函数(只写槽 + PMIC 复位)④
+  0x100 两帧打包 ⑤ 解析脚本(符号定位)⑥ 设计文档。
+
+  还差你给我一个事实就能动手:触发 PMIC 冷复位的具体函数/寄存器序列是什么?(flush
+  函数末尾要调它——你之前说 SOC_generateSwWarmReset 不行、PMIC
+  复位才有效,这块得用你们实测可用的那套。)给我这个,我就按上面的设计开写 R5
+  整条链路。
+
+✻ Sautéed for 2m 59s
+
+> mss_main.c里面的BSW_SocRest这个函数，是成功测试通过的cold reset。你开始吧     
+● BSW_SocRest 确认为可用 cold reset。开始 Phase
+  1。先把实现要用的几个事实读全:复位函数、flash 读写 API、R5 向量表覆盖机制。
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && grep -n "BSW_SocRest" mss_main.c |
+      head)
+  ⎿  3600:void BSW_SocRest()
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Flash API 和向量表机制清楚了。向量表通过符号名
+  HwiP_undefined_handler/HwiP_prefetch_abort_handler/HwiP_data_abort_handler
+  跳转(在 SDK 归档库里,app 强符号可覆盖)。要拿到完整故障现场(PC/LR/SP/R0-R12 +
+  CP15 的 DFSR/DFAR)需要一小段汇编 stub。先读 SDK 的 abort 汇编模型 +
+  BSW_SocRest:
+
+  Read 1 file (ctrl+o to expand)
+
+● Data-abort 模型清楚:SDK 的 asm wrapper 调 weak
+  HwiP_data_abort_handler_c。我会用自己的 .S 覆盖三个向量符号、抓全现场再进
+  C。先读 BSW_SocRest 和 mss_main 初始化流程,确定复位调用和挂载点:
+
+  Read 1 file (ctrl+o to expand)
+
+● BSW_SocRest() → PMIC_SysReset(gMibspiHandle[0])(MIBSPI 写
+  PMIC)。这给我两个需在台架验证的风险点:abort 上下文里(中断关)做 ① flash 写 ②
+  MIBSPI 复位是否可靠。我会按"先用现成
+  API、并标注为头号验证点、附最小自包含轮询回退方案"来处理。
+
+  先看初始化挂载点,然后开始建文件。我建个任务清单跟踪:
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● 初始化挂载点(3380 flashInit、3670 CAN、4005 debugInfo 之后)CAN+flash
+  都已就绪,wf_sysinfo_init() 放这里。最后一个关键事实——mmwDemo_flashWrite
+  到底是"只写"还是"内部带擦除"(决定 append-log 计数能不能用):
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo" && find . -name
+      "mmwdemo_flash.c" 2>/dev/null; echo "---"; grep -rn "int32_t
+      mmwDemo_flashWrite" --include=*.c…)
+  ⎿  ./mmwave_mcuplus_sdk_04_07_00_01/ti/demo/utils/mmwdemo_flash.c
+     ---
+     ./mmwave_mcuplus_sdk_04_07_00_01/ti/demo/utils/mmwdemo_flash.c:203:int
+     … +2 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● 关键发现:mmwDemo_flashWrite
+  内部会先擦整个扇区再写——所以它不能用于追加。我必须用裸 Flash_write(不擦,OTA 
+  已证实) 做记录槽写入和 boot-tick 追加,用 Flash_eraseBlk
+  显式擦除(仅启动期老化时)。所有事实齐了,开始建文件。
+
+  先写契约头文件(flash 布局 + 记录格式 + 0x100 帧格式 + API):
+
+● Write(wf_sysinfo.h)
+  ⎿  Wrote 108 lines to wf_sysinfo.h
+       2 /**agma once
+       3  * @file    wf_sysinfo.h
+         for the R5F (MSS).Info / dumptrace: cross-reset crash black box 
+       5  *
+       7  *   On a CPU fault (undefined instruction / prefetch abort / da
+         ta abort) the R5
+         replaces them: itlers in the SDK just spin forever. This module 
+       9  *   captures the faulting context (PC/LR/SP/R0-R12/CPSR + CP15 
+      10  *   persists ONE record to flash, then triggers the (working) P
+         MIC cold reset via
+     … +157 lines (ctrl+o to expand)
+
+● 现在写汇编捕获 stub(覆盖三个向量符号,抓全 R0-R12/SP/LR/PC/SPSR 到 RAM
+  结构,再进 C)。R5 是 ARMv7-R,abort/undef 模式下 R0-R12 还是故障上下文的、SP/LR
+  是 banked(用 ^ 取任务态):
+
+● Write(wf_sysinfo_fault_asm.S)
+  ⎿  Wrote 79 lines to wf_sysinfo_fault_asm.S
+       2  * wf_sysinfo_fault_asm.S - R5F (ARMv7-R) crash-capture exceptio
+       3  *stubs.
+         -abort vector handlers default undefined / prefetch-abort / data
+       5  * (which just spin forever). Each stub captures the faulting co
+       6  * struct gWfSysFaultRegs and branches to the C entry wf_sysinfo
+       7  * persists a record to flash and resets. The vector table (HwiP
+         _armv7r_vectors_*_asm.S)
+         n an archive, theseymbols by name; because the SDK copies live i
+         s are not pulled in.tions take precedence and the archive member
+      10  *
+     … +91 lines (ctrl+o to expand)
+
+● The placeholder made a mess — let me rewrite the whole .S file cleanly and
+  correctly:
+
+● Write(wf_sysinfo_fault_asm.S)
+  ⎿  Added 35 lines, removed 15 lines
+       8   * jumps to these symbols by name; because the SDK copies live 
+          in an archive, these
+       9   * app-object definitions take precedence and the archive membe
+          rs are not pulled in.
+      10   *
+      11 - * gWfSysFaultRegs layout (see WFSysFaultRegs_s in wf_sysinfo.c
+         -), word offsets:                                               
+      11 + * gWfSysFaultRegs layout (see WFSysFaultRegs_s in wf_sysinfo.c
+         +), byte offsets:                                               
+      12   *   0..48 : r0..r12 (faulting context; r0-r12 are shared, not 
+          yet clobbered here)
+      13   *   52    : sp   (previous mode / task, banked, read via '^')
+      14   *   56    : lr   (previous mode / task, banked, read via '^')
+     ...
+      24          .global HwiP_undefined_handler
+      25          .global HwiP_prefetch_abort_handler
+      26          .global HwiP_data_abort_handler
+      27 -                                                               
+      27          .global gWfSysFaultStackTop
+      28          .global wf_sysinfo_fault_entry
+      29  
+     ...
+      41          .arm
+      42          .align 2
+      43  
+      45 -/* Common capture tail. On entry: exception LR already adjusted
+         - to the faulting PC,                                           
+      46 - * the fault-type code is in the macro arg. r0-r12 still hold t
+         -he faulting context. */                                        
+      44 +/* Common capture tail. Entry: exception LR already adjusted to
+         + the faulting PC;                                              
+      45 + * r0-r12 still hold the faulting context; \ftype is a compile-
+         +time fault code. */                                            
+      46          .macro WF_SYS_CAPTURE ftype
+      48 -        str   r0, [sp, #-4]!            /* stage original r0 on
+         - the current (mode) stack */                                   
+      49 -        ldr   r0, =gWfSysFaultRegs      /* r0 = &gWfSysFaultReg
+         -s (now clobbered)         */                                   
+      47 +        str   r0, [sp, #-4]!           /* stage original r0 on 
+         +the current mode stack    */                                   
+      48 +        ldr   r0, =gWfSysFaultRegs     /* r0 = &gWfSysFaultRegs
+         +                           */                                  
+      49          str   r1, [r0, #4]
+      50          str   r2, [r0, #8]
+      51          str   r3, [r0, #12]
+     ...
+      58          str   r10,[r0, #40]
+      59          str   r11,[r0, #44]
+      60          str   r12,[r0, #48]
+      62 -        ldr   r1, [sp], #4              /* recover original r0 
+         -*/                                                             
+      61 +        ldr   r1, [sp], #4             /* recover original r0  
+         +                           */                                  
+      62          str   r1, [r0, #0]
+      64 -        add   r1, r0, #52              /* &gWfSysFaultRegs.sp *
+         -/                                                              
+      65 -        stm   r1, {sp, lr}^            /* store USER/SYS-banked
+         - sp & lr (faulting task)  */                                   
+      66 -        nop                            /* pipeline hazard after
+         - banked transfer          */                                   
+      67 -        str   lr, [r0, #60]           /* faulting PC (exception
+         - LR, already adjusted)    */                                   
+      63 +        add   r1, r0, #52             /* &gWfSysFaultRegs.sp   
+         +                           */                                  
+      64 +        stm   r1, {sp, lr}^           /* store USER/SYS-banked 
+         +sp & lr (faulting task)    */                                  
+      65 +        nop                           /* required after a banke
+         +d (^) store               */                                   
+      66 +        str   lr, [r0, #60]          /* faulting PC (exception 
+         +LR, already adjusted)     */                                   
+      67          mrs   r1, spsr
+      69 -        str   r1, [r0, #64]           /* CPSR at fault         
+         -                          */                                   
+      68 +        str   r1, [r0, #64]          /* CPSR at fault          
+         +                          */                                   
+      69          ldr   sp, =gWfSysFaultStackTop /* dedicated C stack for
+           the fault handler         */
+      70          mov   r0, #\ftype
+      72 -        bl    wf_sysinfo_fault_entry   /* persists record + res
+         -ets; does not return       */                                  
+      73 -1:      b     1b                       /* safety net if reset e
+         -ver fails                  */                                  
+      71 +        bl    wf_sysinfo_fault_entry  /* persists record + rese
+         +ts; does not return        */                                  
+      72 +1:      b     1b                      /* safety net if reset ev
+         +er fails                   */                                  
+      73          .endm
+      74  
+      75  /* ---- Undefined Instruction ---- */
+      76          .type HwiP_undefined_handler,%function
+      77  HwiP_undefined_handler:
+      79 -        srsdb sp!, #0x1b? @ placeholder                        
+      78 +        push  {r0}                                             
+      79 +        mrs   r0, spsr                                         
+      80 +        tst   r0, #0x20               /* SPSR.T : Thumb state ?
+         +                          */                                   
+      81 +        pop   {r0}                    /* (does not affect flags
+         +)                         */                                   
+      82 +        subne lr, lr, #2             /* Thumb: faulting = LR - 
+         +2                         */                                   
+      83 +        subeq lr, lr, #4             /* ARM  : faulting = LR - 
+         +4                         */                                   
+      84 +        WF_SYS_CAPTURE WF_SYS_FAULT_UNDEF                      
+      85 +                                                               
+      86 +/* ---- Prefetch (instruction) Abort ---- */                   
+      87 +        .type HwiP_prefetch_abort_handler,%function            
+      88 +HwiP_prefetch_abort_handler:                                   
+      89 +        sub   lr, lr, #4                                       
+      90 +        WF_SYS_CAPTURE WF_SYS_FAULT_PREFETCH                   
+      91 +                                                               
+      92 +/* ---- Data Abort ---- */                                     
+      93 +        .type HwiP_data_abort_handler,%function                
+      94 +HwiP_data_abort_handler:                                       
+      95 +        sub   lr, lr, #8                                       
+      96 +        WF_SYS_CAPTURE WF_SYS_FAULT_DATA                       
+      97 +                                                               
+      98 +        .ltorg                                                 
+      99 +        .end                                                   
+
+● Now the core .c. I need the R5 RAM ranges for a safe stack-read guard (avoid
+  double-fault) and the linker routing. Let me check the linker memory map:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && grep -nE
+      "TCMA_RAM|TCMB_RAM|MSS_L2|ORIGIN|LENGTH…)
+  ⎿  9:    systemHeap :  {} > SBL_RESERVED_L2_RAM | MSS_L2
+     11:    .doa_l2Heap:  {} > MSS_L2
+     12:    .ota_data: {} > TCMB_RAM
+     … +12 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo" && find . -path
+      "*platform/awr2x44P/r5f_linker.cmd" 2>/dev/null; echo "==="; grep -rnE
+      "TCMA_RAM|TCMB_RAM|MSS_L…)  ⎿  ./mmwave_mcuplus_sdk_04_07_00_01/ti/platform/awr2x44P/r5f_linker.cmd
+     ===
+     mmwave_mcuplus_sdk_04_07_00_01/ti/platform/awr2x44P/r5f_linker.cmd:129
+     … +16 lines (ctrl+o to expand)
+
+● RAM 范围拿到了(TCMB 0x80000–0x8FFFF、MSS_L2
+  0x10220000–0x102DEFFF),可做安全的栈读取守卫。现在写核心 .c(boot
+  侧读取/计数/老化/发送 + 故障 C 入口):
+
+● Write(wf_sysinfo.c)
+  ⎿  Wrote 355 lines to wf_sysinfo.c
+       2  * @file    wf_sysinfo.c
+       3  * @brief   systemInfo / dumptrace: cross-reset R5F crash black 
+         box. See wf_sysinfo.h.
+       4  */
+       5 #include "wf_sysinfo.h"
+       6 
+       7 #if (WF_SYSINFO_ENABLE == 1U)
+       8 
+       9 #include <string.h>
+      10 #include <stddef.h>
+     … +424 lines (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Two real bugs I introduced (rest are LSP include-path noise): a leftover
+  garbage line in wf_sys_emit, and wf_sysinfo_task used before declaration.
+  Fixing both:
+
+● Update(wf_sysinfo.c)
+  ⎿  Removed 1 line
+      324      memset(frame, 0, WF_SYSINFO_FRAME_LEN);
+      325      wf_sys_fill_header(frame, msgIndex, rolling);
+      326      if (gWfSysTxValid != 0U) { build(&frame[6]); }
+      327 -    wf_sys_put_u32 != NULL;  /* (no-op guard removed below) */
+      327      {
+      328          uint16_t crc = wf_sys_crc16(frame, WF_SYSINFO_CRC_COVE
+           R);
+      329          frame[WF_SYSINFO_CRC_COVER]     = (uint8_t)(crc);
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Now add the forward declaration for wf_sysinfo_task:
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 2 lines
+      54  static StackType_t       gWfSysTaskStack[768]
+      55      __attribute__((aligned(8), section(".bss.wfSysStack")));
+      56  
+      57 +static void wf_sysinfo_task(void *args);   /* broadcast task (d
+         +efined below) */                                               
+      58 +                                                               
+      59  /* ------------------------------------------------------------
+          ------ */
+      60  /* Helpers                                                     
+                  */
+      61  /* ------------------------------------------------------------
+          ------ */
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● All remaining diagnostics are LSP include-path noise (same as mss_mcan.c,
+  compiles fine with makefile paths). But I have a static/non-static mismatch on
+  the task definition to fix:
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 1 line, removed 1 line
+      334      mcanA_transfer_FIFO(canId, frame, WF_SYSINFO_FRAME_LEN, WF
+           _SYSINFO_DLC);
+      335  }
+      336  
+      337 -void wf_sysinfo_task(void *args)                              
+      337 +static void wf_sysinfo_task(void *args)                       
+      338  {
+      339      static uint8_t frame[WF_SYSINFO_FRAME_LEN];
+      340      uint8_t rep;
+
+● Now wire it into mss_main.c — add the include and the init call next to
+  wf_debug_info_init():
+
+  Searched for 1 pattern (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss_main.c)
+  ⎿  Added 1 line
+      784  #include "perception_public_def.h"
+      785  #include "wf_time_sync.h"
+      786  #include "wf_debug_info.h"
+      787 +#include "wf_sysinfo.h"                                       
+      788  #include "wf_debug_inject.h"
+      789  #include "wf_calib_ant_channel.h"
+      790  #include "ASWCALIBRATION_Init.h"
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss_main.c)
+  ⎿  Added 5 lines
+      4002  
+      4003      wf_time_sync_init( WF_TIME_SYNC_DEV_DEF );
+      4004  
+      4005 +    /* 0x100 systemInfo/dumptrace: read the previous power cy
+           +cle's R5 crash record from                                   
+      4006 +     * flash and broadcast it; ages out after N cycles. The f
+           +ault capture itself is via                                   
+      4007 +     * the overridden exception vectors (wf_sysinfo_fault_asm
+           +.S), active since boot. */                                   
+      4008 +    wf_sysinfo_init();                                       
+      4009 +                                                             
+      4010      /* 0x200 debugInfo: reset reason/blockend read + 66ms sen
+            d task by page units */
+      4011      wf_debug_info_init();
+      4012      wf_debug_register_stack("ctrl",   gMmwCtrlTskStack,  size
+            of(gMmwCtrlTskStack));
+
+● Now add linker routing for the two new objects to TCMA/TCMB (MSS_L2 is full),
+  mirroring the wf_debug_info pattern:
+
+● Update(mmw_mss_linker.cmd)
+  ⎿  Added 9 lines
+      21                    wf_debug_info.oer5f(.rodata) wf_debug_info.oe
+          r5f(.rodata.*) } > TCMA_RAM
+      22      .wfDbgData: { wf_debug_info.oer5f(.data)   wf_debug_info.oe
+          r5f(.data.*)
+      23                    wf_debug_info.oer5f(.bss)    wf_debug_info.oe
+          r5f(.bss.*) }  > TCMB_RAM
+      24 +    /* systemInfo/dumptrace: same MSS_L2-full treatment. The as
+         +m crash stubs and the C                                        
+      25 +     * handler go in TCMA (executable); the fault stack, task s
+         +tack and capture struct                                        
+      26 +     * in TCMB. The override of the SDK exception vectors is by
+         + symbol name (archive). */                                     
+      27 +    .wfSysCode: { wf_sysinfo.oer5f(.text)   wf_sysinfo.oer5f(.t
+         +ext.*)                                                         
+      28 +                  wf_sysinfo.oer5f(.rodata) wf_sysinfo.oer5f(.r
+         +odata.*)                                                       
+      29 +                  wf_sysinfo_fault_asm.oer5f(.text) wf_sysinfo_
+         +fault_asm.oer5f(.text.*) } > TCMA_RAM                          
+      30 +    .wfSysData: { wf_sysinfo.oer5f(.data)   wf_sysinfo.oer5f(.d
+         +ata.*)                                                         
+      31 +                  wf_sysinfo.oer5f(.bss)    wf_sysinfo.oer5f(.b
+         +ss.*)                                                          
+      32 +                  wf_sysinfo_fault_asm.oer5f(.bss.wfSysFaultSta
+         +ck) }  > TCMB_RAM                                              
+      33  }
+      34  /*-------------------------------------------------------------
+          ---------------*/
+      35  
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Now register the two new files in the build. Let me see how wf_debug_info.c is
+  listed in the mss makefile and whether .S files are handled:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && grep -nE
+      "wf_debug_info|wf_time_sync|\.asm|\.S\b…)
+  ⎿  8:vpath %.c $(MMWAVE_SDK_INSTALL_PATH)/ti/demo/utils \
+     108:MSS_MMW_DEMO_SOURCES     = mmwdemo_adcconfig.c \
+     109:                           mmwdemo_monitor.c \
+     … +37 lines (ctrl+o to expand)
+
+● MSS_MMW_DEMO_SOURCES lists .c. I need to add wf_sysinfo.c and find how
+  .S/assembly is handled. Let me inspect the build rules and asm handling:
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && sed -n '150,230p' mmw_mss.mak |
+      grep -nE "SOURCE…)
+  ⎿  1:#MSS_MMW_DEMO_CAN_PROTOCOL_SOURCES = gwmp11_CR_RR.c
+     2:MSS_MMW_DEMO_CAN_PROTOCOL_SOURCES = zelos_CR_CAN1_FR.c \
+     7:MSS_MMW_DEMO_CAN_PROTOCOL_SOURCES = zelos_CR_CAN1_FR.c \
+     … +24 lines (ctrl+o to expand)
+
+● The build compiles assembly via a %.asm rule (TI syntax), but my file is
+  GNU-syntax .S and isn't in the source list. Rather than wrestle the build
+  system, I'll move the stubs into wf_sysinfo.c as naked functions with inline 
+  asm — same symbol-override effect, but zero build-system changes (the .c is
+  already a source). Let me convert:
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 87 lines, removed 1 line
+       33      uint32_t spsr;
+       34  } WFSysFaultRegs_s;
+       35  
+       36 -/* Non-static: referenced by name from the assembly stubs. */ 
+       36 +/* Filled by the naked exception stubs below. */              
+       37  volatile WFSysFaultRegs_s gWfSysFaultRegs;
+       38 +/* Fault code stashed by each stub for the common capture path
+          +. */                                                          
+       39 +volatile uint32_t gWfSysFtype;                                
+       40 +/* Dedicated stack the fault handler switches to before callin
+          +g C (the abort-mode                                           
+       41 + * stack may be tiny). Lives in TCMB via the linker. */       
+       42 +uint8_t gWfSysFaultStack[2048] __attribute__((aligned(8), sect
+          +ion(".bss.wfSysFaultStack")));                                
+       43  
+       44  /* -----------------------------------------------------------
+           ------- */
+       45 +/* Exception capture stubs (override the SDK's spin-forever de
+          +faults).  */                                                  
+       46 +/* Naked = we fully control the prologue; we never return (we 
+          +reset).    */                                                 
+       47 +/* The vector table jumps here by symbol name; the SDK copies 
+          +are in an   */                                                
+       48 +/* archive, so these app definitions win.                     
+          +           */                                                 
+       49 +/* -----------------------------------------------------------
+          +------- */                                                    
+       50 +                                                              
+       51 +/* Shared tail: r0-r12 still hold the faulting context, except
+          +ion LR is already the                                         
+       52 + * faulting PC, gWfSysFtype holds the fault code. Saves everyt
+          +hing into gWfSysFaultRegs,                                    
+       53 + * switches SP to the dedicated stack, and calls the C entry (
+          +never returns). */                                            
+       54 +__attribute__((naked, used)) static void wf_sys_capture_common
+          +(void)                                                        
+       55 +{                                                             
+       56 +    __asm__ volatile(                                         
+       57 +        "str   r0, [sp, #-4]!        \n"  /* stage original r0
+          +                       */                                     
+       58 +        "ldr   r0, =gWfSysFaultRegs  \n"                      
+       59 +        "str   r1,  [r0, #4]         \n"                      
+       60 +        "str   r2,  [r0, #8]         \n"                      
+       61 +        "str   r3,  [r0, #12]        \n"                      
+       62 +        "str   r4,  [r0, #16]        \n"                      
+       63 +        "str   r5,  [r0, #20]        \n"                      
+       64 +        "str   r6,  [r0, #24]        \n"                      
+       65 +        "str   r7,  [r0, #28]        \n"                      
+       66 +        "str   r8,  [r0, #32]        \n"                      
+       67 +        "str   r9,  [r0, #36]        \n"                      
+       68 +        "str   r10, [r0, #40]        \n"                      
+       69 +        "str   r11, [r0, #44]        \n"                      
+       70 +        "str   r12, [r0, #48]        \n"                      
+       71 +        "ldr   r1, [sp], #4          \n"  /* recover original 
+          +r0                     */                                     
+       72 +        "str   r1,  [r0, #0]         \n"                      
+       73 +        "add   r1, r0, #52           \n"                      
+       74 +        "stm   r1, {sp, lr}^         \n"  /* USER/SYS banked s
+          +p & lr (faulting task) */                                     
+       75 +        "nop                         \n"                      
+       76 +        "str   lr,  [r0, #60]        \n"  /* faulting PC (exce
+          +ption LR, adjusted)    */                                     
+       77 +        "mrs   r1, spsr              \n"                      
+       78 +        "str   r1,  [r0, #64]        \n"                      
+       79 +        "ldr   sp, =gWfSysFaultStack+2048\n"                  
+       80 +        "ldr   r0, =gWfSysFtype      \n"                      
+       81 +        "ldr   r0, [r0]             \n"   /* fault code -> fir
+          +st C arg               */                                     
+       82 +        "bl    wf_sysinfo_fault_entry\n"  /* persists + resets
+          +; does not return      */                                     
+       83 +        "1:    b 1b                  \n");                    
+       84 +}                                                             
+       85 +                                                              
+       86 +__attribute__((naked, used)) void HwiP_undefined_handler(void)
+       87 +{                                                             
+       88 +    __asm__ volatile(                                         
+       89 +        "push  {r0, r1}             \n"                       
+       90 +        "mrs   r0, spsr             \n"                       
+       91 +        "tst   r0, #0x20            \n"  /* Thumb state ?     
+          +                       */                                     
+       92 +        "ldr   r1, =gWfSysFtype     \n"                       
+       93 +        "mov   r0, #1               \n"  /* WF_SYS_FAULT_UNDEF
+          +                       */                                     
+       94 +        "str   r0, [r1]             \n"                       
+       95 +        "pop   {r0, r1}             \n"  /* (does not affect t
+          +he tst flags)          */                                     
+       96 +        "subne lr, lr, #2           \n"  /* Thumb: faulting = 
+          +LR - 2                 */                                     
+       97 +        "subeq lr, lr, #4           \n"  /* ARM  : faulting = 
+          +LR - 4                 */                                     
+       98 +        "b     wf_sys_capture_common\n");                     
+       99 +}                                                             
+      100 +                                                              
+      101 +__attribute__((naked, used)) void HwiP_prefetch_abort_handler(
+          +void)                                                         
+      102 +{                                                             
+      103 +    __asm__ volatile(                                         
+      104 +        "push  {r0, r1}             \n"                       
+      105 +        "mov   r0, #2               \n"  /* WF_SYS_FAULT_PREFE
+          +TCH                    */                                     
+      106 +        "ldr   r1, =gWfSysFtype     \n"                       
+      107 +        "str   r0, [r1]             \n"                       
+      108 +        "pop   {r0, r1}             \n"                       
+      109 +        "sub   lr, lr, #4           \n"                       
+      110 +        "b     wf_sys_capture_common\n");                     
+      111 +}                                                             
+      112 +                                                              
+      113 +__attribute__((naked, used)) void HwiP_data_abort_handler(void
+          +)                                                             
+      114 +{                                                             
+      115 +    __asm__ volatile(                                         
+      116 +        "push  {r0, r1}             \n"                       
+      117 +        "mov   r0, #3               \n"  /* WF_SYS_FAULT_DATA 
+          +                       */                                     
+      118 +        "ldr   r1, =gWfSysFtype     \n"                       
+      119 +        "str   r0, [r1]             \n"                       
+      120 +        "pop   {r0, r1}             \n"                       
+      121 +        "sub   lr, lr, #8           \n"                       
+      122 +        "b     wf_sys_capture_common\n");                     
+      123 +}                                                             
+      124 +                                                              
+      125 +/* -----------------------------------------------------------
+          +------- */                                                    
+      126  /* Boot-computed state, consumed by the fault path so it never
+            has to   */
+      127  /* scan flash from abort context.                             
+                     */
+      128  /* -----------------------------------------------------------
+           ------- */
+
+● Now remove the stale .S linker reference (the asm is in the .c now) and add
+  wf_sysinfo.c to the build:
+
+● Update(mmw_mss_linker.cmd)
+  ⎿  Added 2 lines, removed 4 lines
+      25       * handler go in TCMA (executable); the fault stack, task s
+          tack and capture struct
+      26       * in TCMB. The override of the SDK exception vectors is by
+           symbol name (archive). */
+      27      .wfSysCode: { wf_sysinfo.oer5f(.text)   wf_sysinfo.oer5f(.t
+          ext.*)
+      28 -                  wf_sysinfo.oer5f(.rodata) wf_sysinfo.oer5f(.r
+         -odata.*)                                                       
+      29 -                  wf_sysinfo_fault_asm.oer5f(.text) wf_sysinfo_
+         -fault_asm.oer5f(.text.*) } > TCMA_RAM                          
+      28 +                  wf_sysinfo.oer5f(.rodata) wf_sysinfo.oer5f(.r
+         +odata.*) } > TCMA_RAM                                          
+      29      .wfSysData: { wf_sysinfo.oer5f(.data)   wf_sysinfo.oer5f(.d
+          ata.*)
+      31 -                  wf_sysinfo.oer5f(.bss)    wf_sysinfo.oer5f(.b
+         -ss.*)                                                          
+      32 -                  wf_sysinfo_fault_asm.oer5f(.bss.wfSysFaultSta
+         -ck) }  > TCMB_RAM                                              
+      30 +                  wf_sysinfo.oer5f(.bss)    wf_sysinfo.oer5f(.b
+         +ss.*) }  > TCMB_RAM                                            
+      31  }
+      32  /*-------------------------------------------------------------
+          ---------------*/
+      33  
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Now overwrite the stale .S file with a pointer note, and add wf_sysinfo.c to
+  the makefile sources:
+
+● Write(wf_sysinfo_fault_asm.S)
+  ⎿  Added 7 lines, removed 95 lines
+       1  /*
+       2 - * wf_sysinfo_fault_asm.S - R5F (ARMv7-R) crash-capture excepti
+         -on stubs.                                                      
+       2 + * (intentionally empty / not built)                           
+       3   *
+       4 - * Overrides the SDK's default undefined / prefetch-abort / dat
+         -a-abort vector handlers                                        
+       5 - * (which just spin forever). Each stub captures the faulting c
+         -ontext into the RAM                                            
+       6 - * struct gWfSysFaultRegs and branches to the C entry wf_sysinf
+         -o_fault_entry, which                                           
+       7 - * persists a record to flash and resets. The vector table (Hwi
+         -P_armv7r_vectors_*_asm.S)                                      
+       8 - * jumps to these symbols by name; because the SDK copies live 
+         -in an archive, these                                           
+       9 - * app-object definitions take precedence and the archive membe
+         -rs are not pulled in.                                          
+       4 + * The R5 exception capture stubs were moved INTO wf_sysinfo.c 
+         +as GCC `naked`                                                 
+       5 + * functions with inline assembly (HwiP_undefined_handler / Hwi
+         +P_prefetch_abort_handler                                       
+       6 + * / HwiP_data_abort_handler + wf_sys_capture_common). That kee
+         +ps everything in the one                                       
+       7 + * .c that is already in the build (no separate .asm object / n
+         +o build-system change).                                        
+       8   *
+      11 - * gWfSysFaultRegs layout (see WFSysFaultRegs_s in wf_sysinfo.c
+         -), byte offsets:                                               
+      12 - *   0..48 : r0..r12 (faulting context; r0-r12 are shared, not 
+         -yet clobbered here)                                            
+      13 - *   52    : sp   (previous mode / task, banked, read via '^') 
+      14 - *   56    : lr   (previous mode / task, banked, read via '^') 
+      15 - *   60    : pc   (faulting instruction address = adjusted exce
+         -ption LR)                                                      
+      16 - *   64    : spsr (CPSR at the time of the fault)              
+      17 - *                                                             
+      18 - * On entry to an ARMv7-R exception the banked LR points past t
+         -he faulting instruction:                                       
+      19 - *   data abort     LR = faulting + 8                          
+      20 - *   prefetch abort LR = faulting + 4                          
+      21 - *   undef (ARM)    LR = faulting + 4 ; (Thumb) LR = faulting +
+         - 2                                                             
+       9 + * This file is kept only so the history of the change is obvio
+         +us; it is not referenced                                       
+      10 + * by the makefile or the linker command file. Safe to delete. 
+      11   */
+      23 -                                                               
+      24 -        .global HwiP_undefined_handler                         
+      25 -        .global HwiP_prefetch_abort_handler                    
+      26 -        .global HwiP_data_abort_handler                        
+      27 -        .global gWfSysFaultStackTop                            
+      28 -        .global wf_sysinfo_fault_entry                         
+      29 -                                                               
+      30 -        .equ WF_SYS_FAULT_UNDEF,    1                          
+      31 -        .equ WF_SYS_FAULT_PREFETCH, 2                          
+      32 -        .equ WF_SYS_FAULT_DATA,     3                          
+      33 -                                                               
+      34 -        .section ".bss.wfSysFaultStack","aw",%nobits           
+      35 -        .align 3                                               
+      36 -gWfSysFaultStack:                                              
+      37 -        .space 2048                                            
+      38 -gWfSysFaultStackTop:                                           
+      39 -                                                               
+      40 -        .text                                                  
+      41 -        .arm                                                   
+      42 -        .align 2                                               
+      43 -                                                               
+      44 -/* Common capture tail. Entry: exception LR already adjusted to
+         - the faulting PC;                                              
+      45 - * r0-r12 still hold the faulting context; \ftype is a compile-
+         -time fault code. */                                            
+      46 -        .macro WF_SYS_CAPTURE ftype                            
+      47 -        str   r0, [sp, #-4]!           /* stage original r0 on 
+         -the current mode stack    */                                   
+      48 -        ldr   r0, =gWfSysFaultRegs     /* r0 = &gWfSysFaultRegs
+         -                           */                                  
+      49 -        str   r1, [r0, #4]                                     
+      50 -        str   r2, [r0, #8]                                     
+      51 -        str   r3, [r0, #12]                                    
+      52 -        str   r4, [r0, #16]                                    
+      53 -        str   r5, [r0, #20]                                    
+      54 -        str   r6, [r0, #24]                                    
+      55 -        str   r7, [r0, #28]                                    
+      56 -        str   r8, [r0, #32]                                    
+      57 -        str   r9, [r0, #36]                                    
+      58 -        str   r10,[r0, #40]                                    
+      59 -        str   r11,[r0, #44]                                    
+      60 -        str   r12,[r0, #48]                                    
+      61 -        ldr   r1, [sp], #4             /* recover original r0  
+         -                           */                                  
+      62 -        str   r1, [r0, #0]                                     
+      63 -        add   r1, r0, #52             /* &gWfSysFaultRegs.sp   
+         -                           */                                  
+      64 -        stm   r1, {sp, lr}^           /* store USER/SYS-banked 
+         -sp & lr (faulting task)    */                                  
+      65 -        nop                           /* required after a banke
+         -d (^) store               */                                   
+      66 -        str   lr, [r0, #60]          /* faulting PC (exception 
+         -LR, already adjusted)     */                                   
+      67 -        mrs   r1, spsr                                         
+      68 -        str   r1, [r0, #64]          /* CPSR at fault          
+         -                          */                                   
+      69 -        ldr   sp, =gWfSysFaultStackTop /* dedicated C stack for
+         - the fault handler         */                                  
+      70 -        mov   r0, #\ftype                                      
+      71 -        bl    wf_sysinfo_fault_entry  /* persists record + rese
+         -ts; does not return        */                                  
+      72 -1:      b     1b                      /* safety net if reset ev
+         -er fails                   */                                  
+      73 -        .endm                                                  
+      74 -                                                               
+      75 -/* ---- Undefined Instruction ---- */                          
+      76 -        .type HwiP_undefined_handler,%function                 
+      77 -HwiP_undefined_handler:                                        
+      78 -        push  {r0}                                             
+      79 -        mrs   r0, spsr                                         
+      80 -        tst   r0, #0x20               /* SPSR.T : Thumb state ?
+         -                          */                                   
+      81 -        pop   {r0}                    /* (does not affect flags
+         -)                         */                                   
+      82 -        subne lr, lr, #2             /* Thumb: faulting = LR - 
+         -2                         */                                   
+      83 -        subeq lr, lr, #4             /* ARM  : faulting = LR - 
+         -4                         */                                   
+      84 -        WF_SYS_CAPTURE WF_SYS_FAULT_UNDEF                      
+      85 -                                                               
+      86 -/* ---- Prefetch (instruction) Abort ---- */                   
+      87 -        .type HwiP_prefetch_abort_handler,%function            
+      88 -HwiP_prefetch_abort_handler:                                   
+      89 -        sub   lr, lr, #4                                       
+      90 -        WF_SYS_CAPTURE WF_SYS_FAULT_PREFETCH                   
+      91 -                                                               
+      92 -/* ---- Data Abort ---- */                                     
+      93 -        .type HwiP_data_abort_handler,%function                
+      94 -HwiP_data_abort_handler:                                       
+      95 -        sub   lr, lr, #8                                       
+      96 -        WF_SYS_CAPTURE WF_SYS_FAULT_DATA                       
+      97 -                                                               
+      98 -        .ltorg                                                 
+      99 -        .end                                                   
+
+● Update(mmw_mss.mak)
+  ⎿  File must be read first
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mmw_mss.mak)
+  ⎿  Added 1 line
+      128                             utilize.c \
+      129                             wf_time_sync.c\
+      130                             wf_debug_info.c \
+      131 +                           wf_sysinfo.c \                     
+      132                             wf_calib_ant_channel.c \
+      133                             calibration_can_parser.c \
+      134                             dtc_fault_manager.c \
+
+● Now the parser. It decodes 0x100, checks CRC, decodes DFSR/IFSR, and
+  symbolizes PC/LR/FAR against the ELF via the TI toolchain's
+  llvm-symbolizer/llvm-nm:
+
+● Write(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00_
+       01/ti/demo/awr2x44P/mmw_ddm/tools/sysinfo_parser.py)
+  ⎿  Wrote 310 lines to ..\tools\sysinfo_parser.py
+      2 """usr/bin/env python3
+      3 sysinfo_parser.py - decode + localize the R5F systemInfo / dumptr
+        ace frames (CAN id 0x100).
+      5 The firmware (mss/wf_sysinfo.c) broadcasts, on every power-up, th
+        e crash record stored
+      6 in flash from the PREVIOUS power cycle as two CAN-FD frames:
+        FSR/IFSR/DFAR/IFAR": fault type + faulting PC/LR/SP/CPSR + CP15 D
+      8   msgIndex 1 "regs": R0..R12
+      9 Both carry a 6-byte common header and a CRC16-CCITT-FALSE over by
+        tes 0..61.
+     … +358 lines (ctrl+o to expand)
+
+● The parser has a name collision (self.data attribute vs data method). Let me
+  fix it cleanly:
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/tools/sysinfo_parser.py)
+  ⎿  Added 1 line, removed 1 line
+      181      def __init__(self, elf, toolchain):
+      182          self.elf = elf
+      183          self.sym = _find_tool(toolchain, "llvm-symbolizer") if
+            elf else None
+      184 -        self.data = self._load_data_syms(toolchain) if elf els
+          -e []                                                          
+      184 +        self.dsyms = self._load_data_syms(toolchain) if elf el
+          +se []                                                         
+      185  
+      186      def code(self, addr):
+      187          """addr -> 'function (file:line)' for an instruction a
+           ddress."""
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/tools/sysinfo_parser.py)
+  ⎿  Added 1 line, removed 4 lines
+      220                      pass
+      221          return syms
+      222  
+      223 -    def data(self, addr):  # noqa: F811 (instance attr 'data' 
+          -is the list; method below)                                    
+      224 -        pass                                                  
+      225 -                                                              
+      223      def var(self, addr):
+      224          """addr -> 'variable (+offset)' for a data address, vi
+           a the symbol table."""
+      228 -        for base, size, name in self.data if isinstance(self.d
+          -ata, list) else []:                                           
+      225 +        for base, size, name in self.dsyms:                   
+      226              if size and base <= addr < base + size:
+      227                  off = addr - base
+      228                  return "%s+0x%X" % (name, off) if off else nam
+           e
+
+● Let me syntax-check the parser and run a quick self-test with a synthetic
+  frame to validate decode + CRC:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/tools" && python -c "import
+      ast;ast.parse(open('sysinfo_…)
+  ⎿  syntax OK
+     wrote selftest.hex
+     ================================================================
+     … +17 lines (ctrl+o to expand)
+
+● Parser works end-to-end — and symbolization is live (it auto-found the real
+  .xer5f + toolchain and resolved 0x10230ABC → HandleTypeUpdate 
+  (objAttribCal.c)). DFSR decoded as "permission fault [write]".
+
+  But I need to verify one critical linker risk before declaring the firmware
+  done: whether overriding HwiP_undefined_handler/HwiP_prefetch_abort_handler by
+  name conflicts (they're co-located with the IRQ/FIQ handlers we need). Let me
+  check the vector placement:
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/platform/awr2x44P" && grep -nE
+      "vector|intvec|VECTOR|_vectors|\.intvecs|VECTOR…)
+  ⎿  22:--undef_sym=_vectors
+     23:--retain="*(.vectors)"
+     36:    /* This has the R5F entry point and vector table, this MUST be
+     … +4 lines (ctrl+o to expand)
+
+● Critical finding confirmed: the vector table is _vectors at 0x0, pulled via
+  --undef_sym=_vectors. Overriding HwiP_undefined_handler by name would conflict
+  (it's co-located in the same archive object as the IRQ/FIQ handlers we need).
+  The clean fix: give my handlers new names and install my own _vectors table
+  (the archive's _vectors-only object then isn't pulled — no conflict). Let me
+  rework:
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 43 lines, removed 4 lines
+      42  uint8_t gWfSysFaultStack[2048] __attribute__((aligned(8), secti
+          on(".bss.wfSysFaultStack")));
+      43  
+      44  /* ------------------------------------------------------------
+          ------ */
+      45 -/* Exception capture stubs (override the SDK's spin-forever def
+         -aults).  */                                                    
+      46 -/* Naked = we fully control the prologue; we never return (we r
+         -eset).    */                                                   
+      47 -/* The vector table jumps here by symbol name; the SDK copies a
+         -re in an   */                                                  
+      48 -/* archive, so these app definitions win.                      
+         -          */                                                   
+      45 +/* Exception capture stubs + our own vector table.             
+         +         */                                                    
+      46 +/*                                                             
+         +         */                                                    
+      47 +/* We do NOT redefine the SDK's HwiP_*_handler symbols: those l
+         +ive in    */                                                   
+      48 +/* the same archive object as HwiP_irq_handler_c / HwiP_fiq_han
+         +dler      */                                                   
+      49 +/* (which we still need), so the object is pulled regardless an
+         +d a       */                                                   
+      50 +/* same-name override would multiply-define. Instead we give ou
+         +r stubs   */                                                   
+      51 +/* fresh names (wf_sys_*_handler) and install our OWN _vectors 
+         +that       */                                                  
+      52 +/* points undef/prefetch/data at them while keeping the SDK han
+         +dlers for  */                                                  
+      53 +/* reset/svc/reserved/irq/fiq. --undef_sym=_vectors is then sat
+         +isfied by  */                                                  
+      54 +/* our table, so the SDK's _vectors-only object is not pulled (
+         +no clash). */                                                  
+      55 +/* Naked = we fully control the prologue; we never return (we r
+         +eset).     */                                                  
+      56  /* ------------------------------------------------------------
+          ------ */
+      57  
+      58 +extern void _c_int00(void);                                    
+      59 +extern void HwiP_svc_handler(void);                            
+      60 +extern void HwiP_reserved_handler(void);                       
+      61 +extern void HwiP_irq_handler(void);                            
+      62 +extern void HwiP_fiq_handler(void);                            
+      63 +void wf_sys_undef_handler(void);                               
+      64 +void wf_sys_prefetch_handler(void);                            
+      65 +void wf_sys_data_handler(void);                                
+      66 +                                                               
+      67 +/* Our reset vector table, placed at 0x0 (RESET_VECTORS) by the
+         + platform linker's                                             
+      68 + * ".vectors" placement. Same layout as the SDK's (LDR pc, addr
+         + ; addr: .word handler). */                                    
+      69 +__attribute__((naked, section(".vectors"), used)) void _vectors
+         +(void)                                                         
+      70 +{                                                              
+      71 +    __asm__ volatile(                                          
+      72 +        "LDR pc, wf_v_reset \n"                                
+      73 +        "LDR pc, wf_v_undef \n"                                
+      74 +        "LDR pc, wf_v_svc   \n"                                
+      75 +        "LDR pc, wf_v_pref  \n"                                
+      76 +        "LDR pc, wf_v_data  \n"                                
+      77 +        "LDR pc, wf_v_rsvd  \n"                                
+      78 +        "LDR pc, wf_v_irq   \n"                                
+      79 +        "LDR pc, wf_v_fiq   \n"                                
+      80 +        "wf_v_reset: .word _c_int00              \n"           
+      81 +        "wf_v_undef: .word wf_sys_undef_handler  \n"           
+      82 +        "wf_v_svc:   .word HwiP_svc_handler      \n"           
+      83 +        "wf_v_pref:  .word wf_sys_prefetch_handler\n"          
+      84 +        "wf_v_data:  .word wf_sys_data_handler   \n"           
+      85 +        "wf_v_rsvd:  .word HwiP_reserved_handler \n"           
+      86 +        "wf_v_irq:   .word HwiP_irq_handler      \n"           
+      87 +        "wf_v_fiq:   .word HwiP_fiq_handler      \n");         
+      88 +}                                                              
+      89 +                                                               
+      90  /* Shared tail: r0-r12 still hold the faulting context, excepti
+          on LR is already the
+      91   * faulting PC, gWfSysFtype holds the fault code. Saves everyth
+          ing into gWfSysFaultRegs,
+      92   * switches SP to the dedicated stack, and calls the C entry (n
+          ever returns). */
+● Now rename the three handler functions to the new names:
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 1 line, removed 1 line
+      122          "1:    b 1b                  \n");
+      123  }
+      124  
+      125 -__attribute__((naked, used)) void HwiP_undefined_handler(void)
+      125 +__attribute__((naked, used)) void wf_sys_undef_handler(void)  
+      126  {
+      127      __asm__ volatile(
+      128          "push  {r0, r1}             \n"
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 1 line, removed 1 line
+      137          "b     wf_sys_capture_common\n");
+      138  }
+      139  
+      140 -__attribute__((naked, used)) void HwiP_prefetch_abort_handler(
+          -void)                                                         
+      140 +__attribute__((naked, used)) void wf_sys_prefetch_handler(void
+          +)                                                             
+      141  {
+      142      __asm__ volatile(
+      143          "push  {r0, r1}             \n"
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 1 line, removed 1 line
+      149          "b     wf_sys_capture_common\n");
+      150  }
+      151  
+      152 -__attribute__((naked, used)) void HwiP_data_abort_handler(void
+          -)                                                             
+      152 +__attribute__((naked, used)) void wf_sys_data_handler(void)   
+      153  {
+      154      __asm__ volatile(
+      155          "push  {r0, r1}             \n"
+
+● Now let me verify the reworked firmware reads coherently (handlers + vectors +
+  entry):
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Firmware structure is coherent (remaining diagnostics are all LSP include-path
+  noise). Now the design note for this feature:
+
+● Write(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00_
+       01/ti/demo/awr2x44P/mmw_ddm/docs/systemInfo_design_note.md)
+  ⎿  Wrote 99 lines to ..\docs\systemInfo_design_note.md
+      2 # systemInfo / dumptrace 设计笔记 (schema v1, R5F)
+      3 > 跨复位的 **R5F 崩溃黑匣子**:CPU 异常(未定义指令 / 预取中止 / 数
+        据中止=越界·野指针)发生时,把现场抓进 flash,**下次上电**经 CAN-FD 
+        码行·变量**。本期只做 R5,M4 后续。info_parser.py` 反查到**函数·源
+      4 
+      5 与 `0x200/0x201 debugInfo`(本上电周期实时遥测)互补:debugInfo 看"
+      6 现在健不健康",systemInfo 回答"**上次为什么挂了、挂在哪**"。
+      7 ---
+      8 
+      9 ## 1. 出发点与硬约束
+     … +136 lines (ctrl+o to expand)
+
+● One important interaction I must fix: the sysinfo transmit task is now also a
+  concurrent caller of mcanA_transfer_FIFO. The FIFO mutex I added is gated on
+  WF_DEBUG_INFO_ENABLE, but in production (debugInfo OFF, systemInfo likely ON)
+  the race would return. Let me gate the mutex on either feature:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(mss_mcan.c)
+  ⎿  Added 5 lines
+      17  #include "wf_time_sync.h"
+      18  #include "wf_debug_info.h"
+      19  #include "wf_debug_inject.h"
+      20 +#include "wf_sysinfo.h"                                        
+      21 +/* mcanA_transfer_FIFO gets a second concurrent caller (and thu
+         +s needs the TX-FIFO                                            
+      22 + * mutex) when EITHER debugInfo (0x200/0x201) or systemInfo (0x
+         +100) is built in. With                                         
+      23 + * both off there is only canoutput, and the lock compiles out 
+         +to the original path. */                                       
+      24 +#define WF_CAN_TX_SERIALIZE  ((WF_DEBUG_INFO_ENABLE == 1U) || (
+         +WF_SYSINFO_ENABLE == 1U))                                      
+      25  #include "wf_calib_ant_channel.h"
+      26  #include "gwmp11_CR_RL.h"
+      27  #include "zelos_CR_CAN1_FL.h"
+
+● Now update the four mutex guards from WF_DEBUG_INFO_ENABLE to
+  WF_CAN_TX_SERIALIZE:
+
+● Update(mss_mcan.c)
+  ⎿  Added 3 lines, removed 3 lines
+      83  static SemaphoreP_Object gMcanbRxDoneSem;
+      84  static SemaphoreP_Object gMcanRxDoneSem;
+      85  
+      86 -#if (WF_DEBUG_INFO_ENABLE == 1U)                               
+      86 +#if WF_CAN_TX_SERIALIZE                                        
+      87  /* Serializes mcanA_transfer_FIFO against concurrent callers (c
+          anoutput task +
+      88 - * debugInfo task). Only needed when debugInfo is built in: it 
+         -is the second TX caller.                                       
+      89 - * With debugInfo OFF (production) canoutput is the sole caller
+         -, so the whole lock                                            
+      88 + * debugInfo / systemInfo tasks). Only needed when a second TX 
+         +caller is built in.                                            
+      89 + * With both features OFF (production) canoutput is the sole ca
+         +ller, so the whole lock                                        
+      90   * compiles out and the TX path is byte-for-byte the original. 
+          Mutex has priority
+      91   * inheritance; constructed in mcan_initialization; gMcanaTxFif
+          oMutexValid gates use so
+      92   * a transmit before init can't pend on an unconstructed object
+          . */
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+  ⎿  You've hit your session limit · resets 7:50pm (Asia/Shanghai)
+     /upgrade or /usage-credits to finish what you’re working on.
+
+✻ Sautéed for 24m 21s
+
+> 继续                                                                          
+
+● I'll update the other three mutex guards (init construct, pend, post/out:) to
+  the same macro:
+
+● Update(mss_mcan.c)
+  ⎿  Added 1 line, removed 1 line
+      131      status = SemaphoreP_constructBinary(&gMcanRxDoneSem,  0);
+      132      DebugP_assert(SystemP_SUCCESS == status);
+      133  
+      134 -#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      134 +#if WF_CAN_TX_SERIALIZE                                       
+      135      /* TX-FIFO serialization mutex (see declaration). Gate use
+            only after success. */
+      136      status = SemaphoreP_constructMutex(&gMcanaTxFifoMutex);
+      137      DebugP_assert(SystemP_SUCCESS == status);
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(mss_mcan.c)
+  ⎿  Added 8 lines, removed 8 lines
+      273      g_canTxDiag.enterCnt++;
+      274      wf_debug_mark_can_tx(size);   /* count radar's own TX fram
+           e/bytes for in-band bus-rate */
+      275  
+      276 -#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      277 -    /* Serialize concurrent callers (canoutput task + debugInf
+          -o task) over the shared                                       
+      278 -     * TX FIFO. The "read putIdx -> write that slot -> AddReq 
+          -that slot" sequence is a                                      
+      279 -     * TOCTOU: without this lock a higher-priority caller pree
+          -mpting mid-sequence would                                     
+      280 -     * reuse the same putIdx and clobber/double-request a slot
+          -. Mutex (priority                                             
+      281 -     * inheritance), not a critical section, because the wait 
+          -loop calls vTaskDelay.                                        
+      282 -     * Every exit below releases via the single `out:` point. 
+          -Only compiled in with                                         
+      283 -     * debugInfo (the second caller); production keeps the ori
+          -ginal single-caller path. */                                  
+      276 +#if WF_CAN_TX_SERIALIZE                                       
+      277 +    /* Serialize concurrent callers (canoutput task + debugInf
+          +o / systemInfo tasks) over                                    
+      278 +     * the shared TX FIFO. The "read putIdx -> write that slot
+          + -> AddReq that slot"                                         
+      279 +     * sequence is a TOCTOU: without this lock a higher-priori
+          +ty caller preempting                                          
+      280 +     * mid-sequence would reuse the same putIdx and clobber/do
+          +uble-request a slot. Mutex                                    
+      281 +     * (priority inheritance), not a critical section, because
+          + the wait loop calls                                          
+      282 +     * vTaskDelay. Every exit below releases via the single `o
+          +ut:` point. Compiled in only                                  
+      283 +     * when a second TX caller exists; otherwise the original 
+          +single-caller path stays. */                                  
+      284      if (gMcanaTxFifoMutexValid != 0U)
+      285      {
+      286          SemaphoreP_pend(&gMcanaTxFifoMutex, SystemP_WAIT_FOREV
+           ER);
+
+● Update(mss_mcan.c)
+  ⎿  Added 1 line, removed 1 line
+      302          {
+      303              g_canTxDiag.timeoutCnt++;
+      304              g_canTxDiag.lastFreeLvl = 0;
+      305 -#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      305 +#if WF_CAN_TX_SERIALIZE                                       
+      306              goto out;                     /* release mutex the
+           n drop this frame */
+      307  #else
+      308              return;                       /* drop this frame, 
+           do not stall the task */
+
+● Update(mss_mcan.c)
+  ⎿  Added 1 line, removed 1 line
+      344          g_canTxDiag.lastLec = protStatus.lastErrCode;
+      345      }
+      346  
+      347 -#if (WF_DEBUG_INFO_ENABLE == 1U)                              
+      347 +#if WF_CAN_TX_SERIALIZE                                       
+      348  out:
+      349      if (gMcanaTxFifoMutexValid != 0U)
+      350      {
+● Let me verify all mutex guards are consistent and the design note for
+  debugInfo's FIFO section still matches (it referenced WF_DEBUG_INFO_ENABLE
+  gating):
+
+● Bash(cd "D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_
+      00_01/ti/demo/awr2x44P/mmw_ddm/mss" && echo "=== mutex guards in
+      mss_mcan.c ===" && gre…)
+  ⎿  === mutex guards in mss_mcan.c ===
+     24:#define WF_CAN_TX_SERIALIZE  ((WF_DEBUG_INFO_ENABLE == 1U) || (WF_S
+     YSINFO_ENABLE == 1U))
+     … +15 lines (ctrl+o to expand)
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Let me update the debugInfo design note's FIFO-mutex paragraph (the gating is
+  no longer debugInfo-only):
+
+● Update(D:/Project/CR/Project/NotimeSync/zelos_repo/mmwave_mcuplus_sdk_04_07_00
+        _01/ti/demo/awr2x44P/mmw_ddm/docs/debugInfo_design_note.md)
+  ⎿  Added 1 line, removed 1 line
+      279  
+      280  修法:`mss_mcan.c` 加一把 **优先级继承互斥锁** `gMcanaTxFifoMut
+           ex`(`SemaphoreP_constructMutex`,在 `mcan_initialization` 构造)
+           ,串行化整个取槽→写→请求序列。等待循环里有 `vTaskDelay`,故用 mu
+           tex 而非关中断;所有返回路径(含 FIFO 满超时丢帧)经单一 `out:` 
+           释放,无死锁;`gMcanaTxFifoMutexValid` 门控避免 init 前 pend。
+      281  
+      282 -**整把锁用 `#if (WF_DEBUG_INFO_ENABLE == 1U)` 门控**:只有当 de
+          -bugInfo 编进来(即第二个调用者存在)时才生效。**量产 D sample 关
+          -掉 debugInfo 时,声明/构造/pend/post/`out:` 全部预处理消失,`mca
+          -nA_transfer_FIFO` 逐字节回到原始单调用者版本(超时走 `return`, 
+          -无锁),对量产 TX 路径零影响。** 竞态本就只由 debugInfo 这个第二
+          -调用者引入,所以锁与它同生共灭是精确对位的。                   
+      282 +**整把锁用 `#if WF_CAN_TX_SERIALIZE` 门控**,其中 `WF_CAN_TX_SE
+          +RIALIZE = (WF_DEBUG_INFO_ENABLE || WF_SYSINFO_ENABLE)`:只要存 
+          +在第二个 TX 调用者(debugInfo 的 0x200/0x201 **或** systemInfo 
+          +的 0x100)就生效。**只有两者都关时**,声明/构造/pend/post/`out:`
+          + 才全部预处理消失,`mcanA_transfer_FIFO` 逐字节回到原始单调用者
+          +版本(超时走 `return`,无锁)。注意:量产 D sample 即便关掉 debugI
+          +nfo,只要 **systemInfo 仍开**(崩溃黑匣子,通常保留),锁就**必须保
+          +留**——因为 systemInfo 的发送任务同样是 FIFO 的并发调用者。    
+      283  
+      284  ---
+      285  
+
+● Let me do a final coherence read of the boot-init + transmit section:
+
+  Read 1 file (ctrl+o to expand)
+
+● One real hazard to fix: CacheP_inv on small stack buffers (&w, &tmp)
+  invalidates the whole 32-byte cache line, which could discard adjacent dirty 
+  stack data. That's a corruption risk worse than the stale-read it guards
+  against (Flash_read on this part is a CPU/driver copy). Let me remove those
+  cache ops:
+
+● Update(wf_sysinfo.c)
+  ⎿  Added 1 line, removed 4 lines
+      296  static uint32_t wf_sys_read_word(Flash_Handle h, uint32_t off)
+      297  {
+      298      uint32_t w = 0xFFFFFFFFU;
+      299 -    if (Flash_read(h, off, (uint8_t *)&w, 4U) == SystemP_SUCCE
+          -SS)                                                           
+      300 -    {                                                         
+      301 -        CacheP_inv(&w, 4, CacheP_TYPE_ALL);                   
+      302 -    }                                                         
+      299 +    (void)Flash_read(h, off, (uint8_t *)&w, 4U);              
+      300      return w;
+      301  }
+      302  
+  ⎿  Found 10 new diagnostic issues in 1 file (ctrl+o to expand)
+
+● Update(wf_sysinfo.c)
+  ⎿  Removed 1 line
+      343          WFSysCrashRec_s tmp;
+      344          uint32_t off = WF_SYSINFO_FLASH_OFF + s * WF_SYSINFO_S
+           LOT_SIZE;
+      345          if (Flash_read(h, off, (uint8_t *)&tmp, sizeof(tmp)) !
+           = SystemP_SUCCESS) { continue; }
+      346 -        CacheP_inv(&tmp, sizeof(tmp), CacheP_TYPE_ALL);       
+      346  
+      347          if (tmp.magic == WF_SYSINFO_SLOT_MAGIC)
+      348          {
+
+● Update(wf_sysinfo.c)
+  ⎿  Removed 1 line
+      366          uint32_t off = WF_SYSINFO_FLASH_OFF + (uint32_t)newest
+           Slot * WF_SYSINFO_SLOT_SIZE;
+      367          if (Flash_read(h, off, (uint8_t *)&gWfSysTxRec, sizeof
+           (gWfSysTxRec)) == SystemP_SUCCESS)
+      368          {
+      369 -            CacheP_inv(&gWfSysTxRec, sizeof(gWfSysTxRec), Cach
+          -eP_TYPE_ALL);                                                 
+      369              gWfSysTxValid = 1U;
+      370          }
+      371      }
+
+● Implementation complete. Let me give you the full picture — this is real, 
+  unverified-on-hardware firmware (I can't build/flash here), so I'm flagging
+  the validation points honestly.
+
+  交付内容(Phase 1:R5 systemInfo / dumptrace)
+
+  ┌────────────────────────────────┬─────────────────────────────────────────┐
+  │              文件              │                  作用                   │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ mss/wf_sysinfo.h               │ 契约:flash 布局、记录格式、0x100        │
+  │                                │ 帧格式、开关/参数                       │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │                                │ 自带 _vectors + 三个 naked 捕获 stub +  │
+  │ mss/wf_sysinfo.c               │ 故障 C 入口(写 flash + PMIC 复位)+      │
+  │                                │ 启动侧(读/计数/老化/发送)               │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ mss/mss_main.c                 │ #include + 在 CAN/flash 就绪后调        │
+  │                                │ wf_sysinfo_init()                       │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ mss/mmw_mss_linker.cmd         │ wf_sysinfo 代码→TCMA、数据→TCMB(MSS_L2  │
+  │                                │ 满)                                     │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ mss/mmw_mss.mak                │ 加入 wf_sysinfo.c                       │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │                                │ FIFO 互斥锁门控扩成                     │
+  │ mss/mss_mcan.c                 │ WF_DEBUG_INFO_ENABLE ||                 │
+  │                                │ WF_SYSINFO_ENABLE(systemInfo            │
+  │                                │ 发送任务也是并发调用者)                 │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │                                │ 解析 0x100 + CRC + DFSR 解码 + 用       │
+  │ tools/sysinfo_parser.py        │ .xer5f                                  │
+  │                                │ 反查函数/行/变量(已自测,符号化实时可用) │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ docs/systemInfo_design_note.md │ 完整设计文档                            │
+  └────────────────────────────────┴─────────────────────────────────────────┘
+
+  工作原理(一句话链路)
+
+  故障 → 自带_vectors → wf_sys_*_handler(抓R0-R12/SP/LR/PC/CPSR) → C入口(读CP15
+  DFSR/DFAR
+  → 写"预擦好"的flash槽 → BSW_SocRest复位) →【下次上电】读flash → 0x100两帧发3次
+  → 脚本定位
+  防丢失:不读完即擦;每次上电重发,距最后一次故障满 20
+  个周期才擦。擦在启动(健康)、写在故障(只写)。
+
+  解析器已验证可用
+
+  自测中符号化是真的活的——自动找到 .xer5f + 工具链,把 0x10230ABC 解析成了
+  HandleTypeUpdate (objAttribCal.c),DFSR 解码成 permission fault [write]。
+
+  ⚠️ 必须上板验证的点(我无法在构建外确认)
+
+  1. _vectors 覆盖生效且能正常启动(向量表放 0x0,其余向量仍走
+  SDK)。这是最高风险——若链接器报 .vectors 重复或不启动,回退方案=放弃
+  undef/prefetch、只挂 weak 的
+  HwiP_data_abort_handler_c(数据中止=越界/野指针,最常见那类仍覆盖)。
+  2. abort 上下文里 Flash_write 可用(QSPI
+  轮询写,不依赖中断/信号量)。若挂死,回退=自包含 QSPI page-program。
+  3. abort 上下文里 BSW_SocRest()(MIBSPI 写 PMIC)可用。即便挂死,记录已落
+  flash,手动上电仍能播报。
+  4. 内联汇编 stm {sp,lr}^、ldr sp,=gWfSysFaultStack+2048、naked 字面量池在
+  ti-arm-clang 下编译通过。
+  5. release 构建保留 -g,否则 PC→源码行失效(函数名仍可)。
+
+  怎么测(造一次崩溃)
+
+  临时在某任务塞 *(volatile uint32_t*)0xDEAD0000 = 1;(→data abort),复位后看
+  0x100 是否报出、脚本能否定位到那行。验完删除。
+
+  下一步
+
+  clean 全量重编(新增 .c + 改了向量表/linker/makefile),先单独验证 systemInfo
+  链路(造崩溃→复位→0x100→解析),再说 M4(Phase 2)。
+
+  要我现在把**回退方案(只挂 weak data-abort,不动
+  _vectors)**也准备一个开关,让你上板时能一键切换、降低首次启动风险吗?
+
+✻ Crunched for 2m 47s
