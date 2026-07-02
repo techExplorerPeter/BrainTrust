@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-debugInfo parser  ——  AWR2x44P mmw_ddm radar runtime debug decoder (schema v2)
+debugInfo parser - AWR2x44P mmw_ddm radar runtime debug decoder (schema v2)
 
 The full snapshot is split across two CAN-FD frames sent back-to-back each 66ms:
   0x200  "hot"    half (timing / detection / liveness)   msgIndex=0
   0x201  "detail" half (TimeSync / CAN / black box / res) msgIndex=1
 Both carry the same 6-byte common header (incl. rollingCounter) and their own CRC.
-Source of truth: mss/wf_debug_info.c + docs/debugInfo_design_note.md 附录A.
+Source of truth: mss/wf_debug_info.c + docs/debugInfo_design_note.md 闄勫綍A.
 
 Features
   - decode each 64-byte frame -> structured dict (header + half payload)
@@ -43,6 +43,8 @@ Pure stdlib, Python 3.7+.
 import sys
 import argparse
 import struct
+import os
+import re
 
 FRAME_LEN = 64
 # CAN ids are matched against the value parsed from the .asc honoring its
@@ -68,6 +70,22 @@ for _name, _hot, _det in RADARS:
     ID_TO_RADAR[_hot] = _name
     ID_TO_RADAR[_det] = _name
 ALL_WANT_IDS = set(ID_TO_RADAR.keys())
+
+POINT_CLOUD_IDS = {
+    "FL": {0x110},
+    "FR": {0x111},
+}
+DBC_FILENAME = "MCR1+MFR1+objects_list CAN Matrix to Zelos_V3.0.2_07_TX.dbc"
+
+
+def default_dbc_path():
+    if getattr(sys, "frozen", False):
+        return os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)),
+                            "mss", "dbc", DBC_FILENAME)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "mss", "dbc", DBC_FILENAME))
+
+
+DEFAULT_DBC_PATH = default_dbc_path()
 
 CRC_COVER = 62
 SCHEMA_VER_EXPECTED = 4
@@ -102,6 +120,36 @@ def monitor_bus_load(mon):
     fps = dm.get("txFramesPerSec", 0)
     kbps = dm.get("txKBytesPerSec", 0)
     return fps, kbps, bus_load_pct(fps, kbps)
+
+
+class CanLoadStats:
+    def __init__(self):
+        self.frames = 0
+        self.bytes = 0
+        self.first_ts = None
+        self.last_ts = None
+        self.by_id = {}
+
+    def add(self, ts, msg_id, data_len):
+        self.frames += 1
+        self.bytes += data_len
+        d = self.by_id.setdefault(msg_id, {"frames": 0, "bytes": 0})
+        d["frames"] += 1
+        d["bytes"] += data_len
+        if isinstance(ts, float):
+            if self.first_ts is None:
+                self.first_ts = ts
+            self.last_ts = ts
+
+    def rates(self):
+        if self.first_ts is None or self.last_ts is None:
+            return 0.0, 0.0, 0.0, None
+        dur = self.last_ts - self.first_ts
+        if dur <= 0:
+            return 0.0, 0.0, 0.0, dur
+        fps = self.frames / dur
+        kbps = (self.bytes / 1024.0) / dur
+        return fps, kbps, bus_load_pct(fps, kbps), dur
 
 FAULT_BITS = [
     "OVERRUN", "FRAME_DROP", "SYNC_LOST", "CAN_ERR", "OVER_TEMP", "DTC_ACTIVE",
@@ -179,7 +227,7 @@ def i32(d, o): return struct.unpack_from("<i", d, o)[0]
 
 
 # --------------------------------------------------------------------------- #
-# Decoders (absolute frame offsets, per docs 附录A)
+# Decoders (absolute frame offsets, per docs 闄勫綍A)
 # --------------------------------------------------------------------------- #
 def decode_common(d):
     ver_msg = d[0]
@@ -447,36 +495,51 @@ def _asc_base(path):
     return 16
 
 
-def iter_asc(path, want_ids):
+def _parse_asc_line(toks, base):
+    if len(toks) < 5:
+        return None
+    dir_i = next((i for i, t in enumerate(toks) if t in ("Rx", "Tx")), -1)
+    if dir_i <= 0:
+        return None
+    is_fd = toks[1].upper() == "CANFD"
+    if is_fd:
+        if dir_i + 2 >= len(toks):
+            return None
+        # <time> CANFD <ch> <dir> <id> <BRS> <ESI> <DLC> <DataLen> <data..>
+        id_tok, data_start = toks[dir_i + 1], dir_i + 2
+    else:
+        # <time> <ch> <id> <dir> d <dlc> <data..>
+        id_tok, data_start = toks[dir_i - 1], dir_i + 1
+    try:
+        msg_id = int(id_tok.rstrip("xX"), base)
+    except ValueError:
+        return None
+    data = _extract_data(toks, data_start)
+    if data is None:
+        return None
+    try:
+        ts = float(toks[0])
+    except ValueError:
+        ts = None
+    return ts, msg_id, data
+
+
+def iter_asc_frames(path, want_ids=None):
     base = _asc_base(path)
     with _open(path) as fh:
         for line in fh:
-            toks = line.split()
-            if len(toks) < 5:
+            parsed = _parse_asc_line(line.split(), base)
+            if parsed is None:
                 continue
-            dir_i = next((i for i, t in enumerate(toks) if t in ("Rx", "Tx")), -1)
-            if dir_i <= 0:
+            ts, msg_id, data = parsed
+            if want_ids is not None and msg_id not in want_ids:
                 continue
-            is_fd = toks[1].upper() == "CANFD"
-            if is_fd:
-                # <time> CANFD <ch> <dir> <id> <BRS> <ESI> <DLC> <DataLen> <data..>
-                id_tok, data_start = toks[dir_i + 1], dir_i + 2
-            else:
-                # <time> <ch> <id> <dir> d <dlc> <data..>
-                id_tok, data_start = toks[dir_i - 1], dir_i + 1
-            try:
-                msg_id = int(id_tok.rstrip("xX"), base)
-            except ValueError:
-                continue
-            if msg_id not in want_ids:
-                continue
-            data = _extract_data(toks, data_start)
-            if data is None or len(data) != FRAME_LEN:
-                continue
-            try:
-                ts = float(toks[0])
-            except ValueError:
-                ts = None
+            yield ts, msg_id, data
+
+
+def iter_asc(path, want_ids):
+    for ts, msg_id, data in iter_asc_frames(path, want_ids):
+        if len(data) == FRAME_LEN:
             yield ts, msg_id, data
 
 
@@ -500,6 +563,67 @@ def iter_hex(path, want_ids):
             if len(data) == FRAME_LEN:
                 # hex dumps carry no CAN id -> cannot split radars; single stream.
                 yield ts, None, data
+
+
+_DBC_BO_RE = re.compile(r"^BO_\s+(\d+)\s+([^:]+):\s+(\d+)\s+(\S+)")
+
+
+def _radar_from_dbc_message(name, sender):
+    tokens = re.split(r"[^A-Za-z0-9]+", name)
+    if sender in ("FL", "FR"):
+        return sender
+    if "FL" in tokens:
+        return "FL"
+    if "FR" in tokens:
+        return "FR"
+    return None
+
+
+def load_tx_ids_from_dbc(path):
+    ids = {"FL": set(), "FR": set()}
+    if not path:
+        return ids
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                m = _DBC_BO_RE.match(line.strip())
+                if not m:
+                    continue
+                msg_id = int(m.group(1))
+                name = m.group(2)
+                sender = m.group(4)
+                radar = _radar_from_dbc_message(name, sender)
+                if radar in ids:
+                    ids[radar].add(msg_id)
+    except OSError as e:
+        print(f"warning: cannot read DBC '{path}': {e}", file=sys.stderr)
+    for radar, point_ids in POINT_CLOUD_IDS.items():
+        ids[radar].update(point_ids)
+    return ids
+
+
+def collect_asc_bus_load(path, ids_by_radar, skip_frames=0, skip_time=None):
+    all_ids = set()
+    id_to_radars = {}
+    for radar, ids in ids_by_radar.items():
+        for msg_id in ids:
+            all_ids.add(msg_id)
+            id_to_radars.setdefault(msg_id, set()).add(radar)
+
+    stats = {radar: CanLoadStats() for radar in ("FL", "FR")}
+    if not all_ids:
+        return stats
+
+    read_idx = 0
+    for ts, msg_id, data in iter_asc_frames(path, all_ids):
+        read_idx += 1
+        if read_idx <= skip_frames:
+            continue
+        if skip_time is not None and isinstance(ts, float) and ts < skip_time:
+            continue
+        for radar in id_to_radars.get(msg_id, ()):
+            stats[radar].add(ts, msg_id, len(data))
+    return stats
 
 
 # --------------------------------------------------------------------------- #
@@ -532,7 +656,7 @@ def print_snapshot(cyc):
             print(f"     {k:22s} = {v}")
 
 
-def print_summary(mon, label=None):
+def print_summary(mon, label=None, measured_load=None):
     a = mon.a
     faults = _bits(a["fault_union"], FAULT_BITS)
     hm, dm = a["hotmax"], a["detmax"]
@@ -541,7 +665,7 @@ def print_summary(mon, label=None):
     print("=" * 64)
     if label and label in RADAR_IDS:
         hot, det = RADAR_IDS[label]
-        print(f"debugInfo summary  —  {label}  ({hot:#05x}/{det:#05x})")
+        print(f"debugInfo summary    {label}  ({hot:#05x}/{det:#05x})")
     else:
         print("debugInfo capture summary")
     print("=" * 64)
@@ -558,16 +682,23 @@ def print_summary(mon, label=None):
     tmaxs = ", ".join(f"{k[5:]}={hm[k]}" for k in
                       ["tMax_CM4", "tMax_DOA", "tMax_postproc", "tMax_total"]
                       if k in hm)
-    print(f"timing max-hold (0.1ms): {tmaxs or '(all 0 — sensor not running)'}")
+    print(f"timing max-hold (0.1ms): {tmaxs or '(all 0 - sensor not running)'}")
     print(f"overrun max={hm.get('overrunCount', 0)}  framePeriodMaxDev max={hm.get('framePeriodMaxDev', 0)}")
     print(f"CPU load: R5 avg={hm.get('cpuR5AvgPct', 0)}% peak={hm.get('cpuR5PeakPct', 0)}%  "
           f"rsp(algo)={hm.get('cpuRspPct', 0)}%  canout={hm.get('cpuCanoutPct', 0)}%")
     print(f"CAN-A  tec max={dm.get('tec', 0)}  rec max={dm.get('rec', 0)}  "
           f"busOffEver={dm.get('busOffEverCount', 0)}  txStall max={dm.get('canTxStallCount', 0)}  CEL max={dm.get('canErrLogCnt', 0)}")
-    fps, kbps, busPct = monitor_bus_load(mon)
-    print(f"CAN-A TX rate (peak): {fps} frames/s  {kbps} KB/s  (this radar's own bus contribution)")
-    print(f"est. bus load (this radar): ~{busPct:.0f}%  "
-          f"(500K/2M; rough, TX only — see combined total below)")
+    if measured_load is not None and measured_load.frames > 0:
+        fps, kbps, busPct, _dur = measured_load.rates()
+        rate_label = "ASC measured"
+        rate_note = "DBC TX ids + point cloud"
+    else:
+        fps, kbps, busPct = monitor_bus_load(mon)
+        rate_label = "debugInfo peak"
+        rate_note = "firmware-reported radar TX"
+    print(f"CAN-A TX rate ({rate_label}): {fps:.1f} frames/s  {kbps:.1f} KB/s  ({rate_note})")
+    print(f"est. bus load (this radar): ~{busPct:.1f}%  "
+          f"(500K/2M; {rate_note})")
     print(f"TimeSync  crcErr={dm.get('crcErrorCount', 0)}  invalid={dm.get('invalidFrameCount', 0)}  jump={dm.get('offsetJumpCount', 0)}")
     print(f"blackbox record: {'YES' if a['bb_seen'] else 'no'}   assertLive max={dm.get('assertCountLive', 0)}   lastErrorCode={a['lastErr']}")
     if a["stack_min"]:
@@ -581,14 +712,14 @@ def print_summary(mon, label=None):
     if a["crc_err"]:
         hard.append(f"{a['crc_err']} CRC errors (bus noise, or firmware/parser schema out of sync)")
     if a["schema_err"]:
-        hard.append("schema version mismatch — rebuild firmware & parser together")
+        hard.append("schema version mismatch - rebuild firmware & parser together")
     for fb in faults:
         if fb not in FAULT_BENCH:
             hard.append(f"{fb}: {FAULT_HINT.get(fb, '')}")
     bench = [fb for fb in faults if fb in FAULT_BENCH]
 
     if not hard and not bench:
-        print("VERDICT: OK — no faults, no integrity issues.")
+        print("VERDICT: OK - no faults, no integrity issues.")
     else:
         if hard:
             print("VERDICT: NEEDS ATTENTION")
@@ -601,8 +732,48 @@ def print_summary(mon, label=None):
     print("=" * 64)
 
 
+def print_measured_bus_load(stats_by_radar, ids_by_radar):
+    rows = []
+    for radar in ("FL", "FR"):
+        st = stats_by_radar.get(radar)
+        if st is None or st.frames == 0:
+            rows.append((radar, 0, 0.0, 0.0, 0.0, None, 0))
+            continue
+        fps, kbps, pct, dur = st.rates()
+        rows.append((radar, st.frames, fps, kbps, pct, dur, len(st.by_id)))
+
+    if not any(r[1] for r in rows):
+        return
+
+    print("=" * 64)
+    print("ASC measured CAN-A bus load  (DBC FL/FR TX ids + point cloud ids)")
+    total_pct = 0.0
+    total_fps = 0.0
+    total_kbps = 0.0
+    for radar, frames, fps, kbps, pct, dur, seen_ids in rows:
+        total_pct += pct
+        total_fps += fps
+        total_kbps += kbps
+        cfg_ids = len(ids_by_radar.get(radar, ()))
+        dur_s = "-" if dur is None else f"{dur:.2f}s"
+        print(f"  {radar}: frames={frames}  ids_seen={seen_ids}/{cfg_ids}  duration={dur_s}  "
+              f"{fps:.1f} frames/s  {kbps:.1f} KB/s  load~{pct:.1f}%")
+    print(f"  TOTAL: {total_fps:.1f} frames/s  {total_kbps:.1f} KB/s  load~{total_pct:.1f}%")
+    print("  (estimated from ASC payload lengths, 500K/2M CAN-FD timing model)")
+    print("=" * 64)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="debugInfo parser (schema v2, dual-frame)")
+    # When packaged as a standalone .exe (PyInstaller), make it drag-and-drop
+    # friendly: a user can drop a .asc onto the icon (path arrives as argv[1]) or
+    # double-click and get prompted. Running the .py for dev is unaffected.
+    frozen = getattr(sys, "frozen", False)
+    if frozen and len(sys.argv) == 1:
+        p = input("Drop a .asc file here and press Enter, or type the file path: ").strip().strip('"').strip("'")
+        if p:
+            sys.argv.append(p)
+
+    ap = argparse.ArgumentParser(description="debugInfo parser (schema v4, dual-frame)")
     ap.add_argument("input", help="capture file, or '-' for stdin")
     ap.add_argument("--format", choices=["auto", "asc", "hex"], default="auto")
     ap.add_argument("--full", action="store_true",
@@ -612,7 +783,15 @@ def main():
     ap.add_argument("--skip", metavar="N|Xs", default=None,
                     help="drop the capture-start artifact: '16' = skip first 16 frames, "
                          "'0.05s' = skip frames before t=0.05s")
+    ap.add_argument("--dbc", default=DEFAULT_DBC_PATH,
+                    help="TX DBC used for measured ASC bus-load stats "
+                         f"(default: {DEFAULT_DBC_PATH})")
     args = ap.parse_args()
+
+    # In the .exe, default to the health verdict (end users just want the report)
+    # unless they asked for the per-cycle --full dump.
+    if frozen and not args.full:
+        args.summary = True
 
     skip_frames, skip_time = 0, None
     if args.skip:
@@ -666,31 +845,59 @@ def main():
 
     total_frames = sum(m.frame_count for m in monitors.values())
     if total_frames == 0:
+        if fmt == "asc":
+            ids_by_radar = load_tx_ids_from_dbc(args.dbc)
+            measured = collect_asc_bus_load(args.input, ids_by_radar, skip_frames, skip_time)
+            if any(st.frames > 0 for st in measured.values()):
+                print("=" * 64)
+                print("no debugInfo frames found; showing ASC measured CAN-A bus load only")
+                print("=" * 64)
+                print_measured_bus_load(measured, ids_by_radar)
+                return
         ids = "/".join(f"0x{i:X}" for i in sorted(ALL_WANT_IDS))
         print(f"no {ids} frames found (format={fmt}). Check --format.", file=sys.stderr)
         sys.exit(1)
 
     if args.summary:
+        ids_by_radar = None
+        measured = {}
+        if fmt == "asc":
+            ids_by_radar = load_tx_ids_from_dbc(args.dbc)
+            measured = collect_asc_bus_load(args.input, ids_by_radar, skip_frames, skip_time)
         loads = []
         for name in order:
-            print_summary(monitors[name], label=(name if name != "single" else None))
-            fps, kbps, pct = monitor_bus_load(monitors[name])
+            measured_load = measured.get(name) if name != "single" else None
+            print_summary(monitors[name], label=(name if name != "single" else None),
+                          measured_load=measured_load)
+            if measured_load is not None and measured_load.frames > 0:
+                fps, kbps, pct, _dur = measured_load.rates()
+            else:
+                fps, kbps, pct = monitor_bus_load(monitors[name])
             loads.append((name, fps, kbps, pct))
         # Combined whole-bus total when more than one radar was seen.
         real = [x for x in loads if x[0] != "single"]
         if len(real) > 1:
             total = sum(x[3] for x in real)
             print("=" * 64)
-            print("combined CAN-A bus load  (all radars on this merged bus, TX only, rough)")
+            print("combined CAN-A bus load  (all radars on this merged bus)")
             print("  " + "   ".join(f"{n}~{p:.0f}%" for n, _f, _k, p in real)
                   + f"   ->  TOTAL ~{total:.0f}%")
-            print("  (500K/2M; per-radar TX estimate summed; judge headroom with "
-                  "txStall/tec/busOff, not this %.)")
+            print("  (500K/2M; DBC/ASC measured when available, otherwise debugInfo peak)")
             print("=" * 64)
+        if ids_by_radar is not None:
+            print_measured_bus_load(measured, ids_by_radar)
     else:
         seen = ", ".join(f"{n}={monitors[n].frame_count}" for n in order)
         print(f"\n{total_frames} frames decoded ({seen}). (run with --summary for a health verdict)")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # Keep the console window open when launched by double-click / drag-drop.
+        if getattr(sys, "frozen", False):
+            try:
+                input("\nPress Enter to exit...")
+            except Exception:
+                pass

@@ -239,8 +239,8 @@ MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按�
 | `framePeriodMaxDev` | 帧周期最大抖动(0.1ms) | 个位数 | 变大=帧节奏不稳 |
 | `tec`/`rec` | CAN-A 发/收错误计数 | 0 | tec 爬升=没ACK/总线问题;>127=error-passive |
 | `busOffEver`/`txStall`/`CEL` | bus-off次数/TX满次数/硬件错误日志 | 全0 | 非0=总线断过/背压/有错 |
-| `CAN-A TX rate` frames/s, KB/s | 雷达自身发送速率(in-band 估总线负载,实车无分析仪用) | 与对象数相符、稳定 | 暴涨=发送异常;配合 `txStall` 判总线吃不吃得下 |
-| `est. bus load (this node)` | 由 TX 速率粗估的本节点总线占用(parser 算,非固件) | ~9%(轻松) | 仅本节点·仅TX·粗估;本网络只有 FR+FL,两台百分比相加≈全总线占用;判总线满仍以 `txStall`/`tec` 为准 |
+| `CAN-A TX rate` frames/s, KB/s | **优先用 ASC 实测**:脚本按 DBC 中 FL/FR TX CAN ID + 点云 ID(`FL=0x110`,`FR=0x111`)扫描录制报文;无 ASC/DBC 匹配时回退到 debugInfo det@28/@53 的固件上报峰值 | 与对象数相符、稳定 | 暴涨=发送异常;配合 `txStall` 判总线吃不吃得下 |
+| `est. bus load (this radar)` | 由脚本按 `frames/s` + `KB/s` 和 500K/2M CAN-FD 时序估算;summary 行会标明 `ASC measured` 或 `debugInfo peak` 来源 | 与网络设计预算相符 | ASC 实测只统计 DBC/点云命中的 TX ID;本网络仅 FR+FL 时两台相加≈全总线占用;判总线满仍以 `txStall`/`tec` 为准 |
 | `TimeSync crcErr/invalid/jump` | 同步帧 CRC错/非法/时间跳变 | 全0 | 非0=同步帧损坏或时间不连续 |
 | `blackbox record` | 上次启动有无崩溃记录 | `no` | `YES`=上次崩过 |
 | `assertLive max` | 本次运行 assert 命中数 | 0 | >0=命中过(看 `--full` det 页 `bbLine` 定位行号) |
@@ -254,7 +254,10 @@ MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按�
 
 ### CAN 总线负载估算公式(parser 端,可改)
 
-固件只数本节点 TX 的**帧数/字节数**(`txFramesPerSec`/`txKBytesPerSec`),总线占用由 parser 用 CAN-FD 时序粗算,常量在 `debuginfo_parser.py` 顶部 `CAN_*`:
+脚本现在有两种 TX 速率来源,总线占用都用同一套 CAN-FD 时序公式估算,常量在 `debuginfo_parser.py` 顶部 `CAN_*`:
+
+1. **ASC measured(首选)**:`.asc` 输入时,脚本读取 TX DBC,按 FL/FR 的 TX CAN ID + 点云 ID(`FL=0x110`,`FR=0x111`)逐帧统计录制报文的帧数和 payload 字节数。
+2. **debugInfo peak(回退)**:没有 ASC/DBC 匹配时,使用固件在 `0x201/0x203` det 半帧里上报的 `txFramesPerSec`/`txKBytesPerSec` 峰值。
 
 ```
 本节点占用 ≈ frames/s × 每帧固定开销 + bytes/s × 每字节
@@ -415,7 +418,11 @@ MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按�
 
 ## 附录 C:解析脚本
 
-`tools/debuginfo_parser.py` —— 按附录 A 实现:双 ID 收 + rolling 配对 + 派生 marginMin + 粘滞位/状态/复位原因解名 + 连续性/丢半帧/趋势告警。输入支持 CANoe `.asc`(经典/CANFD,按 asc 头 `base hex|dec` 解析 ID)与十六进制行。帧的 hot/det 归属取自帧头 `msgIndex`(不靠 CAN ID),hex dump 无 ID 也能解析。纯 stdlib,Python 3.7+。
+`tools/debuginfo_parser.py` —— 按附录 A 实现:双 ID 收 + rolling 配对 + 派生 marginMin + 粘滞位/状态/复位原因解名 + 连续性/丢半帧/趋势告警。输入支持 CANoe `.asc`(经典/CANFD,按 asc 头 `base hex|dec` 解析 ID)与十六进制行。帧的 hot/det 归属取自帧头 `msgIndex`(不靠 CAN ID),hex dump 无 ID 也能解析。
+
+脚本同时支持 **ASC 实测 CAN-A 负载**:`.asc` 输入时读取 `mss/dbc/MCR1+MFR1+objects_list CAN Matrix to Zelos_V3.0.2_07_TX.dbc`,按 DBC 中 FL/FR 的 TX CAN ID 统计录制报文,并额外纳入点云 ID `FL=0x110` / `FR=0x111`。summary 中 `CAN-A TX rate (ASC measured)` 与 `est. bus load` 使用这个实测口径;没有匹配数据时才回退到 debugInfo 内部上报的 `debugInfo peak`。纯 stdlib,Python 3.7+。
+
+如果量产版本屏蔽 debugInfo,`.asc` 中没有 `0x200/0x201/0x202/0x203`,脚本不会直接失败;只要录制里有 DBC/点云匹配的 TX 报文,会输出 `no debugInfo frames found; showing ASC measured CAN-A bus load only` 并给出 CAN 负载统计。
 
 ### 多雷达(合并总线)自动分流
 
@@ -426,7 +433,7 @@ MSS_L2 近满载且碎片化(见仓库 CLAUDE.md),`mss/mmw_mss_linker.cmd` 按�
 | **FL**(FRONT_LEFT) | `0x200` / `0x201` |
 | **FR**(FRONT_RIGHT) | `0x202` / `0x203` |
 
-解析脚本**按 CAN ID 路由到各自的 monitor**(`msgIndex` 只在单台内区分 hot/det,分不出 FL/FR),所以一份 `.asc` 会输出:**每台雷达一份独立 summary + VERDICT**,末尾再给一行**全总线 TX 负载合计**(FL% + FR% → TOTAL%)。
+解析脚本**按 CAN ID 路由到各自的 monitor**(`msgIndex` 只在单台内区分 hot/det,分不出 FL/FR),所以一份 `.asc` 会输出:**每台雷达一份独立 summary + VERDICT**。对于 CAN 负载,summary 内部会优先显示 DBC/ASC 实测值,末尾追加 `ASC measured CAN-A bus load` 表,列出 FL/FR/TOTAL 的帧数、命中 ID 数、frames/s、KB/s 和估算负载。
 
 > **免 Python 的独立 exe**:对外分发时不必给 `.py` 源码,用 `dist/debuginfo_parser.exe`(单文件,目标机器无需装 Python),把 `.asc` **拖到图标上**即出报告。打包方法见**附录 E**。
 
@@ -470,12 +477,14 @@ python debuginfo_parser.py frames.hex --format hex --summary
 ### 解析总流程(从 .asc 到报告)
 
 ```
-.asc 每行 → 取 CAN ID + 64 字节数据
-   → 按 ID 路由到 FL(0x200/1) / FR(0x202/3) 各自的 monitor(见附录 C 多雷达分流)
-   → 每帧:解 6 字节公共头,用 msgIndex 选 hot(0x200) 还是 det(0x201) 半张
-   → CRC16 校验(覆盖 byte0–61)+ schema 版本校验
-   → 按 rollingCounter 把 hot+det 配成"一个周期快照"
-   → 全程聚合 → print_summary 打出聚合值 → VERDICT 判读
+.asc 每行 → 取 CAN ID + payload 数据
+   ├─ debugInfo 路径:只收 FL(0x200/1) / FR(0x202/3) 的 64B 帧
+   │    → 解 6 字节公共头,用 msgIndex 选 hot/det 半张
+   │    → CRC16 校验(覆盖 byte0–61)+ schema 版本校验
+   │    → 按 rollingCounter 把 hot+det 配成"一个周期快照"
+   │    → 全程聚合 → print_summary 打出聚合值 → VERDICT 判读
+   └─ CAN 负载路径:按 TX DBC + 点云 ID 扫描 FL/FR 实际发送报文
+        → 统计 frames、payload bytes、duration → frames/s、KB/s、bus load
 ```
 
 **四种聚合方式**(报告里反复出现):
@@ -509,8 +518,8 @@ python debuginfo_parser.py frames.hex --format hex --summary
 | `busOffEver` | det@20 (u16) | max | bus-off 次数 |
 | `txStall` | det@22 (u16) | max | TX FIFO 满等待(背压) |
 | `CEL` | det@26 (u16) | max | 硬件错误日志;以上全 0=总线健康 |
-| `TX rate frames/s, KB/s` | det@28 / @53 | max | 固件在 `mcanA_transfer_FIFO` 数本节点**每帧** TX(对象+诊断全算) |
-| `est. bus load (this radar)` | **派生** | — | `fps×78µs + KB/s×1024×4µs`→占空比;粗估 ±1–1.5%,只看量级 |
+| `CAN-A TX rate (ASC measured)` | ASC + TX DBC + 点云 ID | 全段统计 | `.asc` 输入时的首选口径:按 FL/FR TX CAN ID 实测 frames/s、KB/s;若无匹配则显示 `debugInfo peak` 并回退到 det@28/@53 |
+| `est. bus load (this radar)` | **派生** | — | `fps×78us + KB/s×1024×4us`→占空比;来源随上一行标注为 `DBC TX ids + point cloud` 或 `firmware-reported radar TX` |
 | `TimeSync crcErr/invalid/jump` | det@10/12/14 (u16) | max | 同步帧 CRC错/非法/时间跳变;全 0 干净 |
 | `blackbox record` | det@52 (bbRecValid) | 或 | `YES`=本上电周期命中过 assert(`--full` 看 `bbLine`+`bbFileHash`) |
 | `assertLive max` | det@38 (u16) | max | 本次运行 assert 命中数 |
@@ -533,7 +542,7 @@ python debuginfo_parser.py frames.hex --format hex --summary
 | 只有 `[bench]` | `OK (firmware) - only bench/environment faults` |
 | 有任何 `[!]` | `NEEDS ATTENTION`(逐条列出 + 提示) |
 
-> 多雷达录制时,每台各出一份本报告 + VERDICT,末尾再追加一行全总线 TX 负载合计(`FL% + FR% → TOTAL%`)。
+> 多雷达录制时,每台各出一份本报告 + VERDICT。CAN 负载优先使用 ASC/DBC 实测口径,末尾追加 `ASC measured CAN-A bus load` 表和 TOTAL;若没有 debugInfo 帧,仍可只输出 CAN 负载表。
 
 ---
 
@@ -554,6 +563,7 @@ python -m pip install pyinstaller
 :: 打包(build_debuginfo_exe.bat 里就是这条)
 python -m PyInstaller --onefile --console --name debuginfo_parser ^
     --distpath dist --workpath build_tmp --specpath build_tmp ^
+    --add-data "%DBC_FILE%;mss\dbc" ^
     --noconfirm debuginfo_parser.py
 ```
 
@@ -564,8 +574,9 @@ python -m PyInstaller --onefile --console --name debuginfo_parser ^
 | `--name` | 输出名 `debuginfo_parser.exe` |
 | `--distpath dist` | exe 输出到 `tools/dist/` |
 | `--workpath/--specpath build_tmp` | 临时产物集中到 `build_tmp/`(脚本结尾 `rmdir` 删掉,保持 tools/ 干净) |
+| `--add-data "%DBC_FILE%;mss\\dbc"` | 把 TX DBC 一起打进 onefile exe;否则 exe 解压到临时目录后找不到默认 DBC,只能统计内置点云 ID |
 
-产物:`tools/dist/debuginfo_parser.exe`(约 9–10 MB)。连同 `dist/使用说明.txt` 一起发即可。
+产物:`tools/dist/debuginfo_parser.exe`(约 9–10 MB,已内置 TX DBC)。连同 `dist/使用说明.txt` 一起发即可。
 
 ### exe 的"拖拽即用"是怎么做到的
 
