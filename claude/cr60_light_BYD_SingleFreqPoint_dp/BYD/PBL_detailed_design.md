@@ -303,6 +303,22 @@ BootM_ClearReprogrammingRequestFlag()
 
 因此 PBL 启动并进入 OTA 后，如果升级中途断电，下次常见路径是 BM 根据 valid flag 正常选择，而不是一直靠 reprogramming request 强制回 PBL。
 
+另外，BM 上电阶段存在安全帧入口。若 BM 在进入 `Boot_Logic()` 前收到扩展 CAN ID `0x190C8532`，且 payload 为：
+
+```text
+02 10 60 46 4F 52 43 45 4A 55 4D 50 A5 B6 C7 D8
+```
+
+则 BM 会设置 `StayInBootFlag = 2`，优先尝试启动 PBL `0x20000`。因此在 CustApp 升级失败、App invalid 的场景下，可以通过该上电安全帧让 BM 优先进入 PBL，而不是无安全帧时默认优先进入 FBL。
+
+对应地，payload：
+
+```text
+02 10 82 46 4F 52 43 45 4A 55 4D 50 A5 B6 C7 D8
+```
+
+会设置 `StayInBootFlag = 1`，优先尝试 FBL `0x50000`。
+
 ## 11. 设计结论
 
 PBL 的 OTA 策略可以概括为：
@@ -313,7 +329,8 @@ PBL 的 OTA 策略可以概括为：
 4. TransferData 写入完成后，PBL 再执行 CRC / Hash / 签名校验。
 5. 只有校验通过后，PBL 才将 App valid flag 写回 `0xAA`。
 6. 只升级 CustApp 时，如果擦写阶段中途断电，本次 OTA 失败，BM 下次上电会跳过 App。
-7. 断电后由 BM 按 App、FBL、PBL 的顺序重新仲裁，其中 App invalid 时优先进入 FBL `0x50000`，FBL 不可用才进入 PBL `0x20000`。
+7. 断电后由 BM 按 App、FBL、PBL 的顺序重新仲裁，其中 App invalid 且无安全帧干预时优先进入 FBL `0x50000`，FBL 不可用才进入 PBL `0x20000`。
+8. 如果 BM 上电安全帧指定 PBL，则 BM 会优先尝试 PBL `0x20000`。
 
 实现 Agent 注意事项：
 
@@ -321,3 +338,4 @@ PBL 的 OTA 策略可以概括为：
 2. 写 `Application_Valid_Flag` 前要检查当前镜像索引 / 上下文字节是否为 `3`；反汇编中该字节地址为 `0x10228e00`。
 3. 擦除阶段先置 `Application_Valid_Flag = 0x55`，校验通过后再置 `0xAA`，这个顺序是断电保护的核心。
 4. OTA 数据路径是 TransferData 边收边写，不能实现成完整包缓存校验后才写 Flash。
+5. 如果实现恢复入口，需要同时考虑 BM 的 `0x190C8532` 上电安全帧对 FBL/PBL 选择的影响。

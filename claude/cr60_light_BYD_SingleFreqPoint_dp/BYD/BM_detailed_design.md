@@ -171,11 +171,65 @@ Boot_Logic:
 3. 如果 flag 指向 FBL，BM 会优先尝试 FBL `0x50000`。
 4. 该路径仍会检查对应 boot 的 valid flag，并调用 `SecBoot_Check_Process`；检查失败时会回退到后续普通启动选择逻辑。
 
-## 8. 目标软件加载与跳转
+## 8. 上电安全帧入口
+
+BM 在进入 `Boot_Logic()` 之前，会在 `BootM_BootTargetSoftware()` 中调用 `LoopFor_SafeFrame()`：
+
+```text
+BootM_BootTargetSoftware
+  -> rbSec_Basic_init
+  -> LoopFor_SafeFrame
+  -> Boot_Logic
+```
+
+`LoopFor_SafeFrame()` 内部循环调用：
+
+```text
+Can_MainFunction_Read
+```
+
+当收到扩展 CAN ID `0x190C8532` 时，`CanIf_RxIndication()` 会比较安全帧 payload，并写入 `StayInBootFlag`。
+
+关键反汇编点：
+
+| 功能 | 函数 | 地址 |
+| --- | --- | --- |
+| 安全帧等待循环 | `LoopFor_SafeFrame` | `0x1020f0d4` |
+| CAN 读主函数 | `Can_MainFunction_Read` | `0x1021220c` |
+| CAN 接收指示 | `CanIf_RxIndication` | `0x1020cfd8` |
+| 安全帧目标状态 | `StayInBootFlag` | `0x10216ab8` |
+
+安全帧匹配规则：
+
+| CAN ID | Payload | 结果 |
+| --- | --- | --- |
+| `0x190C8532` | `02 10 82 46 4F 52 43 45 4A 55 4D 50 A5 B6 C7 D8` | `StayInBootFlag = 1`，优先 FBL `0x50000` |
+| `0x190C8532` | `02 10 60 46 4F 52 43 45 4A 55 4D 50 A5 B6 C7 D8` | `StayInBootFlag = 2`，优先 PBL `0x20000` |
+
+`Boot_Logic()` 入口处优先处理该状态：
+
+```c
+if (StayInBootFlag == 1) {
+    target = FBL;  // 0x50000
+} else if (StayInBootFlag == 2) {
+    target = PBL;  // 0x20000
+} else {
+    continue normal boot logic;
+}
+```
+
+设计含义：
+
+1. App invalid 后，普通恢复路径会优先 FBL。
+2. 如果上电早期收到 `0x190C8532` 且 payload 为 `02 10 60 ... A5 B6 C7 D8`，BM 会优先尝试 PBL。
+3. 如果 payload 为 `02 10 82 ... A5 B6 C7 D8`，BM 会优先尝试 FBL。
+4. 该安全帧路径仍会走 `SecBoot_Check_Process`，不是无条件裸跳。
+
+## 9. 目标软件加载与跳转
 
 BM 选择目标后会调用 `ImageM_LoadCpu()` 完成镜像加载。FBL / PBL 与 App 的跳转方式不同。
 
-### 8.1 FBL / PBL 跳转方式
+### 9.1 FBL / PBL 跳转方式
 
 对 index 1 / index 2，即 FBL / PBL：
 
@@ -191,7 +245,7 @@ blx 0
 2. 再将向量表搬移到 `0x0`。
 3. 最终通过 `blx 0` 将控制权交给目标镜像入口。
 
-### 8.2 App 跳转方式
+### 9.2 App 跳转方式
 
 App 目标不走固定 `blx 0` 的方式，而是使用 `bootImageInfo` 中保存的 entry point。
 
@@ -200,7 +254,7 @@ ImageM_LoadCpu(...)
 blx bootImageInfo.entryPoint
 ```
 
-## 9. OTA 中断电后的 BM 行为
+## 10. OTA 中断电后的 BM 行为
 
 BM 自身不判断 OTA 过程是否完成，它只看 valid flag。
 
@@ -224,12 +278,13 @@ Boot_Logic
 
 ```text
 优先不启动无效 App；
-优先进入 FBL；
+无上电安全帧干预时优先进入 FBL；
+上电安全帧指定 PBL 时优先进入 PBL；
 FBL 不可用时进入 PBL；
 没有可用 boot 时停留在 BM。
 ```
 
-## 10. 与 PBL 的接口关系
+## 11. 与 PBL 的接口关系
 
 BM 与 PBL 的关键接口不是函数调用，而是持久化状态：
 
@@ -242,7 +297,7 @@ BM 与 PBL 的关键接口不是函数调用，而是持久化状态：
 
 PBL 进入后会通过 `BootM_ClearReprogrammingRequestFlag()` 清除重编程请求。因此，如果 PBL 已经启动并进入 OTA，再中途断电，常见情况下下次启动不再靠 reprogramming request 强制进入 PBL，而是走 BM 的普通 valid flag 选择流程。
 
-## 11. 设计结论
+## 12. 设计结论
 
 BM 的核心设计是一个基于持久化 valid flag 的启动仲裁器：
 
@@ -251,10 +306,12 @@ BM 的核心设计是一个基于持久化 valid flag 的启动仲裁器：
 3. 普通路径按 App、FBL、PBL 的顺序选择第一个有效目标。
 4. App 是否有效由 `Application_Valid_Flag != 0x55` 决定。
 5. CustApp OTA 过程中断电后，只要 PBL 已经把 App flag 清为 `0x55`，BM 就不会继续启动 App。
-6. 断电恢复时 BM 优先跳 FBL `0x50000`，FBL 无效才跳 PBL `0x20000`。
+6. 无安全帧干预时，断电恢复后 BM 优先跳 FBL `0x50000`，FBL 无效才跳 PBL `0x20000`。
+7. 上电安全帧 `0x190C8532` 可以覆盖普通优先级：`02 10 82 ...` 指向 FBL，`02 10 60 ...` 指向 PBL。
 
 实现 Agent 注意事项：
 
 1. 不要把 App valid 判断改成 `== 0xAA`；BM 的实际规则是 `!= 0x55`。
 2. 重编程请求路径不是无条件跳转，仍要检查对应 boot valid flag 和 `SecBoot_Check_Process`。
 3. FBL / PBL 的 `0x50000 / 0x20000` 是镜像选择地址，加载后通过向量表重定位和 `blx 0` 进入。
+4. 如果要复现上电安全帧行为，需要在进入 `Boot_Logic()` 前实现 `LoopFor_SafeFrame()` 的 CAN 接收窗口，并按上述 payload 设置 `StayInBootFlag`。

@@ -291,7 +291,37 @@ BootM_ClearReprogrammingRequestFlag()
 
 所以如果 PBL 已经启动过并进入 OTA 流程，之后断电重启时，常见路径不再是靠 reprogramming request 强制进 PBL，而是走普通 valid 启动顺序。
 
-## 10. PBL 中 CustApp 升级中断电后，BM 会跳哪里
+## 10. 上电安全帧对 BM 启动目标的影响
+
+BM 中存在一个上电早期的安全帧窗口。`BootM_BootTargetSoftware()` 在进入 `Boot_Logic()` 前会调用：
+
+```text
+LoopFor_SafeFrame
+  -> Can_MainFunction_Read
+  -> CanIf_RxIndication
+```
+
+`CanIf_RxIndication()` 会识别扩展 CAN ID `0x190C8532`。反汇编中先对接收 ID 去掉高位标志位，再与 `0x190C8532` 比较；匹配后继续比较 16 字节 payload。
+
+安全帧 payload 与启动目标关系如下：
+
+| CAN ID | Payload | 写入状态 | BM 优先尝试目标 |
+| --- | --- | --- | --- |
+| `0x190C8532` | `02 10 82 46 4F 52 43 45 4A 55 4D 50 A5 B6 C7 D8` | `StayInBootFlag = 1` | FBL `0x50000` |
+| `0x190C8532` | `02 10 60 46 4F 52 43 45 4A 55 4D 50 A5 B6 C7 D8` | `StayInBootFlag = 2` | PBL `0x20000` |
+
+`Boot_Logic()` 入口处会优先读取 `StayInBootFlag`：
+
+```text
+StayInBootFlag == 1 -> 选择 FBL 0x50000
+StayInBootFlag == 2 -> 选择 PBL 0x20000
+```
+
+因此，如果 CustApp 升级失败导致 App invalid，普通路径会优先进入 FBL；但如果上电时在 BM 的 `LoopFor_SafeFrame` 窗口内收到 `0x190C8532` 且 payload 为 `02 10 60 ... A5 B6 C7 D8`，BM 会优先尝试 PBL `0x20000`。
+
+该安全帧路径仍不是无条件裸跳。BM 后续仍会调用 `SecBoot_Check_Process` 检查目标镜像。
+
+## 11. PBL 中 CustApp 升级中断电后，BM 会跳哪里
 
 根据 PBL 和 BM 的组合逻辑，典型场景如下：
 
@@ -318,12 +348,13 @@ CustApp OTA 开始
 只升级 CustApp 时，如果已经进入擦写阶段后断电：
   本次 OTA 失败；
   App 被 BM 判定无效；
-  BM 优先跳 FBL 0x50000；
+  无安全帧干预时，BM 优先跳 FBL 0x50000；
+  如果 BM 上电安全帧指定 PBL，则优先尝试 PBL 0x20000；
   FBL 无效时才跳 PBL 0x20000；
   两者都无效时才停留在 BM。
 ```
 
-## 11. 需要注意的边界
+## 12. 需要注意的边界
 
 1. `0x20000 / 0x50000 / 0x90000` 是 BM 选择的镜像地址，不应简单等同于最终 CPU PC。
 2. FBL / PBL 加载后，BM 会将向量表搬到 `0x0` 并 `blx 0`。
@@ -331,3 +362,4 @@ CustApp OTA 开始
 4. 本文中 CustApp 对应当前镜像索引 `3` 是根据反汇编分支和升级包分区顺序推断；`ImageM_ImageStatus_WriteApplicationValidFlag()` 中全局字节 `0x10228e00 == 3` 才写 App valid 是反汇编直接确认。
 5. BM 侧 App valid 判断必须按实际 ELF 保持为 `Application_Valid_Flag != 0x55`，不要改写成 `== 0xAA`。
 6. `FlashPort_WriteExit()` 最后一页补齐值为 `0x00`，这是根据 `rba_BswSrv_MemSet8` 反汇编确认的修正点。
+7. BM 上电安全帧 `0x190C8532` 能改变优先启动目标：`02 10 82 ...` 指向 FBL，`02 10 60 ...` 指向 PBL。
