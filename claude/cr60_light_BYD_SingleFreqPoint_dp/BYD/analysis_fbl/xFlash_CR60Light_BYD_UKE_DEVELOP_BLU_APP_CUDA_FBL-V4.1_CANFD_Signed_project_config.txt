@@ -1,0 +1,4 @@
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_RR;0x7C2;0x7CA;0x7DF;security_dll\BYDCR_RR_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_RL;0x7D4;0x7DC;0x7DF;security_dll\BYDCR_RL_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_FR;0x761;0x769;0x7DF;security_dll\BYDCR_FR_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_FL;0x760;0x768;0x7DF;security_dll\BYDCR_FL_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt

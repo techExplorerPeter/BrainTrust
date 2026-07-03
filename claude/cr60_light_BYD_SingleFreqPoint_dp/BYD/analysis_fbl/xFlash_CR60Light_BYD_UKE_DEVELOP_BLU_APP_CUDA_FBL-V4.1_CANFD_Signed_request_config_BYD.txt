@@ -1,0 +1,202 @@
+
+**wakeup_0x500.dll;start
+step0_defaultsession;02 10 81;;;2000;0
+step1_defaultsession;02 10 01;06 50 01;;100;1
+step2_extendedsession;02 10 03;06 50 03;;100;1
+step3_program_precondition;04 31 01 02 03;05 71 01 02 03 00;;100;0
+step4_extendedsession;02 10 03;06 50 03;;100;1
+step5_ControlDTCSetting;02 85 02;02 C5 02;;100;1
+step6_CommunicationControl;03 28 01 01;02 68 01;;100;1
+step7_securityseed;02 27 01;06 67;;100;0
+step8_securitykey;06 27 02;02 67 02;;100;0
+**wakeup_0x500.dll;stop
+
+step9_Programmingsession2;02 10 02;06 50 02;;1000;0 
+step10_securityseed;02 27 01;06 67 01;;100;0
+step11_securitykey;06 27 02;02 67 02;;100;0
+
+############
+# BLU
+############
+step13_SWILdownload;00 0B 34 00 44 B0 00 00 00 00 00 00 04;04 74 20 0F F2;;100;0
+[flash_driver.hex;4080]
+step14_Transferdata;1F FF 36 01;02 76 01;;100;0
+step15_RequestTransferExit;01 37;01 77;;1000;0 
+@@flash_driver.hex;7;4
+step16_CRC;00 08 31 01 02 02 E1 DF C0 63;;;100;0
+
+%%P_CR60_Light_BLU_BYD_V4.1.hex;8;4;12;4
+step17stepA_erraseAPP;00 0d 31 01 FF 00 44 00 09 00 00 00 20 00 00;05 71 01 FF 00 00;;3000;0
+%%P_CR60_Light_BLU_BYD_V4.1.hex;6;4;10;4
+step18_APPdownload1;00 0B 34 00 44 00 09 00 00 00 20 00 00;04 74 20;;100;0
+[P_CR60_Light_BLU_BYD_V4.1.hex;4080]
+step19_transferdata2;1F FF 36 01;02 76 01;;100;0
+step20_RequestTransferExit2;01 37;01 77;;100;0
+@@P_CR60_Light_BLU_BYD_V4.1.hex;7;4 
+step21_CRC_CHECK;00 08 31 01 02 02 69 55 7F B0;05 71 01 02 02 00;;100;0
+step22_routinecontrol;04 31 01 FF 01;05 71 01 FF 01 00;;100;0 
+
+############
+# Restart
+############
+**wakeup_0x500.dll;start
+step23.step3_b_ecuReset;02 11 01;02 51 01;;12000;0
+# wait 12s to update FBL
+step24_defaultsession;02 10 81;;;12000;1
+step24_defaultsession;02 10 01;06 50 01;;100;0
+step25_extendedsession;02 10 03;06 50 03;;100;0
+step3_program_precondition;04 31 01 02 03;05 71 01 02 03 00;;100;0
+step4_extendedsession;02 10 03;06 50 03;;100;1
+step5_ControlDTCSetting;02 85 02;02 C5 02;;100;1
+step6_CommunicationControl;03 28 01 01;02 68 01;;100;1
+step7_securityseed;02 27 01;06 67;;100;0
+step8_securitykey;06 27 02;02 67 02;;100;0
+**wakeup_0x500.dll;stop
+step9_Programmingsession2;02 10 02;06 50 02;;1000;0 
+step10_securityseed;02 27 01;06 67 01;;100;0
+step11_securitykey;06 27 02;02 67 02;;100;0
+
+############
+# APP
+############
+step13_SWILdownload;00 0B 34 00 44 B0 00 00 00 00 00 00 04;04 74 20 0F F2;;100;0
+[flash_driver.hex;4080]
+step14_Transferdata;1F FF 36 01;02 76 01;;100;0
+step15_RequestTransferExit;01 37;01 77;;1000;0 
+@@flash_driver.hex;7;4
+step16_CRC;00 08 31 01 02 02 E1 DF C0 63;;;100;0
+
+%%mss_dss_rss_h_padding.hex;8;4;12;4
+step17stepA_erraseAPP;00 0d 31 01 FF 00 44 00 09 00 00 00 20 00 00;05 71 01 FF 00 00;;3000;0
+%%mss_dss_rss_h_padding.hex;6;4;10;4
+step18_APPdownload1;00 0B 34 00 44 00 09 00 00 00 20 00 00;04 74 20;;100;0
+[mss_dss_rss_h_padding.hex;4080]
+step19_transferdata2;1F FF 36 01;02 76 01;;100;0
+step20_RequestTransferExit2;01 37;01 77;;100;0
+@@mss_dss_rss_h_padding.hex;7;4 
+step21_CRC_CHECK;00 08 31 01 02 02 05 D2 0C 33;05 71 01 02 02 00;;100;0
+
+############
+# CUDA
+############
+%%CUDA_BYD_20251217.hex;8;4;12;4
+step17stepA_erraseAPP;00 0d 31 01 FF 00 44 00 32 00 00 00 01 00 00;05 71 01 FF 00 00;;3000;0
+%%CUDA_BYD_20251217.hex;6;4;10;4
+step18_APPdownload1;00 0B 34 00 44 00 32 00 00 00 01 00 00;04 74 20;;100;0
+[CUDA_BYD_20251217.hex;4080]
+step19_transferdata2;1F FF 36 01;02 76 01;;100;0
+step20_RequestTransferExit2;01 37;01 77;;100;0
+@@CUDA_BYD_20251217.hex;7;4 
+step21_CRC_CHECK;00 08 31 01 02 02 AA 9F 44 DA;05 71 01 02 02 00;;100;0
+step22_routinecontrol;04 31 01 FF 01;05 71 01 FF 01 00;;100;0 
+
+**wakeup_0x500.dll;start
+step23.step3_b_ecuReset;02 11 01;02 51 01;;8000;0
+step24_defaultsession;02 10 01;06 50 01;;100;1
+step25_extendedsession;02 10 03;06 50 03;;100;1
+**wakeup_0x500.dll;stop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
