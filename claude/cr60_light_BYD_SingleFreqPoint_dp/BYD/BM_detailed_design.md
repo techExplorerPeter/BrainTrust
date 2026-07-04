@@ -225,11 +225,47 @@ if (StayInBootFlag == 1) {
 3. 如果 payload 为 `02 10 82 ... A5 B6 C7 D8`，BM 会优先尝试 FBL。
 4. 该安全帧路径仍会走 `SecBoot_Check_Process`，不是无条件裸跳。
 
-## 9. 目标软件加载与跳转
+## 9. CustBoot / FBL OTA CANFD ID 配置
+
+BM 安全帧 `0x190C8532` 只负责在上电早期选择优先进入 FBL 或 PBL。真正进入 CustBoot / FBL 后，OTA UDS 通信使用 xFlash FBL 包中的 CANFD ID 配置。
+
+配置来源：
+
+```text
+CR60_Light_V4_Container_Non_Efused_BYD_UKE_DEVELOP_202605222131CST.zip
+  -> v4.x_customer_allinone_non_efused/input/03_CustBoot/BLU/
+     xFlash_CR60Light_BYD_UKE_DEVELOP_BLU_APP_CUDA_FBL-V4.1_CANFD_Signed.zip
+       -> project_config.txt
+```
+
+CANFD ID 配置：
+
+| 雷达位置 | Request CAN ID | Response CAN ID | Functional CAN ID | SeedKey DLL |
+| --- | --- | --- | --- | --- |
+| FL | `0x760` | `0x768` | `0x7DF` | `BYDCR_FL_SeednKey.dll` |
+| FR | `0x761` | `0x769` | `0x7DF` | `BYDCR_FR_SeednKey.dll` |
+| RL | `0x7D4` | `0x7DC` | `0x7DF` | `BYDCR_RL_SeednKey.dll` |
+| RR | `0x7C2` | `0x7CA` | `0x7DF` | `BYDCR_RR_SeednKey.dll` |
+
+原始配置行：
+
+```text
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_RR;0x7C2;0x7CA;0x7DF;security_dll\BYDCR_RR_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_RL;0x7D4;0x7DC;0x7DF;security_dll\BYDCR_RL_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_FR;0x761;0x769;0x7DF;security_dll\BYDCR_FR_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_FL;0x760;0x768;0x7DF;security_dll\BYDCR_FL_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+```
+
+实现时需要明确区分：
+
+1. `0x190C8532` 是 BM 上电安全帧扩展 ID，用于设置 `StayInBootFlag`。
+2. 上表中的 ID 是进入 CustBoot / FBL 后进行 UDS OTA 的请求/响应/功能寻址 ID。
+
+## 10. 目标软件加载与跳转
 
 BM 选择目标后会调用 `ImageM_LoadCpu()` 完成镜像加载。FBL / PBL 与 App 的跳转方式不同。
 
-### 9.1 FBL / PBL 跳转方式
+### 10.1 FBL / PBL 跳转方式
 
 对 index 1 / index 2，即 FBL / PBL：
 
@@ -245,7 +281,7 @@ blx 0
 2. 再将向量表搬移到 `0x0`。
 3. 最终通过 `blx 0` 将控制权交给目标镜像入口。
 
-### 9.2 App 跳转方式
+### 10.2 App 跳转方式
 
 App 目标不走固定 `blx 0` 的方式，而是使用 `bootImageInfo` 中保存的 entry point。
 
@@ -254,7 +290,7 @@ ImageM_LoadCpu(...)
 blx bootImageInfo.entryPoint
 ```
 
-## 10. OTA 中断电后的 BM 行为
+## 11. OTA 中断电后的 BM 行为
 
 BM 自身不判断 OTA 过程是否完成，它只看 valid flag。
 
@@ -284,7 +320,7 @@ FBL 不可用时进入 PBL；
 没有可用 boot 时停留在 BM。
 ```
 
-## 11. 与 PBL 的接口关系
+## 12. 与 PBL 的接口关系
 
 BM 与 PBL 的关键接口不是函数调用，而是持久化状态：
 
@@ -297,7 +333,7 @@ BM 与 PBL 的关键接口不是函数调用，而是持久化状态：
 
 PBL 进入后会通过 `BootM_ClearReprogrammingRequestFlag()` 清除重编程请求。因此，如果 PBL 已经启动并进入 OTA，再中途断电，常见情况下下次启动不再靠 reprogramming request 强制进入 PBL，而是走 BM 的普通 valid flag 选择流程。
 
-## 12. 设计结论
+## 13. 设计结论
 
 BM 的核心设计是一个基于持久化 valid flag 的启动仲裁器：
 
@@ -308,6 +344,7 @@ BM 的核心设计是一个基于持久化 valid flag 的启动仲裁器：
 5. CustApp OTA 过程中断电后，只要 PBL 已经把 App flag 清为 `0x55`，BM 就不会继续启动 App。
 6. 无安全帧干预时，断电恢复后 BM 优先跳 FBL `0x50000`，FBL 无效才跳 PBL `0x20000`。
 7. 上电安全帧 `0x190C8532` 可以覆盖普通优先级：`02 10 82 ...` 指向 FBL，`02 10 60 ...` 指向 PBL。
+8. CustBoot / FBL OTA 的 UDS CANFD ID 按雷达位置区分：FL `0x760/0x768`，FR `0x761/0x769`，RL `0x7D4/0x7DC`，RR `0x7C2/0x7CA`，功能寻址均为 `0x7DF`。
 
 实现 Agent 注意事项：
 
@@ -315,3 +352,4 @@ BM 的核心设计是一个基于持久化 valid flag 的启动仲裁器：
 2. 重编程请求路径不是无条件跳转，仍要检查对应 boot valid flag 和 `SecBoot_Check_Process`。
 3. FBL / PBL 的 `0x50000 / 0x20000` 是镜像选择地址，加载后通过向量表重定位和 `blx 0` 进入。
 4. 如果要复现上电安全帧行为，需要在进入 `Boot_Logic()` 前实现 `LoopFor_SafeFrame()` 的 CAN 接收窗口，并按上述 payload 设置 `StayInBootFlag`。
+5. 不要把 BM 安全帧 ID `0x190C8532` 当成 FBL OTA 的 UDS 请求 ID；FBL OTA 请求/响应 ID 来自 xFlash `project_config.txt`。

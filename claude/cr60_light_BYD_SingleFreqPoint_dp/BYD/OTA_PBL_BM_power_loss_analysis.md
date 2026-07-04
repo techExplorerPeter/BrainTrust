@@ -321,7 +321,49 @@ StayInBootFlag == 2 -> 选择 PBL 0x20000
 
 该安全帧路径仍不是无条件裸跳。BM 后续仍会调用 `SecBoot_Check_Process` 检查目标镜像。
 
-## 11. PBL 中 CustApp 升级中断电后，BM 会跳哪里
+## 11. CustBoot / FBL OTA 的 CANFD ID 配置
+
+CustBoot / FBL OTA 的通信 ID 不在 `D_CR60_Light_BM.elf` / `D_CR60_Light_PBL.elf` 的启动安全帧逻辑里，而是在 xFlash FBL 包配置中给出。
+
+配置来源：
+
+```text
+CR60_Light_V4_Container_Non_Efused_BYD_UKE_DEVELOP_202605222131CST.zip
+  -> v4.x_customer_allinone_non_efused/input/03_CustBoot/BLU/
+     xFlash_CR60Light_BYD_UKE_DEVELOP_BLU_APP_CUDA_FBL-V4.1_CANFD_Signed.zip
+       -> project_config.txt
+```
+
+`project_config.txt` 中每行格式为：
+
+```text
+工程名;请求ID;响应ID;功能寻址ID;SeedKey DLL;请求配置;通道;CRC配置
+```
+
+反查得到的 CANFD ID：
+
+| 雷达位置 | 工程名后缀 | Request CAN ID | Response CAN ID | Functional CAN ID | SeedKey DLL |
+| --- | --- | --- | --- | --- | --- |
+| FL | `CANFD_FL` | `0x760` | `0x768` | `0x7DF` | `BYDCR_FL_SeednKey.dll` |
+| FR | `CANFD_FR` | `0x761` | `0x769` | `0x7DF` | `BYDCR_FR_SeednKey.dll` |
+| RL | `CANFD_RL` | `0x7D4` | `0x7DC` | `0x7DF` | `BYDCR_RL_SeednKey.dll` |
+| RR | `CANFD_RR` | `0x7C2` | `0x7CA` | `0x7DF` | `BYDCR_RR_SeednKey.dll` |
+
+原始配置：
+
+```text
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_RR;0x7C2;0x7CA;0x7DF;security_dll\BYDCR_RR_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_RL;0x7D4;0x7DC;0x7DF;security_dll\BYDCR_RL_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_FR;0x761;0x769;0x7DF;security_dll\BYDCR_FR_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+xFlash_CR60Light_BYD_UKE_BLU_App_CUDA_CANFD_FL;0x760;0x768;0x7DF;security_dll\BYDCR_FL_SeednKey.dll;request_config\BYD.txt;1;security_dll\CRC.txt
+```
+
+需要区分两类 CAN ID：
+
+1. BM 上电安全帧 ID 是扩展帧 `0x190C8532`，作用是设置 `StayInBootFlag`，让 BM 优先尝试 FBL 或 PBL。
+2. CustBoot / FBL OTA 的 UDS 通信 ID 是上表中的 `0x760/0x768`、`0x761/0x769`、`0x7D4/0x7DC`、`0x7C2/0x7CA`。
+
+## 12. PBL 中 CustApp 升级中断电后，BM 会跳哪里
 
 根据 PBL 和 BM 的组合逻辑，典型场景如下：
 
@@ -354,7 +396,7 @@ CustApp OTA 开始
   两者都无效时才停留在 BM。
 ```
 
-## 12. 需要注意的边界
+## 13. 需要注意的边界
 
 1. `0x20000 / 0x50000 / 0x90000` 是 BM 选择的镜像地址，不应简单等同于最终 CPU PC。
 2. FBL / PBL 加载后，BM 会将向量表搬到 `0x0` 并 `blx 0`。
@@ -363,3 +405,4 @@ CustApp OTA 开始
 5. BM 侧 App valid 判断必须按实际 ELF 保持为 `Application_Valid_Flag != 0x55`，不要改写成 `== 0xAA`。
 6. `FlashPort_WriteExit()` 最后一页补齐值为 `0x00`，这是根据 `rba_BswSrv_MemSet8` 反汇编确认的修正点。
 7. BM 上电安全帧 `0x190C8532` 能改变优先启动目标：`02 10 82 ...` 指向 FBL，`02 10 60 ...` 指向 PBL。
+8. CustBoot / FBL OTA 的 UDS 通信 ID 来自 xFlash FBL 包 `project_config.txt`，按 FL/FR/RL/RR 位置分别使用不同请求/响应 ID。

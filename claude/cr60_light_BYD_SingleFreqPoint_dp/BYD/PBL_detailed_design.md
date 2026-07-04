@@ -319,6 +319,17 @@ BootM_ClearReprogrammingRequestFlag()
 
 会设置 `StayInBootFlag = 1`，优先尝试 FBL `0x50000`。
 
+CustBoot / FBL OTA 进入 FBL 后使用的 UDS CANFD ID 来自 xFlash FBL 包的 `project_config.txt`：
+
+| 雷达位置 | Request CAN ID | Response CAN ID | Functional CAN ID | SeedKey DLL |
+| --- | --- | --- | --- | --- |
+| FL | `0x760` | `0x768` | `0x7DF` | `BYDCR_FL_SeednKey.dll` |
+| FR | `0x761` | `0x769` | `0x7DF` | `BYDCR_FR_SeednKey.dll` |
+| RL | `0x7D4` | `0x7DC` | `0x7DF` | `BYDCR_RL_SeednKey.dll` |
+| RR | `0x7C2` | `0x7CA` | `0x7DF` | `BYDCR_RR_SeednKey.dll` |
+
+这组 ID 是 CustBoot / FBL OTA 通信 ID，不是 PBL 的 OTA 诊断 ID，也不是 BM 上电安全帧 ID。
+
 ## 11. 设计结论
 
 PBL 的 OTA 策略可以概括为：
@@ -331,6 +342,7 @@ PBL 的 OTA 策略可以概括为：
 6. 只升级 CustApp 时，如果擦写阶段中途断电，本次 OTA 失败，BM 下次上电会跳过 App。
 7. 断电后由 BM 按 App、FBL、PBL 的顺序重新仲裁，其中 App invalid 且无安全帧干预时优先进入 FBL `0x50000`，FBL 不可用才进入 PBL `0x20000`。
 8. 如果 BM 上电安全帧指定 PBL，则 BM 会优先尝试 PBL `0x20000`。
+9. CustBoot / FBL OTA 的 CANFD ID 需要按雷达安装位置选择：FL `0x760/0x768`，FR `0x761/0x769`，RL `0x7D4/0x7DC`，RR `0x7C2/0x7CA`。
 
 实现 Agent 注意事项：
 
@@ -339,3 +351,4 @@ PBL 的 OTA 策略可以概括为：
 3. 擦除阶段先置 `Application_Valid_Flag = 0x55`，校验通过后再置 `0xAA`，这个顺序是断电保护的核心。
 4. OTA 数据路径是 TransferData 边收边写，不能实现成完整包缓存校验后才写 Flash。
 5. 如果实现恢复入口，需要同时考虑 BM 的 `0x190C8532` 上电安全帧对 FBL/PBL 选择的影响。
+6. 不要混用 BM 安全帧 ID、PBL OTA 诊断 ID 和 CustBoot / FBL OTA 诊断 ID。
