@@ -138,7 +138,7 @@
   - **预取中止**的 PC/IFAR 是**坏跳转目标**(无符号)→ IFAR 行明确指引"看 caller LR(调用点)"。
   - **叶子函数崩溃**时 LR 指向"上上层"(叶子不更新 LR,ARM 固有特性);**PC 永远准确**,定位以 PC 为准。
 - 还输出 `flash slot0:`(magic/CRC 诊断)和 `aging:`(第几周期、还差几个干净周期自动清除)两行。
-- 默认 ELF=`mmw_ddm/awr2x44P_mmw_demo_mssDDM.xer5f`,工具链=`$R5F_CLANG_INSTALL_PATH/bin`;`--elf`/`--toolchain` 可覆盖。无工具链时退化为原始地址+故障解码。
+- Python 命令行不带 `--elf` 时,脚本默认从 `tools/..` 找 `awr2x44P_mmw_demo_mssDDM.xer5f`;加 `--elf path\to\app.xer5f` 时使用指定 ELF,适合固件重新编译后用对应版本的符号文件解析。工具链默认用 `$R5F_CLANG_INSTALL_PATH/bin`;`--toolchain` 可覆盖。无 ELF/无工具链时退化为原始地址+故障解码。
 - 可用 `tools/build_systeminfo_exe.bat` 打包成 `tools/dist/sysinfo_parser.exe`。exe 内置当前 `awr2x44P_mmw_demo_mssDDM.xer5f`,适合同事电脑无 Python 的场景。
 - exe 使用方式:双击打开后,先把 `.xer5f` 文件或其所在目录拖进窗口并按 Enter;也可直接按 Enter 使用 exe 内置 ELF。随后把 `.asc` 文件拖进窗口并按 Enter。解析结束后窗口会停在 `Press Enter to exit...`。命令行直接传参方式仍支持 `--elf` / `--toolchain`,不受该交互流程影响。
 - 若固件重新编译导致 `.xer5f` 更新,必须重新运行 `build_systeminfo_exe.bat`;否则 exe 内置 ELF 仍是旧版本。符号化仍需要目标电脑能找到 `llvm-symbolizer/llvm-nm`(`R5F_CLANG_INSTALL_PATH` 或 PATH),否则只输出原始地址和 fault 解码。
