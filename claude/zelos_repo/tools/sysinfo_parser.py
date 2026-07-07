@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sysinfo_parser.py - decode + localize the R5F systemInfo / dumptrace frames (CAN id 0x100).
+sysinfo_parser.py - decode + localize R5F systemInfo / dumptrace frames.
 
 The firmware (mss/wf_sysinfo.c) broadcasts, on every power-up, the crash record stored
 in flash from the PREVIOUS power cycle as two CAN-FD frames:
@@ -33,9 +33,20 @@ import argparse
 import subprocess
 
 FRAME_LEN   = 64
-CAN_ID      = 0x100
 CRC_COVER   = 62
 SCHEMA_VER  = 1
+
+# R5 systemInfo is split by radar position and by 64-byte page:
+#   FL: head=0x100, regs=0x104
+#   FR: head=0x101, regs=0x105
+RADARS = [
+    ("FL", 0x100, 0x104),
+    ("FR", 0x101, 0x105),
+]
+SYSTEMINFO_IDS = {}
+for _radar, _head_id, _regs_id in RADARS:
+    SYSTEMINFO_IDS[_head_id] = (_radar, "head")
+    SYSTEMINFO_IDS[_regs_id] = (_radar, "regs")
 
 FAULT_TYPE = {0: "none", 1: "undefined-instruction", 2: "prefetch-abort", 3: "data-abort"}
 CORE_NAME  = {0: "R5F"}
@@ -87,7 +98,7 @@ def _extract_data(toks, start):
 
 
 def _extract_asc(text):
-    """64-byte frames with CAN id == 0x100. Handles Vector classic ('<id> <dir> d ...')
+    """64-byte systemInfo frames. Handles Vector classic ('<id> <dir> d ...')
     AND CAN-FD ('CANFD <ch> <dir> <id> <BRS> <ESI> <DLC> <len> ...') line layouts: the
     id sits next to the Rx/Tx token, on the side that depends on the format."""
     base = _asc_base(text)
@@ -108,11 +119,11 @@ def _extract_asc(text):
             msg_id = int(id_tok.rstrip("xX"), base)
         except ValueError:
             continue
-        if msg_id != CAN_ID:
+        if msg_id not in SYSTEMINFO_IDS:
             continue
         data = _extract_data(toks, data_start)
         if data is not None and len(data) == FRAME_LEN:
-            out.append(data)
+            out.append((msg_id, data))
     return out
 
 
@@ -121,7 +132,8 @@ def _extract_hex(text):
     for line in text.splitlines():
         toks = re.findall(r"[0-9A-Fa-f]{2}", line)
         if len(toks) >= FRAME_LEN:
-            out.append(bytes(int(t, 16) for t in toks[:FRAME_LEN]))
+            # Raw hex has no CAN id, so keep old behavior: treat it as FL/head stream.
+            out.append((0x100, bytes(int(t, 16) for t in toks[:FRAME_LEN])))
     return out
 
 
@@ -200,9 +212,38 @@ def _find_tool(toolchain, name):
 
 
 def _default_elf():
-    here = os.path.dirname(os.path.abspath(__file__))
-    cand = os.path.normpath(os.path.join(here, "..", "awr2x44P_mmw_demo_mssDDM.xer5f"))
-    return cand if os.path.exists(cand) else None
+    if getattr(sys, "frozen", False):
+        cands = [
+            os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)),
+                         "awr2x44P_mmw_demo_mssDDM.xer5f"),
+            os.path.join(os.path.dirname(sys.executable), "awr2x44P_mmw_demo_mssDDM.xer5f"),
+        ]
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        cands = [os.path.normpath(os.path.join(here, "..", "awr2x44P_mmw_demo_mssDDM.xer5f"))]
+    for cand in cands:
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def _clean_drop_path(s):
+    return s.strip().strip('"').strip("'").strip()
+
+
+def _resolve_elf_input(p):
+    p = _clean_drop_path(p)
+    if not p:
+        return None
+    if os.path.isdir(p):
+        preferred = os.path.join(p, "awr2x44P_mmw_demo_mssDDM.xer5f")
+        if os.path.exists(preferred):
+            return preferred
+        for name in os.listdir(p):
+            if name.lower().endswith(".xer5f"):
+                return os.path.join(p, name)
+        return p
+    return p
 
 
 class Symbolizer:
@@ -269,18 +310,7 @@ class Symbolizer:
 # --------------------------------------------------------------------------- #
 # Report
 # --------------------------------------------------------------------------- #
-def main():
-    ap = argparse.ArgumentParser(description="Decode + localize R5F systemInfo (0x100).")
-    ap.add_argument("file", help="capture file (.asc / hex), or - for stdin")
-    ap.add_argument("--format", choices=["asc", "hex"], help="force input format")
-    ap.add_argument("--elf", help="path to awr2x44P_mmw_demo_mssDDM.xer5f")
-    ap.add_argument("--toolchain", help="R5F TI ARM-clang root (has bin/llvm-symbolizer)")
-    args = ap.parse_args()
-
-    text = sys.stdin.read() if args.file == "-" else open(args.file, "r", errors="ignore").read()
-    fmt = args.format or ("asc" if (".asc" in args.file.lower() or "base" in text.lower()) else "hex")
-    frames = _extract_asc(text) if fmt == "asc" else _extract_hex(text)
-
+def _report_r5(radar, head_id, regs_id, frames, sym, elf):
     # latest valid head + regs (last write wins; firmware repeats the pair a few times)
     head = regs = None
     for f in frames:
@@ -293,11 +323,12 @@ def main():
             regs = (c, decode_regs(f))
 
     print("=" * 64)
-    print("systemInfo / dumptrace (CAN 0x100)   frames=%d" % len(frames))
+    print("systemInfo / dumptrace    %s  (head 0x%03X / regs 0x%03X)   frames=%d" %
+          (radar, head_id, regs_id, len(frames)))
     print("=" * 64)
     if head is None:
-        print("No valid 0x100 'head' frame found (CRC/schema). Nothing to decode.")
-        return
+        print("No valid R5 'head' frame found (CRC/schema). Nothing to decode.")
+        return False
 
     c, h = head
     # diagnostic line (raw slot-0 readback) - helps tell why a write didn't surface
@@ -323,9 +354,6 @@ def main():
     left = (ret - boots) if (ret > boots) else 0
     print("aging: this fault is %d power-cycle(s) old; auto-clears at %d -> %d clean cycle(s) left"
           % (boots, ret, left))
-
-    elf = args.elf or _default_elf()
-    sym = Symbolizer(elf, args.toolchain)
 
     ft = FAULT_TYPE.get(c["faultType"], "0x%X" % c["faultType"])
     ago = h["bootTickNow"] - h["bootTickFault"]
@@ -359,6 +387,62 @@ def main():
                 cells.append("R%-2d=0x%08X" % (i, r["r%d" % i]))
             print("  " + "  ".join(cells))
     print("=" * 64)
+    return True
+
+
+def main():
+    # In the packaged exe, double-click opens an interactive flow: choose the ELF
+    # first, then the capture. Normal command-line usage stays unchanged.
+    frozen = getattr(sys, "frozen", False)
+    if frozen and len(sys.argv) == 1:
+        elf_p = input("Drop the .xer5f file or its folder here and press Enter "
+                      "(or just press Enter to use the embedded ELF): ")
+        elf_p = _resolve_elf_input(elf_p)
+        asc_p = _clean_drop_path(input("Drop a .asc file here and press Enter, or type the file path: "))
+        if asc_p:
+            sys.argv.append(asc_p)
+            if elf_p:
+                sys.argv.extend(["--elf", elf_p])
+
+    ap = argparse.ArgumentParser(description="Decode + localize FL/FR R5F systemInfo.")
+    ap.add_argument("file", help="capture file (.asc / hex), or - for stdin")
+    ap.add_argument("--format", choices=["asc", "hex"], help="force input format")
+    ap.add_argument("--elf", help="path to awr2x44P_mmw_demo_mssDDM.xer5f")
+    ap.add_argument("--toolchain", help="R5F TI ARM-clang root (has bin/llvm-symbolizer)")
+    args = ap.parse_args()
+
+    text = sys.stdin.read() if args.file == "-" else open(args.file, "r", errors="ignore").read()
+    fmt = args.format or ("asc" if (".asc" in args.file.lower() or "base" in text.lower()) else "hex")
+    records = _extract_asc(text) if fmt == "asc" else _extract_hex(text)
+
+    frames_by_radar = {radar: [] for radar, _, _ in RADARS}
+    for can_id, data in records:
+        route = SYSTEMINFO_IDS.get(can_id)
+        if route is not None:
+            radar, _kind = route
+            frames_by_radar[radar].append(data)
+
+    elf = args.elf or _default_elf()
+    sym = Symbolizer(elf, args.toolchain)
+
+    any_r5 = False
+    for radar, head_id, regs_id in RADARS:
+        frames = frames_by_radar[radar]
+        if frames:
+            any_r5 = True
+            _report_r5(radar, head_id, regs_id, frames, sym, elf)
+
+    if not any_r5:
+        print("=" * 64)
+        print("systemInfo / dumptrace    R5   frames=0")
+        print("=" * 64)
+        print("No valid FL/FR R5 systemInfo frames found (expected 0x100/0x104 or 0x101/0x105).")
+
+    if frozen:
+        try:
+            input("\nPress Enter to exit...")
+        except EOFError:
+            pass
 
 
 if __name__ == "__main__":

@@ -227,6 +227,25 @@ def _default_elf():
     return None
 
 
+def _clean_drop_path(s):
+    return s.strip().strip('"').strip("'").strip()
+
+
+def _resolve_elf_input(p):
+    p = _clean_drop_path(p)
+    if not p:
+        return None
+    if os.path.isdir(p):
+        preferred = os.path.join(p, "awr2x44P_mmw_demo_mssDDM.xer5f")
+        if os.path.exists(preferred):
+            return preferred
+        for name in os.listdir(p):
+            if name.lower().endswith(".xer5f"):
+                return os.path.join(p, name)
+        return p
+    return p
+
+
 class Symbolizer:
     def __init__(self, elf, toolchain):
         self.elf = elf
@@ -372,13 +391,18 @@ def _report_r5(radar, head_id, regs_id, frames, sym, elf):
 
 
 def main():
-    # Match debuginfo_parser.exe behavior: users can drop a .asc onto the icon,
-    # or double-click first and then drag/paste the capture path into this console.
+    # In the packaged exe, double-click opens an interactive flow: choose the ELF
+    # first, then the capture. Normal command-line usage stays unchanged.
     frozen = getattr(sys, "frozen", False)
     if frozen and len(sys.argv) == 1:
-        p = input("Drop a .asc file here and press Enter, or type the file path: ").strip().strip('"').strip("'")
-        if p:
-            sys.argv.append(p)
+        elf_p = input("Drop the .xer5f file or its folder here and press Enter "
+                      "(or just press Enter to use the embedded ELF): ")
+        elf_p = _resolve_elf_input(elf_p)
+        asc_p = _clean_drop_path(input("Drop a .asc file here and press Enter, or type the file path: "))
+        if asc_p:
+            sys.argv.append(asc_p)
+            if elf_p:
+                sys.argv.extend(["--elf", elf_p])
 
     ap = argparse.ArgumentParser(description="Decode + localize FL/FR R5F systemInfo.")
     ap.add_argument("file", help="capture file (.asc / hex), or - for stdin")
