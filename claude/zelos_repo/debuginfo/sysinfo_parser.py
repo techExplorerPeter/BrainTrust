@@ -177,11 +177,28 @@ def decode_head(d):
         "dbgCrcStored": struct.unpack_from("<H", d, 54)[0],
         "dbgCrcCalc": struct.unpack_from("<H", d, 56)[0],
         "retention": d[58],   # WF_SYSINFO_RETENTION_CYCLES (auto-clear window)
+        "swVerHi": d[59:62],
     }
 
 
 def decode_regs(d):
-    return {"r%d" % i: u32(d, 6 + i * 4) for i in range(13)}
+    r = {"r%d" % i: u32(d, 6 + i * 4) for i in range(13)}
+    r["swVerLo"] = d[58:61]
+    return r
+
+
+def format_sw_version(hi, lo):
+    raw = bytes(hi or b"") + bytes(lo or b"")
+    raw = raw.rstrip(b"\x00")
+    if not raw:
+        return "-"
+    try:
+        s = raw.decode("ascii")
+        if all(32 <= ord(ch) < 127 for ch in s):
+            return s
+    except UnicodeDecodeError:
+        pass
+    return "0x" + raw.hex().upper()
 
 
 def fault_status_str(fsr):
@@ -331,6 +348,7 @@ def _report_r5(radar, head_id, regs_id, frames, sym, elf):
         return False
 
     c, h = head
+    sw_ver = format_sw_version(h.get("swVerHi"), regs[1].get("swVerLo") if regs is not None else b"")
     # diagnostic line (raw slot-0 readback) - helps tell why a write didn't surface
     _, _h = head
     mg, cs, cc = _h["dbgMagic"], _h["dbgCrcStored"], _h["dbgCrcCalc"]
@@ -342,6 +360,7 @@ def _report_r5(radar, head_id, regs_id, frames, sym, elf):
     else:
         diag = "garbage magic -> write hit a NON-erased slot"
     print("flash slot0: magic=0x%08X  -> %s" % (mg, diag))
+    print("software ver: %s" % sw_ver)
 
     boots = _h["bootTickNow"]           # power cycles since the last fault/clear
     ret = _h["retention"]
