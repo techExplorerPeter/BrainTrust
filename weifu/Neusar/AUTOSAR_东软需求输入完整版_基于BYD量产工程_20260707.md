@@ -815,6 +815,36 @@ Boot架构应参考 BYD量产工程容器结构，至少明确：
 
 #### 9.2.3 NvM/Fee/Fls完整存储
 
+本章节需严格按 BYD 量产工程的实际 NvM/Fee/Fls 策略设计，不按通用“关机统一 WriteAll 保存全部数据”的方式理解。
+
+BYD量产工程实际存储策略：
+
+- 启动阶段执行 `Fls_Init()`、`Fee_Init()`、`NvM_Init()`，随后通过 `BswM_NvM_ReadAll()` 调用 `NvM_ReadAll()`。
+- `BswM_NvM_ReadAll()` 会循环调用 `NvM_MainFunction()` 与 `MemIf_Rb_MainFunction()`，等待 NvM 作业完成后再进入后续运行流程。
+- `NvM_ReadAll()` 完成后调用 `Fee_Rb_EndInit()`，表示 Fee 初始化收尾完成。
+- 运行期 NvM 采用轮询模式，BYD配置为 `NVM_POLLING_MODE = STD_ON`，`NVM_MAIN_FUNCTION_PERIOD = 0.01f`，即 10ms 设计周期。
+- Idle Hook 中会周期调用 `rbBlock_MainFunction()`、`rbSecFls_MainFunction()`、`NvM_MainFunction()`、`MemIf_Rb_MainFunction()`。
+- BYD工程中的 `BswM_NvM_WriteAll()` 内部 `NvM_WriteAll()` 被注释掉，因此不依赖关机阶段全局 `WriteAll` 保存所有数据。
+- DID、标定、EDR、故障记录、安全访问、复位原因等数据以业务触发的显式 `NvM_WriteBlock()` 为主。
+- 对关键数据，BYD平台封装了 `rbNvM_SyncWriteBlock()`，内部调用 `NvM_WriteBlock()` 并轮询 `NvM_MainFunction()`、`MemIf_Rb_MainFunction()` 等待完成。
+- 存储链路为 `NvM -> MemIf -> Fee/Rba_FeeFs1x -> Fls -> QSPI Flash`。
+- Flash/NvM/Fee 主路径不通过 AUTOSAR `Spi` 外挂 Flash。BYD工程中的 AUTOSAR `Spi` 主要用于 LP87745 PMIC/外部watchdog，不是 NvM 存储链路。
+
+BYD量产工程关键配置特征：
+
+| 配置项 | BYD工程取值 | 对新项目要求 |
+|---|---:|---|
+| `NVM_POLLING_MODE` | `STD_ON` | 保持轮询式主函数调度 |
+| `NVM_MAIN_FUNCTION_PERIOD` | `0.01f` | 按10ms设计周期评估 |
+| `NVM_CALC_NV_CRC` | `STD_OFF` | 不默认增加NvM层NV CRC，除非新项目另行定义 |
+| `NVM_CRYPTO_USED` | `STD_OFF` | NvM层不默认启用Crypto |
+| `NVM_DYNAMIC_CONFIGURATION` | `STD_OFF` | 不按动态配置策略设计 |
+| `NVM_JOB_PRIORITIZATION` | `STD_OFF` | 不按NvM优先级队列设计 |
+| `NVM_SET_RAM_BLOCK_STATUS_API` | `STD_ON` | 支持RAM Block状态接口 |
+| `NVM_CFG_NR_MEMIF_DEVICES` | `1` | 单MemIf设备 |
+| 用户Block范围 | `2 ~ 104` | 新项目Block规划需覆盖同等级功能 |
+| 总Block数量 | `105` | 含NvM内部Block |
+
 东软需交付：
 
 - NvM Block List。
@@ -826,12 +856,147 @@ Boot架构应参考 BYD量产工程容器结构，至少明确：
 - 掉电保护。
 - Flash寿命评估。
 
+Block List按BYD量产工程对齐如下：
+
+| NvM Block ID | Block Name | Length |
+|---:|---|---:|
+| 0 | `NvM_MultiBlock` | 1 |
+| 1 | `NvM_ConfigId` | 2 |
+| 2 | `NvMBlock_LogisticData` | 128 |
+| 3 | `NVM_OS_ErrorlogOsErrorHook` | 370 |
+| 4 | `NVM_OS_ErrorlogOsShutdown` | 44 |
+| 5 | `NVM_OS_ErrorlogOsWdgReset` | 6 |
+| 6 | `NVM_OS_ErrorlogActiveReset` | 5 |
+| 7 | `NVM_PMIC_DTC_ERROR` | 40 |
+| 8 | `CustDID_APPVersion` | 6 |
+| 9 | `CustDID_DisBetFrontandRear` | 2 |
+| 10 | `CustDID_DisBetLeftandRight_0x126A` | 2 |
+| 11 | `CustDID_ECUHWVersionNumber` | 5 |
+| 12 | `CustDID_ECUSoftwareCode` | 9 |
+| 13 | `CustDID_FBLVersion` | 9 |
+| 14 | `CustDID_ProductionMode` | 1 |
+| 15 | `NvMBlockDescriptor_ECUConfiguration` | 4 |
+| 16 | `CustDID_TargetPosition_0x1266` | 4 |
+| 17 | `CustDID_VIN` | 17 |
+| 18 | `CustDID_VariantCoding` | 8 |
+| 19 | `CustDID_WheelBase` | 2 |
+| 20 | `NvM_PowerOn_Counter` | 4 |
+| 21 | `NvM_RadarPosition_ETHOnly` | 1 |
+| 22 | `Cust_SecurityAccesscounter` | 1 |
+| 23 | `Dia_SecurityAccesscounter` | 1 |
+| 24 | `ECUM_CFG_NVM_BLOCK` | 4 |
+| 25 | `NVM_ADAS_HMISwitch` | 11 |
+| 26 | `NVM_Calibration_EffStatus` | 1 |
+| 27 | `NVM_Calibration_OnlineStatus` | 30 |
+| 28 | `NVM_Calibration_TriggerStatus` | 30 |
+| 29 | `NVM_ID_DEM_EXTRA_INFO_0` | 32 |
+| 30 | `NVM_ID_DEM_EXTRA_INFO_1` | 32 |
+| 31 | `NVM_ID_DEM_EXTRA_INFO_10` | 32 |
+| 32 | `NVM_ID_DEM_EXTRA_INFO_11` | 32 |
+| 33 | `NVM_ID_DEM_EXTRA_INFO_12` | 32 |
+| 34 | `NVM_ID_DEM_EXTRA_INFO_13` | 32 |
+| 35 | `NVM_ID_DEM_EXTRA_INFO_14` | 32 |
+| 36 | `NVM_ID_DEM_EXTRA_INFO_15` | 32 |
+| 37 | `NVM_ID_DEM_EXTRA_INFO_16` | 32 |
+| 38 | `NVM_ID_DEM_EXTRA_INFO_17` | 32 |
+| 39 | `NVM_ID_DEM_EXTRA_INFO_18` | 32 |
+| 40 | `NVM_ID_DEM_EXTRA_INFO_19` | 32 |
+| 41 | `NVM_ID_DEM_EXTRA_INFO_2` | 32 |
+| 42 | `NVM_ID_DEM_EXTRA_INFO_3` | 32 |
+| 43 | `NVM_ID_DEM_EXTRA_INFO_4` | 32 |
+| 44 | `NVM_ID_DEM_EXTRA_INFO_5` | 32 |
+| 45 | `NVM_ID_DEM_EXTRA_INFO_6` | 32 |
+| 46 | `NVM_ID_DEM_EXTRA_INFO_7` | 32 |
+| 47 | `NVM_ID_DEM_EXTRA_INFO_8` | 32 |
+| 48 | `NVM_ID_DEM_EXTRA_INFO_9` | 32 |
+| 49 | `NVM_ID_DEM_GENERIC_NV_DATA` | 16 |
+| 50 | `NVM_ID_EVMEM_LOC_0` | 48 |
+| 51 | `NVM_ID_EVMEM_LOC_1` | 48 |
+| 52 | `NVM_ID_EVMEM_LOC_10` | 48 |
+| 53 | `NVM_ID_EVMEM_LOC_11` | 48 |
+| 54 | `NVM_ID_EVMEM_LOC_12` | 48 |
+| 55 | `NVM_ID_EVMEM_LOC_13` | 48 |
+| 56 | `NVM_ID_EVMEM_LOC_14` | 48 |
+| 57 | `NVM_ID_EVMEM_LOC_15` | 48 |
+| 58 | `NVM_ID_EVMEM_LOC_16` | 48 |
+| 59 | `NVM_ID_EVMEM_LOC_17` | 48 |
+| 60 | `NVM_ID_EVMEM_LOC_18` | 48 |
+| 61 | `NVM_ID_EVMEM_LOC_19` | 48 |
+| 62 | `NVM_ID_EVMEM_LOC_2` | 48 |
+| 63 | `NVM_ID_EVMEM_LOC_20` | 48 |
+| 64 | `NVM_ID_EVMEM_LOC_21` | 48 |
+| 65 | `NVM_ID_EVMEM_LOC_22` | 48 |
+| 66 | `NVM_ID_EVMEM_LOC_23` | 48 |
+| 67 | `NVM_ID_EVMEM_LOC_24` | 48 |
+| 68 | `NVM_ID_EVMEM_LOC_25` | 48 |
+| 69 | `NVM_ID_EVMEM_LOC_26` | 48 |
+| 70 | `NVM_ID_EVMEM_LOC_27` | 48 |
+| 71 | `NVM_ID_EVMEM_LOC_28` | 48 |
+| 72 | `NVM_ID_EVMEM_LOC_29` | 48 |
+| 73 | `NVM_ID_EVMEM_LOC_3` | 48 |
+| 74 | `NVM_ID_EVMEM_LOC_30` | 48 |
+| 75 | `NVM_ID_EVMEM_LOC_31` | 48 |
+| 76 | `NVM_ID_EVMEM_LOC_32` | 48 |
+| 77 | `NVM_ID_EVMEM_LOC_33` | 48 |
+| 78 | `NVM_ID_EVMEM_LOC_34` | 48 |
+| 79 | `NVM_ID_EVMEM_LOC_35` | 48 |
+| 80 | `NVM_ID_EVMEM_LOC_36` | 48 |
+| 81 | `NVM_ID_EVMEM_LOC_37` | 48 |
+| 82 | `NVM_ID_EVMEM_LOC_38` | 48 |
+| 83 | `NVM_ID_EVMEM_LOC_39` | 48 |
+| 84 | `NVM_ID_EVMEM_LOC_4` | 48 |
+| 85 | `NVM_ID_EVMEM_LOC_5` | 48 |
+| 86 | `NVM_ID_EVMEM_LOC_6` | 48 |
+| 87 | `NVM_ID_EVMEM_LOC_7` | 48 |
+| 88 | `NVM_ID_EVMEM_LOC_8` | 48 |
+| 89 | `NVM_ID_EVMEM_LOC_9` | 48 |
+| 90 | `NVM_ID_EVT_STATUSBYTE` | 218 |
+| 91 | `NVM_NM_ForceHibernationLatestSts` | 1 |
+| 92 | `NvMBlockDescriptor_Application_Valid_Flag` | 1 |
+| 93 | `NvMBlockDescriptor_Did_for_test_0x6666` | 3 |
+| 94 | `NvMBlockDescriptor_Fingerprint_Data` | 9 |
+| 95 | `NvMBlockDescriptor_Reprogramming_Request_Flag` | 4 |
+| 96 | `NvMBlockDescriptor_ResetReason_Type` | 1 |
+| 97 | `NvM_BLDDetStatus` | 1 |
+| 98 | `NvM_Calibration_TargetPosition` | 4 |
+| 99 | `NvM_EDR_Data1` | 4900 |
+| 100 | `NvM_EDR_Data2` | 4900 |
+| 101 | `NvM_EDR_WRITE_FLAG` | 2 |
+| 102 | `NvM_FaultMask_Info` | 32 |
+| 103 | `NvM_PFDem_ErrorInfo` | 512 |
+| 104 | `NvM_Security_Key` | 32 |
+
+Block功能分组要求：
+
+- `0~1` 为 NvM 内部管理Block。
+- `2~7` 覆盖物流数据、OS错误日志、PMIC DTC、复位相关错误记录。
+- `8~19` 覆盖OEM DID和车辆/ECU配置类数据，例如版本号、VIN、VariantCoding、轮距/轴距、目标位置。
+- `20~28` 覆盖运行计数、安全访问计数、EcuM状态、ADAS开关、标定状态。
+- `29~48` 为 Dem Extra Info，每个Block 32字节。
+- `49~90` 为 Dem事件存储相关数据，包括Generic数据、40个Event Memory位置和事件状态字节。
+- `91~98` 覆盖NM休眠状态、App有效标志、测试DID、Fingerprint、刷写请求标志、复位原因、BLD状态、标定目标位置。
+- `99~101` 为EDR存储，BYD使用两块4900字节EDR数据区加写入标志。
+- `102~104` 覆盖FaultMask、PFDem错误信息和安全密钥。
+
+对东软的实现要求：
+
+- 启动阶段必须证明 `ReadAll` 完成后，DID、DEM、EDR、标定、复位原因等RAM镜像数据可被正确读取。
+- 不允许把“关机 `NvM_WriteAll()`”作为唯一保存策略；BYD基线中全局 `WriteAll` 实际未启用。
+- 需要明确每个Block的RAM Block、ROM默认值、NV Block、Block长度、是否需要显式写入、写入触发源、诊断访问关系。
+- DID写入、标定写入、EDR写入、故障记录写入、安全访问计数写入，需要分别给出触发条件和掉电保护策略。
+- 需要提供Fee/Fls扇区布局、擦写粒度、写入次数估算和Flash寿命评估。
+- 对DEM事件存储和EDR大块数据，需要重点评估写入频率和异常掉电场景。
+- 若新项目Block数量或长度发生变化，东软需给出相对BYD基线的差异表，说明新增、删除、长度变化和默认值变化。
+
 验收：
 
 - 掉电保持正确。
 - DID写入后重启仍有效。
 - 写入策略不伤Flash寿命。
 - RF标定数据读取链路与我方ASW/RF对接成功。
+- DEM事件、EDR数据、FaultMask、安全访问计数、复位原因等量产关键数据重启后保持正确。
+- 人为触发掉电、复位、重复写入场景后，NvM队列和Fee状态可恢复，不出现永久busy或数据损坏。
+- 东软交付的Block List与BYD量产工程Block List差异清晰、可追踪、可评审。
 
 #### 9.2.4 NM/ComM/CanSM/BswM
 
