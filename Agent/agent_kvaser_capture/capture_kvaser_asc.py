@@ -316,6 +316,14 @@ def parse_args() -> argparse.Namespace:
         help="For CAN FD TX frames, disable bitrate switch.",
     )
     parser.add_argument(
+        "--receive-local-tx",
+        action="store_true",
+        help=(
+            "Receive frames transmitted by other applications on this computer "
+            "through the same Kvaser channel."
+        ),
+    )
+    parser.add_argument(
         "--print-every",
         type=int,
         default=1000,
@@ -421,16 +429,18 @@ def send_tx_round(
     bitrate_switch: bool,
     print_every: int,
     event_count: int,
+    log_immediately: bool = True,
 ) -> int:
-    sent = 0
+    logged = 0
     for frame in tx_frames:
         msg = make_tx_message(frame, is_fd, bitrate_switch)
         bus.send(msg)
-        logger(msg)
-        sent += 1
-        event_count += 1
-        maybe_print_frame("TX", event_count, msg, print_every)
-    return sent
+        if log_immediately:
+            logger(msg)
+            logged += 1
+            event_count += 1
+            maybe_print_frame("TX", event_count, msg, print_every)
+    return logged
 
 
 def maybe_print_frame(prefix: str, event_count: int, msg: can.Message, print_every: int) -> None:
@@ -573,6 +583,7 @@ def main() -> int:
         "bitrate": args.bitrate,
         "fd": args.fd,
         "can_filters": build_filters(args.rx_id),
+        "receive_own_messages": args.receive_local_tx,
     }
     if args.fd:
         bus_config["data_bitrate"] = args.data_bitrate
@@ -594,7 +605,8 @@ def main() -> int:
         print(
             f"Recording Kvaser {'CAN FD' if args.fd else 'classic CAN'}: "
             f"channel={args.channel}, fd={args.fd}, bitrate={args.bitrate}, "
-            f"data_bitrate={args.data_bitrate if args.fd else 'n/a'}, output={args.output}"
+            f"data_bitrate={args.data_bitrate if args.fd else 'n/a'}, "
+            f"receive_local_tx={args.receive_local_tx}, output={args.output}"
         )
         print(
             f"Console frame output: every {args.print_every} event(s)"
@@ -634,6 +646,7 @@ def main() -> int:
                     not args.tx_no_brs,
                     args.print_every,
                     logged_events,
+                    log_immediately=not args.receive_local_tx,
                 )
                 sent_count += sent_now
                 logged_events += sent_now
@@ -670,9 +683,14 @@ def main() -> int:
                 continue
             last_frame_time = time.monotonic()
             logger(msg)
-            count += 1
+            if msg.is_rx:
+                count += 1
+                frame_direction = "RX"
+            else:
+                sent_count += 1
+                frame_direction = "TX"
             logged_events += 1
-            maybe_print_frame("RX", logged_events, msg, args.print_every)
+            maybe_print_frame(frame_direction, logged_events, msg, args.print_every)
             if should_flush(
                 logged_events,
                 last_flush_events,

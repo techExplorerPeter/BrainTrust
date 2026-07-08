@@ -35,10 +35,10 @@ sample point = 80% by Kvaser predefined CAN FD bitrate
 从任意目录调用：
 
 ```powershell
-D:\path\to\agent_kvaser_capture\capture.bat --fd --channel 0 --bitrate 500000 --data-bitrate 2000000 --test-name "case01" --output-dir logs --ready-file logs\case01.ready.json --stop-file logs\case01.stop --print-every 0 --timeout 0.2
+D:\path\to\agent_kvaser_capture\capture.bat --fd --channel 0 --bitrate 500000 --data-bitrate 2000000 --receive-local-tx --test-name "case01" --output-dir logs --ready-file logs\case01.ready.json --stop-file logs\case01.stop --print-every 0 --timeout 0.2
 ```
 
-`logs\case01.ready.json` 会记录本次 ASC 路径和 stop file 路径。相对路径会按 `agent_kvaser_capture` 目录解析。
+`logs\case01.ready.json` 会记录本次 ASC 路径和 stop file 路径。相对路径会按 `agent_kvaser_capture` 目录解析。`--receive-local-tx` 用于录制同一台电脑上其他程序通过同一个 Kvaser 发送的报文，例如烧录上位机的请求帧。
 
 ## 停止并保存
 

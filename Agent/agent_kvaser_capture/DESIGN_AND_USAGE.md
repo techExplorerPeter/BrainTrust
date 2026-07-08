@@ -8,6 +8,7 @@
 
 - 独立运行：工具包内置 `can\` 依赖，不要求从 FlexFlowFlash 工程目录启动。
 - 可控停止：agent 不需要按 `Ctrl+C`，通过 stop file 让录制进程自己收尾。
+- 完整监听：默认监听该 Kvaser channel 上收到的总线帧；如需包含同一台电脑上其他程序通过 Kvaser 发出的本地 Tx，使用 `--receive-local-tx`。
 - 可追踪输出：ready JSON 记录 pid、ASC 输出路径、stop file 路径。
 - 自动化稳定：默认建议关闭逐帧打印，周期 flush，避免长时间运行时 stdout 堵塞或数据未及时落盘。
 
@@ -27,13 +28,13 @@
 推荐命令：
 
 ```powershell
-D:\path\to\agent_kvaser_capture\capture.bat --fd --channel 0 --bitrate 500000 --data-bitrate 2000000 --test-name "case01" --output-dir logs --ready-file logs\case01.ready.json --stop-file logs\case01.stop --print-every 0 --timeout 0.2
+D:\path\to\agent_kvaser_capture\capture.bat --fd --channel 0 --bitrate 500000 --data-bitrate 2000000 --receive-local-tx --test-name "case01" --output-dir logs --ready-file logs\case01.ready.json --stop-file logs\case01.stop --print-every 0 --timeout 0.2
 ```
 
 启动成功后会看到：
 
 ```text
-Recording Kvaser CAN FD: channel=0, fd=True, bitrate=500000, data_bitrate=2000000, output=...\logs\case01_YYYYMMDD_HHMMSS.asc
+Recording Kvaser CAN FD: channel=0, fd=True, bitrate=500000, data_bitrate=2000000, receive_local_tx=True, output=...\logs\case01_YYYYMMDD_HHMMSS.asc
 Ready file: ...\logs\case01.ready.json
 Stop condition: Ctrl+C or create stop file: ...\logs\case01.stop.
 ```
@@ -93,6 +94,18 @@ D:\path\to\agent_kvaser_capture\capture.bat --fd --channel 0 --bitrate 500000 --
 
 Tx 会写入同一个 ASC 文件，方向为 Tx。
 
+## 监听范围说明
+
+脚本不是只监听雷达报文。未设置 `--rx-id` 时，脚本会记录 Kvaser channel 上收到的所有报文。
+
+需要注意 Kvaser CANlib 的本地 Tx 行为：如果烧录上位机和 capture 脚本运行在同一台电脑、并且共用同一个 Kvaser，烧录上位机发出的报文属于本机 local Tx。要让 capture 脚本也收到这些帧，需要启动时增加：
+
+```text
+--receive-local-tx
+```
+
+否则 ASC 里通常只能看到总线上其他节点的 Rx，例如雷达响应、目标板响应，可能看不到烧录上位机发送的请求帧。
+
 ## Agent 自动化流程
 
 1. 生成唯一测试名，例如 `radar_powercycle_case01`。
@@ -108,7 +121,7 @@ Tx 会写入同一个 ASC 文件，方向为 Tx。
 24 小时自动化推荐参数：
 
 ```text
---print-every 0 --timeout 0.2 --flush-every 100 --flush-period 5
+--receive-local-tx --print-every 0 --timeout 0.2 --flush-every 100 --flush-period 5
 ```
 
 如果担心单个 ASC 文件过大，可以增加：
@@ -125,4 +138,5 @@ Tx 会写入同一个 ASC 文件，方向为 Tx。
 - stop 无法停止：录制命令没有传 `--stop-file`，ready JSON 中没有 stop 文件路径。
 - 控制台打印 RX：这是 `--print-every` 控制的正常行为；关闭打印使用 `--print-every 0`。
 - ASC 只有 ErrorFrame 或没有报文：优先确认使用 `--fd --channel 0 --bitrate 500000 --data-bitrate 2000000`。
+- ASC 看不到烧录上位机发送帧：启动录制时增加 `--receive-local-tx`。
 - 多行命令失败：PowerShell 换行必须用反引号；CMD 建议使用一整行命令。
