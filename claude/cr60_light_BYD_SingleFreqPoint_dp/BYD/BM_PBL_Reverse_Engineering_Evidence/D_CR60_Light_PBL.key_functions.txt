@@ -1,0 +1,914 @@
+﻿
+D_CR60_Light_PBL.elf:	file format elf32-littlearm
+
+Disassembly of section .text:
+
+1022eee8 <ImageM_VerifyDownloadLogBlock>:
+1022eee8: e92d 4ff0    	push.w	{r4, r5, r6, r7, r8, r9, r10, r11, lr}
+1022eeec: b0c3         	sub	sp, #268
+1022eeee: f8df b244    	ldr.w	r11, [pc, #580]         @ 0x1022f134 <$d.5>
+1022eef2: 468a         	mov	r10, r1
+1022eef4: 4680         	mov	r8, r0
+1022eef6: f10d 090c    	add.w	r9, sp, #12
+1022eefa: 2701         	movs	r7, #1
+1022eefc: f04f 30ff    	mov.w	r0, #4294967295
+1022ef00: f8db 6004    	ldr.w	r6, [r11, #4]
+1022ef04: f8db 5008    	ldr.w	r5, [r11, #8]
+1022ef08: 9002         	str	r0, [sp, #8]
+1022ef0a: b1dd         	cbz	r5, 0x1022ef44 <ImageM_VerifyDownloadLogBlock+0x5c> @ imm = #54
+1022ef0c: 4630         	mov	r0, r6
+1022ef0e: 4649         	mov	r1, r9
+1022ef10: f44f 7280    	mov.w	r2, #256
+1022ef14: f00d fd4e    	bl	0x1023c9b4 <Fls_Read>   @ imm = #55964
+1022ef18: f012 fd10    	bl	0x1024193c <Fls_MainFunction> @ imm = #76320
+1022ef1c: f019 fff2    	bl	0x10248f04 <Fls_GetStatus> @ imm = #106468
+1022ef20: 2801         	cmp	r0, #1
+1022ef22: d1f9         	bne	0x1022ef18 <ImageM_VerifyDownloadLogBlock+0x30> @ imm = #-14
+1022ef24: f44f 7480    	mov.w	r4, #256
+1022ef28: 9a02         	ldr	r2, [sp, #8]
+1022ef2a: f5b5 7f80    	cmp.w	r5, #256
+1022ef2e: bf38         	it	lo
+1022ef30: 462c         	movlo	r4, r5
+1022ef32: b2fb         	uxtb	r3, r7
+1022ef34: 4648         	mov	r0, r9
+1022ef36: 4621         	mov	r1, r4
+1022ef38: f014 fc6e    	bl	0x10243818 <Crc_CalculateCRC32> @ imm = #84188
+1022ef3c: 4426         	add	r6, r4
+1022ef3e: 1b2d         	subs	r5, r5, r4
+1022ef40: 2700         	movs	r7, #0
+1022ef42: e7e1         	b	0x1022ef08 <ImageM_VerifyDownloadLogBlock+0x20> @ imm = #-62
+1022ef44: a902         	add	r1, sp, #8
+1022ef46: 4640         	mov	r0, r8
+1022ef48: 2204         	movs	r2, #4
+1022ef4a: f018 fa53    	bl	0x102473f4 <DataM_U8ArrayIsEqual> @ imm = #99494
+1022ef4e: 2100         	movs	r1, #0
+1022ef50: f8df c1fc    	ldr.w	r12, [pc, #508]         @ 0x1022f150 <$d.5+0x1c>
+1022ef54: 2800         	cmp	r0, #0
+1022ef56: bf08         	it	eq
+1022ef58: 210c         	moveq	r1, #12
+1022ef5a: f8df e1f8    	ldr.w	lr, [pc, #504]          @ 0x1022f154 <$d.5+0x20>
+1022ef5e: f04f 0800    	mov.w	r8, #0
+1022ef62: f8df 91d4    	ldr.w	r9, [pc, #468]          @ 0x1022f138 <$d.5+0x4>
+1022ef66: f88a 1000    	strb.w	r1, [r10]
+1022ef6a: f8db 0004    	ldr.w	r0, [r11, #4]
+1022ef6e: f8df b1cc    	ldr.w	r11, [pc, #460]         @ 0x1022f13c <$d.5+0x8>
+1022ef72: f8cd a000    	str.w	r10, [sp]
+1022ef76: f10d 0a04    	add.w	r10, sp, #4
+1022ef7a: f8c9 0000    	str.w	r0, [r9]
+1022ef7e: f8d9 0000    	ldr.w	r0, [r9]
+1022ef82: f1b8 0f05    	cmp.w	r8, #5
+1022ef86: d04e         	beq	0x1022f026 <ImageM_VerifyDownloadLogBlock+0x13e> @ imm = #156
+1022ef88: ebc8 01c8    	rsb	r1, r8, r8, lsl #3
+1022ef8c: f85b 2021    	ldr.w	r2, [r11, r1, lsl #2]
+1022ef90: 4290         	cmp	r0, r2
+1022ef92: d145         	bne	0x1022f020 <ImageM_VerifyDownloadLogBlock+0x138> @ imm = #138
+1022ef94: 464e         	mov	r6, r9
+1022ef96: eb0b 0981    	add.w	r9, r11, r1, lsl #2
+1022ef9a: 4d69         	ldr	r5, [pc, #420]          @ 0x1022f140 <$d.5+0xc>
+1022ef9c: 4f6a         	ldr	r7, [pc, #424]          @ 0x1022f148 <$d.5+0x14>
+1022ef9e: f859 0f08    	ldr	r0, [r9, #8]!
+1022efa2: f8d9 1004    	ldr.w	r1, [r9, #4]
+1022efa6: f859 2c04    	ldr	r2, [r9, #-4]
+1022efaa: e9d9 3402    	ldrd	r3, r4, [r9, #8]
+1022efae: 6029         	str	r1, [r5]
+1022efb0: 4675         	mov	r5, lr
+1022efb2: 4964         	ldr	r1, [pc, #400]          @ 0x1022f144 <$d.5+0x10>
+1022efb4: 603b         	str	r3, [r7]
+1022efb6: 600a         	str	r2, [r1]
+1022efb8: eb0e 0148    	add.w	r1, lr, r8, lsl #1
+1022efbc: f8d9 2010    	ldr.w	r2, [r9, #16]
+1022efc0: 4f62         	ldr	r7, [pc, #392]          @ 0x1022f14c <$d.5+0x18>
+1022efc2: 894b         	ldrh	r3, [r1, #10]
+1022efc4: 8a49         	ldrh	r1, [r1, #18]
+1022efc6: f8cc 2000    	str.w	r2, [r12]
+1022efca: 4a63         	ldr	r2, [pc, #396]          @ 0x1022f158 <$d.5+0x24>
+1022efcc: 603c         	str	r4, [r7]
+1022efce: 4664         	mov	r4, r12
+1022efd0: 8013         	strh	r3, [r2]
+1022efd2: 4a62         	ldr	r2, [pc, #392]          @ 0x1022f15c <$d.5+0x28>
+1022efd4: 8011         	strh	r1, [r2]
+1022efd6: 4651         	mov	r1, r10
+1022efd8: 2204         	movs	r2, #4
+1022efda: f00d fceb    	bl	0x1023c9b4 <Fls_Read>   @ imm = #55766
+1022efde: f012 fcad    	bl	0x1024193c <Fls_MainFunction> @ imm = #76122
+1022efe2: f019 ff8f    	bl	0x10248f04 <Fls_GetStatus> @ imm = #106270
+1022efe6: 2801         	cmp	r0, #1
+1022efe8: d1f9         	bne	0x1022efde <ImageM_VerifyDownloadLogBlock+0xf6> @ imm = #-14
+1022efea: 9801         	ldr	r0, [sp, #4]
+1022efec: f8d9 1000    	ldr.w	r1, [r9]
+1022eff0: f100 0240    	add.w	r2, r0, #64
+1022eff4: f1a1 0008    	sub.w	r0, r1, #8
+1022eff8: 4959         	ldr	r1, [pc, #356]          @ 0x1022f160 <$d.5+0x2c>
+1022effa: 600a         	str	r2, [r1]
+1022effc: 4651         	mov	r1, r10
+1022effe: 2204         	movs	r2, #4
+1022f000: f00d fcd8    	bl	0x1023c9b4 <Fls_Read>   @ imm = #55728
+1022f004: f012 fc9a    	bl	0x1024193c <Fls_MainFunction> @ imm = #76084
+1022f008: f019 ff7c    	bl	0x10248f04 <Fls_GetStatus> @ imm = #106232
+1022f00c: 2801         	cmp	r0, #1
+1022f00e: d1f9         	bne	0x1022f004 <ImageM_VerifyDownloadLogBlock+0x11c> @ imm = #-14
+1022f010: 4a53         	ldr	r2, [pc, #332]          @ 0x1022f160 <$d.5+0x2c>
+1022f012: 46b1         	mov	r9, r6
+1022f014: 9801         	ldr	r0, [sp, #4]
+1022f016: 46a4         	mov	r12, r4
+1022f018: 46ae         	mov	lr, r5
+1022f01a: 6811         	ldr	r1, [r2]
+1022f01c: 4408         	add	r0, r1
+1022f01e: 6010         	str	r0, [r2]
+1022f020: f108 0801    	add.w	r8, r8, #1
+1022f024: e7ab         	b	0x1022ef7e <ImageM_VerifyDownloadLogBlock+0x96> @ imm = #-170
+1022f026: f8df 813c    	ldr.w	r8, [pc, #316]          @ 0x1022f164 <$d.5+0x30>
+1022f02a: 2200         	movs	r2, #0
+1022f02c: 230c         	movs	r3, #12
+1022f02e: 2a04         	cmp	r2, #4
+1022f030: d01c         	beq	0x1022f06c <ImageM_VerifyDownloadLogBlock+0x184> @ imm = #56
+1022f032: eb08 0403    	add.w	r4, r8, r3
+1022f036: f854 4c0c    	ldr	r4, [r4, #-12]
+1022f03a: 42a0         	cmp	r0, r4
+1022f03c: d113         	bne	0x1022f066 <ImageM_VerifyDownloadLogBlock+0x17e> @ imm = #38
+1022f03e: eb08 04c2    	add.w	r4, r8, r2, lsl #3
+1022f042: eb0e 0702    	add.w	r7, lr, r2
+1022f046: 4e40         	ldr	r6, [pc, #256]          @ 0x1022f148 <$d.5+0x14>
+1022f048: 4940         	ldr	r1, [pc, #256]          @ 0x1022f14c <$d.5+0x18>
+1022f04a: e9d4 5401    	ldrd	r5, r4, [r4, #4]
+1022f04e: 600c         	str	r4, [r1]
+1022f050: 4941         	ldr	r1, [pc, #260]          @ 0x1022f158 <$d.5+0x24>
+1022f052: 4c42         	ldr	r4, [pc, #264]          @ 0x1022f15c <$d.5+0x28>
+1022f054: 6035         	str	r5, [r6]
+1022f056: f858 5003    	ldr.w	r5, [r8, r3]
+1022f05a: 887e         	ldrh	r6, [r7, #2]
+1022f05c: 88ff         	ldrh	r7, [r7, #6]
+1022f05e: f8cc 5000    	str.w	r5, [r12]
+1022f062: 800e         	strh	r6, [r1]
+1022f064: 8027         	strh	r7, [r4]
+1022f066: 3202         	adds	r2, #2
+1022f068: 3310         	adds	r3, #16
+1022f06a: e7e0         	b	0x1022f02e <ImageM_VerifyDownloadLogBlock+0x146> @ imm = #-64
+1022f06c: 4c3e         	ldr	r4, [pc, #248]          @ 0x1022f168 <$d.5+0x34>
+1022f06e: f8d9 0000    	ldr.w	r0, [r9]
+1022f072: 9e00         	ldr	r6, [sp]
+1022f074: 6821         	ldr	r1, [r4]
+1022f076: 4288         	cmp	r0, r1
+1022f078: d12e         	bne	0x1022f0d8 <ImageM_VerifyDownloadLogBlock+0x1f0> @ imm = #92
+1022f07a: e9d4 2303    	ldrd	r2, r3, [r4, #12]
+1022f07e: e9d4 1001    	ldrd	r1, r0, [r4, #4]
+1022f082: 4f2f         	ldr	r7, [pc, #188]          @ 0x1022f140 <$d.5+0xc>
+1022f084: f8be 5000    	ldrh.w	r5, [lr]
+1022f088: 603a         	str	r2, [r7]
+1022f08a: 4a2e         	ldr	r2, [pc, #184]          @ 0x1022f144 <$d.5+0x10>
+1022f08c: f8cc 3000    	str.w	r3, [r12]
+1022f090: 6011         	str	r1, [r2]
+1022f092: 2204         	movs	r2, #4
+1022f094: 4931         	ldr	r1, [pc, #196]          @ 0x1022f15c <$d.5+0x28>
+1022f096: 800d         	strh	r5, [r1]
+1022f098: a901         	add	r1, sp, #4
+1022f09a: f00d fc8b    	bl	0x1023c9b4 <Fls_Read>   @ imm = #55574
+1022f09e: f012 fc4d    	bl	0x1024193c <Fls_MainFunction> @ imm = #75930
+1022f0a2: f019 ff2f    	bl	0x10248f04 <Fls_GetStatus> @ imm = #106078
+1022f0a6: 2801         	cmp	r0, #1
+1022f0a8: d1f9         	bne	0x1022f09e <ImageM_VerifyDownloadLogBlock+0x1b6> @ imm = #-14
+1022f0aa: 9801         	ldr	r0, [sp, #4]
+1022f0ac: 68a1         	ldr	r1, [r4, #8]
+1022f0ae: f100 0240    	add.w	r2, r0, #64
+1022f0b2: f101 0008    	add.w	r0, r1, #8
+1022f0b6: 492a         	ldr	r1, [pc, #168]          @ 0x1022f160 <$d.5+0x2c>
+1022f0b8: 600a         	str	r2, [r1]
+1022f0ba: a901         	add	r1, sp, #4
+1022f0bc: 2204         	movs	r2, #4
+1022f0be: f00d fc79    	bl	0x1023c9b4 <Fls_Read>   @ imm = #55538
+1022f0c2: f012 fc3b    	bl	0x1024193c <Fls_MainFunction> @ imm = #75894
+1022f0c6: f019 ff1d    	bl	0x10248f04 <Fls_GetStatus> @ imm = #106042
+1022f0ca: 2801         	cmp	r0, #1
+1022f0cc: d1f9         	bne	0x1022f0c2 <ImageM_VerifyDownloadLogBlock+0x1da> @ imm = #-14
+1022f0ce: 4a24         	ldr	r2, [pc, #144]          @ 0x1022f160 <$d.5+0x2c>
+1022f0d0: 9801         	ldr	r0, [sp, #4]
+1022f0d2: 6811         	ldr	r1, [r2]
+1022f0d4: 4408         	add	r0, r1
+1022f0d6: 6010         	str	r0, [r2]
+1022f0d8: f011 fc1e    	bl	0x10240918 <SecFlash_SecCtrl> @ imm = #71740
+1022f0dc: 4c15         	ldr	r4, [pc, #84]           @ 0x1022f134 <$d.5>
+1022f0de: b190         	cbz	r0, 0x1022f106 <ImageM_VerifyDownloadLogBlock+0x21e> @ imm = #36
+1022f0e0: f8d9 0000    	ldr.w	r0, [r9]
+1022f0e4: f5b0 1f44    	cmp.w	r0, #3211264
+1022f0e8: d00d         	beq	0x1022f106 <ImageM_VerifyDownloadLogBlock+0x21e> @ imm = #26
+1022f0ea: b138         	cbz	r0, 0x1022f0fc <ImageM_VerifyDownloadLogBlock+0x214> @ imm = #14
+1022f0ec: f5b0 1f34    	cmp.w	r0, #2949120
+1022f0f0: d004         	beq	0x1022f0fc <ImageM_VerifyDownloadLogBlock+0x214> @ imm = #8
+1022f0f2: 7830         	ldrb	r0, [r6]
+1022f0f4: b938         	cbnz	r0, 0x1022f106 <ImageM_VerifyDownloadLogBlock+0x21e> @ imm = #14
+1022f0f6: 4630         	mov	r0, r6
+1022f0f8: f006 fcf2    	bl	0x10235ae0 <VerifyHashData> @ imm = #27108
+1022f0fc: 7830         	ldrb	r0, [r6]
+1022f0fe: b910         	cbnz	r0, 0x1022f106 <ImageM_VerifyDownloadLogBlock+0x21e> @ imm = #4
+1022f100: 4630         	mov	r0, r6
+1022f102: f007 fbdd    	bl	0x102368c0 <verifySecFlashSignature> @ imm = #30650
+1022f106: 7820         	ldrb	r0, [r4]
+1022f108: 28ff         	cmp	r0, #255
+1022f10a: d00c         	beq	0x1022f126 <ImageM_VerifyDownloadLogBlock+0x23e> @ imm = #24
+1022f10c: 2803         	cmp	r0, #3
+1022f10e: d10c         	bne	0x1022f12a <ImageM_VerifyDownloadLogBlock+0x242> @ imm = #24
+1022f110: 7830         	ldrb	r0, [r6]
+1022f112: fab0 f080    	clz	r0, r0
+1022f116: 0940         	lsrs	r0, r0, #5
+1022f118: 7360         	strb	r0, [r4, #13]
+1022f11a: f015 fac3    	bl	0x102446a4 <ImageM_ImageStatus_WriteApplicationValidFlag> @ imm = #87430
+1022f11e: 2801         	cmp	r0, #1
+1022f120: d103         	bne	0x1022f12a <ImageM_VerifyDownloadLogBlock+0x242> @ imm = #6
+1022f122: 200a         	movs	r0, #10
+1022f124: e000         	b	0x1022f128 <ImageM_VerifyDownloadLogBlock+0x240> @ imm = #0
+1022f126: 2006         	movs	r0, #6
+1022f128: 7030         	strb	r0, [r6]
+1022f12a: 2000         	movs	r0, #0
+1022f12c: b043         	add	sp, #268
+1022f12e: e8bd 8ff0    	pop.w	{r4, r5, r6, r7, r8, r9, r10, r11, pc}
+1022f132: bf00         	nop
+
+10235ae0 <VerifyHashData>:
+10235ae0: e92d 47f0    	push.w	{r4, r5, r6, r7, r8, r9, r10, lr}
+10235ae4: b0e4         	sub	sp, #400
+10235ae6: 4680         	mov	r8, r0
+10235ae8: a804         	add	r0, sp, #16
+10235aea: 2140         	movs	r1, #64
+10235aec: f013 eafa    	blx	0x102490e4 <__aeabi_memclr8> @ imm = #79348
+10235af0: 4c3f         	ldr	r4, [pc, #252]          @ 0x10235bf0 <$d.11>
+10235af2: 2100         	movs	r1, #0
+10235af4: f44f 7280    	mov.w	r2, #256
+10235af8: 9103         	str	r1, [sp, #12]
+10235afa: 6820         	ldr	r0, [r4]
+10235afc: a924         	add	r1, sp, #144
+10235afe: f006 ff59    	bl	0x1023c9b4 <Fls_Read>   @ imm = #28338
+10235b02: f00b ff1b    	bl	0x1024193c <Fls_MainFunction> @ imm = #48694
+10235b06: f013 f9fd    	bl	0x10248f04 <Fls_GetStatus> @ imm = #78842
+10235b0a: 2801         	cmp	r0, #1
+10235b0c: d1f9         	bne	0x10235b02 <VerifyHashData+0x22> @ imm = #-14
+10235b0e: f10d 0a90    	add.w	r10, sp, #144
+10235b12: ad02         	add	r5, sp, #8
+10235b14: 2005         	movs	r0, #5
+10235b16: 2300         	movs	r3, #0
+10235b18: f44f 7280    	mov.w	r2, #256
+10235b1c: f44f 7980    	mov.w	r9, #256
+10235b20: 4651         	mov	r1, r10
+10235b22: 9500         	str	r5, [sp]
+10235b24: f009 f9fd    	bl	0x1023ef22 <cycursoc_HashStart> @ imm = #37882
+10235b28: 9902         	ldr	r1, [sp, #8]
+10235b2a: 4602         	mov	r2, r0
+10235b2c: 4608         	mov	r0, r1
+10235b2e: 4611         	mov	r1, r2
+10235b30: 2201         	movs	r2, #1
+10235b32: f010 fd1a    	bl	0x1024656a <CheckJobAcceptance> @ imm = #68148
+10235b36: 2800         	cmp	r0, #0
+10235b38: d052         	beq	0x10235be0 <VerifyHashData+0x100> @ imm = #164
+10235b3a: 4d2e         	ldr	r5, [pc, #184]          @ 0x10235bf4 <$d.11+0x4>
+10235b3c: 6821         	ldr	r1, [r4]
+10235b3e: 6828         	ldr	r0, [r5]
+10235b40: af24         	add	r7, sp, #144
+10235b42: f5a0 7680    	sub.w	r6, r0, #256
+10235b46: f501 7080    	add.w	r0, r1, #256
+10235b4a: 602e         	str	r6, [r5]
+10235b4c: 6020         	str	r0, [r4]
+10235b4e: b30e         	cbz	r6, 0x10235b94 <VerifyHashData+0xb4> @ imm = #66
+10235b50: f5b6 7f80    	cmp.w	r6, #256
+10235b54: bf28         	it	hs
+10235b56: 464e         	movhs	r6, r9
+10235b58: 4639         	mov	r1, r7
+10235b5a: 4632         	mov	r2, r6
+10235b5c: f006 ff2a    	bl	0x1023c9b4 <Fls_Read>   @ imm = #28244
+10235b60: f00b feec    	bl	0x1024193c <Fls_MainFunction> @ imm = #48600
+10235b64: f013 f9ce    	bl	0x10248f04 <Fls_GetStatus> @ imm = #78748
+10235b68: 2801         	cmp	r0, #1
+10235b6a: d1f9         	bne	0x10235b60 <VerifyHashData+0x80> @ imm = #-14
+10235b6c: 9802         	ldr	r0, [sp, #8]
+10235b6e: 4651         	mov	r1, r10
+10235b70: 4632         	mov	r2, r6
+10235b72: f00f fbdf    	bl	0x10245334 <cycursoc_HashUpdate> @ imm = #63422
+10235b76: 9902         	ldr	r1, [sp, #8]
+10235b78: 4602         	mov	r2, r0
+10235b7a: 4608         	mov	r0, r1
+10235b7c: 4611         	mov	r1, r2
+10235b7e: 2201         	movs	r2, #1
+10235b80: f010 fcf3    	bl	0x1024656a <CheckJobAcceptance> @ imm = #68070
+10235b84: b360         	cbz	r0, 0x10235be0 <VerifyHashData+0x100> @ imm = #88
+10235b86: 6820         	ldr	r0, [r4]
+10235b88: 6829         	ldr	r1, [r5]
+10235b8a: 4430         	add	r0, r6
+10235b8c: 1b8e         	subs	r6, r1, r6
+10235b8e: 6020         	str	r0, [r4]
+10235b90: 602e         	str	r6, [r5]
+10235b92: e7dc         	b	0x10235b4e <VerifyHashData+0x6e> @ imm = #-72
+10235b94: 9802         	ldr	r0, [sp, #8]
+10235b96: a904         	add	r1, sp, #16
+10235b98: ab03         	add	r3, sp, #12
+10235b9a: 2240         	movs	r2, #64
+10235b9c: f00e fe8a    	bl	0x102448b4 <cycursoc_HashFinish> @ imm = #60692
+10235ba0: 9902         	ldr	r1, [sp, #8]
+10235ba2: 4602         	mov	r2, r0
+10235ba4: 4608         	mov	r0, r1
+10235ba6: 4611         	mov	r1, r2
+10235ba8: 2203         	movs	r2, #3
+10235baa: f010 fcde    	bl	0x1024656a <CheckJobAcceptance> @ imm = #68028
+10235bae: b1b8         	cbz	r0, 0x10235be0 <VerifyHashData+0x100> @ imm = #46
+10235bb0: 4811         	ldr	r0, [pc, #68]           @ 0x10235bf8 <$d.11+0x8>
+10235bb2: f44f 7280    	mov.w	r2, #256
+10235bb6: 6800         	ldr	r0, [r0]
+10235bb8: a914         	add	r1, sp, #80
+10235bba: f006 fefb    	bl	0x1023c9b4 <Fls_Read>   @ imm = #28150
+10235bbe: f00b febd    	bl	0x1024193c <Fls_MainFunction> @ imm = #48506
+10235bc2: f013 f99f    	bl	0x10248f04 <Fls_GetStatus> @ imm = #78654
+10235bc6: 2801         	cmp	r0, #1
+10235bc8: d1f9         	bne	0x10235bbe <VerifyHashData+0xde> @ imm = #-14
+10235bca: 9803         	ldr	r0, [sp, #12]
+10235bcc: 2840         	cmp	r0, #64
+10235bce: d105         	bne	0x10235bdc <VerifyHashData+0xfc> @ imm = #10
+10235bd0: a804         	add	r0, sp, #16
+10235bd2: a914         	add	r1, sp, #80
+10235bd4: 2240         	movs	r2, #64
+10235bd6: f00c ee34    	blx	0x10242840 <memcmp>     @ imm = #52328
+10235bda: b138         	cbz	r0, 0x10235bec <VerifyHashData+0x10c> @ imm = #14
+10235bdc: 2004         	movs	r0, #4
+10235bde: e000         	b	0x10235be2 <VerifyHashData+0x102> @ imm = #0
+10235be0: 2007         	movs	r0, #7
+10235be2: f888 0000    	strb.w	r0, [r8]
+10235be6: b064         	add	sp, #400
+10235be8: e8bd 87f0    	pop.w	{r4, r5, r6, r7, r8, r9, r10, pc}
+10235bec: 2000         	movs	r0, #0
+10235bee: e7f8         	b	0x10235be2 <VerifyHashData+0x102> @ imm = #-16
+
+102368c0 <verifySecFlashSignature>:
+102368c0: e92d 41f0    	push.w	{r4, r5, r6, r7, r8, lr}
+102368c4: f5ad 7d1a    	sub.w	sp, sp, #616
+102368c8: 4e3a         	ldr	r6, [pc, #232]          @ 0x102369b4 <$d.17>
+102368ca: 4605         	mov	r5, r0
+102368cc: 6831         	ldr	r1, [r6]
+102368ce: f5b1 1f4c    	cmp.w	r1, #3342336
+102368d2: d102         	bne	0x102368da <verifySecFlashSignature+0x1a> @ imm = #4
+102368d4: 4838         	ldr	r0, [pc, #224]          @ 0x102369b8 <$d.17+0x4>
+102368d6: 8804         	ldrh	r4, [r0]
+102368d8: e003         	b	0x102368e2 <verifySecFlashSignature+0x22> @ imm = #6
+102368da: 4628         	mov	r0, r5
+102368dc: f7fe fd12    	bl	0x10235304 <InjectCert_GetKeyId> @ imm = #-5596
+102368e0: 4604         	mov	r4, r0
+102368e2: 7828         	ldrb	r0, [r5]
+102368e4: 2800         	cmp	r0, #0
+102368e6: d13f         	bne	0x10236968 <verifySecFlashSignature+0xa8> @ imm = #126
+102368e8: 6831         	ldr	r1, [r6]
+102368ea: f44f 7038    	mov.w	r0, #736
+102368ee: 462a         	mov	r2, r5
+102368f0: f5b1 1f34    	cmp.w	r1, #2949120
+102368f4: bf08         	it	eq
+102368f6: f44f 307e    	moveq.w	r0, #260096
+102368fa: 2900         	cmp	r1, #0
+102368fc: f10d 011f    	add.w	r1, sp, #31
+10236900: bf08         	it	eq
+10236902: f44f 30fc    	moveq.w	r0, #129024
+10236906: f000 fad3    	bl	0x10236eb0 <CalculateHashData> @ imm = #1446
+1023690a: 7829         	ldrb	r1, [r5]
+1023690c: bb61         	cbnz	r1, 0x10236968 <verifySecFlashSignature+0xa8> @ imm = #88
+1023690e: 4606         	mov	r6, r0
+10236910: 482a         	ldr	r0, [pc, #168]          @ 0x102369bc <$d.17+0x8>
+10236912: f10d 085f    	add.w	r8, sp, #95
+10236916: f44f 7200    	mov.w	r2, #512
+1023691a: 6800         	ldr	r0, [r0]
+1023691c: 4641         	mov	r1, r8
+1023691e: f006 f849    	bl	0x1023c9b4 <Fls_Read>   @ imm = #24722
+10236922: f00b f80b    	bl	0x1024193c <Fls_MainFunction> @ imm = #45078
+10236926: f012 faed    	bl	0x10248f04 <Fls_GetStatus> @ imm = #75226
+1023692a: 2801         	cmp	r0, #1
+1023692c: d1f9         	bne	0x10236922 <verifySecFlashSignature+0x62> @ imm = #-14
+1023692e: 2000         	movs	r0, #0
+10236930: f88d 0267    	strb.w	r0, [sp, #615]
+10236934: f012 fe8a    	bl	0x1024964c <cycursoc_JobConfigDefault> @ imm = #77076
+10236938: b287         	uxth	r7, r0
+1023693a: 2001         	movs	r0, #1
+1023693c: f20d 2167    	addw	r1, sp, #615
+10236940: f44f 7200    	mov.w	r2, #512
+10236944: 9600         	str	r6, [sp]
+10236946: f10d 031f    	add.w	r3, sp, #31
+1023694a: e9cd 0801    	strd	r0, r8, [sp, #4]
+1023694e: 2002         	movs	r0, #2
+10236950: 9203         	str	r2, [sp, #12]
+10236952: ae98         	add	r6, sp, #608
+10236954: 9104         	str	r1, [sp, #16]
+10236956: 4622         	mov	r2, r4
+10236958: 2105         	movs	r1, #5
+1023695a: e9cd 7605    	strd	r7, r6, [sp, #20]
+1023695e: f7ff fb7b    	bl	0x10236058 <cycursoc_VerifySignature> @ imm = #-2314
+10236962: b180         	cbz	r0, 0x10236986 <verifySecFlashSignature+0xc6> @ imm = #32
+10236964: 2001         	movs	r0, #1
+10236966: 7028         	strb	r0, [r5]
+10236968: 4815         	ldr	r0, [pc, #84]           @ 0x102369c0 <$d.17+0xc>
+1023696a: 8800         	ldrh	r0, [r0]
+1023696c: 4284         	cmp	r4, r0
+1023696e: d006         	beq	0x1023697e <verifySecFlashSignature+0xbe> @ imm = #12
+10236970: 4814         	ldr	r0, [pc, #80]           @ 0x102369c4 <$d.17+0x10>
+10236972: 8800         	ldrh	r0, [r0]
+10236974: f011 f8b8    	bl	0x10247ae8 <eraseKey>   @ imm = #70000
+10236978: 4620         	mov	r0, r4
+1023697a: f011 f8b5    	bl	0x10247ae8 <eraseKey>   @ imm = #69994
+1023697e: f50d 7d1a    	add.w	sp, sp, #616
+10236982: e8bd 81f0    	pop.w	{r4, r5, r6, r7, r8, pc}
+10236986: f20d 265f    	addw	r6, sp, #607
+1023698a: 9898         	ldr	r0, [sp, #608]
+1023698c: 4631         	mov	r1, r6
+1023698e: f009 ffed    	bl	0x1024096c <cycursoc_PollJob> @ imm = #40922
+10236992: 2800         	cmp	r0, #0
+10236994: d1e6         	bne	0x10236964 <verifySecFlashSignature+0xa4> @ imm = #-52
+10236996: f89d 025f    	ldrb.w	r0, [sp, #607]
+1023699a: f012 fba9    	bl	0x102490f0 <cycursoc_JobIsBusy> @ imm = #75602
+1023699e: 2800         	cmp	r0, #0
+102369a0: d1f3         	bne	0x1023698a <verifySecFlashSignature+0xca> @ imm = #-26
+102369a2: f89d 025f    	ldrb.w	r0, [sp, #607]
+102369a6: 2803         	cmp	r0, #3
+102369a8: d1dc         	bne	0x10236964 <verifySecFlashSignature+0xa4> @ imm = #-72
+102369aa: f89d 0267    	ldrb.w	r0, [sp, #615]
+102369ae: 2800         	cmp	r0, #0
+102369b0: d1da         	bne	0x10236968 <verifySecFlashSignature+0xa8> @ imm = #-76
+102369b2: e7d7         	b	0x10236964 <verifySecFlashSignature+0xa4> @ imm = #-82
+
+10237824 <FlashPort_WriteDo>:
+10237824: b5f8         	push	{r3, r4, r5, r6, r7, lr}
+10237826: 4d39         	ldr	r5, [pc, #228]          @ 0x1023790c <$d.5>
+10237828: 7828         	ldrb	r0, [r5]
+1023782a: 2801         	cmp	r0, #1
+1023782c: d102         	bne	0x10237834 <FlashPort_WriteDo+0x10> @ imm = #4
+1023782e: 2000         	movs	r0, #0
+10237830: 7028         	strb	r0, [r5]
+10237832: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+10237834: 4e36         	ldr	r6, [pc, #216]          @ 0x10237910 <$d.5+0x4>
+10237836: 69ea         	ldr	r2, [r5, #28]
+10237838: 6830         	ldr	r0, [r6]
+1023783a: b168         	cbz	r0, 0x10237858 <FlashPort_WriteDo+0x34> @ imm = #26
+1023783c: f5c0 7380    	rsb.w	r3, r0, #256
+10237840: 429a         	cmp	r2, r3
+10237842: d223         	bhs	0x1023788c <FlashPort_WriteDo+0x68> @ imm = #70
+10237844: 18b3         	adds	r3, r6, r2
+10237846: 6a29         	ldr	r1, [r5, #32]
+10237848: 1814         	adds	r4, r2, r0
+1023784a: 1d18         	adds	r0, r3, #4
+1023784c: 6034         	str	r4, [r6]
+1023784e: f011 f85f    	bl	0x10248910 <rba_BswSrv_MemCopy8> @ imm = #69822
+10237852: 2000         	movs	r0, #0
+10237854: 61e8         	str	r0, [r5, #28]
+10237856: e04c         	b	0x102378f2 <FlashPort_WriteDo+0xce> @ imm = #152
+10237858: f5b2 7f80    	cmp.w	r2, #256
+1023785c: d33e         	blo	0x102378dc <FlashPort_WriteDo+0xb8> @ imm = #124
+1023785e: 69a9         	ldr	r1, [r5, #24]
+10237860: 1d28         	adds	r0, r5, #4
+10237862: 6a2a         	ldr	r2, [r5, #32]
+10237864: f44f 7380    	mov.w	r3, #256
+10237868: e9c5 1302    	strd	r1, r3, [r5, #8]
+1023786c: 612a         	str	r2, [r5, #16]
+1023786e: f008 faf9    	bl	0x1023fe64 <FlashHandler_Write> @ imm = #34290
+10237872: f105 0218    	add.w	r2, r5, #24
+10237876: ca07         	ldm	r2, {r0, r1, r2}
+10237878: f500 7380    	add.w	r3, r0, #256
+1023787c: f5a1 7080    	sub.w	r0, r1, #256
+10237880: f502 7180    	add.w	r1, r2, #256
+10237884: e9c5 3006    	strd	r3, r0, [r5, #24]
+10237888: 6229         	str	r1, [r5, #32]
+1023788a: e030         	b	0x102378ee <FlashPort_WriteDo+0xca> @ imm = #96
+1023788c: 1d34         	adds	r4, r6, #4
+1023788e: 6a29         	ldr	r1, [r5, #32]
+10237890: 461a         	mov	r2, r3
+10237892: 4420         	add	r0, r4
+10237894: f011 f83c    	bl	0x10248910 <rba_BswSrv_MemCopy8> @ imm = #69752
+10237898: 69a8         	ldr	r0, [r5, #24]
+1023789a: f105 0308    	add.w	r3, r5, #8
+1023789e: 6831         	ldr	r1, [r6]
+102378a0: f44f 7280    	mov.w	r2, #256
+102378a4: 1a41         	subs	r1, r0, r1
+102378a6: 1d28         	adds	r0, r5, #4
+102378a8: c316         	stm	r3!, {r1, r2, r4}
+102378aa: f008 fadb    	bl	0x1023fe64 <FlashHandler_Write> @ imm = #34230
+102378ae: 6830         	ldr	r0, [r6]
+102378b0: e9d5 1206    	ldrd	r1, r2, [r5, #24]
+102378b4: 6a2f         	ldr	r7, [r5, #32]
+102378b6: f5c0 7380    	rsb.w	r3, r0, #256
+102378ba: 4410         	add	r0, r2
+102378bc: f5a0 7080    	sub.w	r0, r0, #256
+102378c0: 4419         	add	r1, r3
+102378c2: 18fa         	adds	r2, r7, r3
+102378c4: e9c5 1006    	strd	r1, r0, [r5, #24]
+102378c8: 2000         	movs	r0, #0
+102378ca: f44f 7180    	mov.w	r1, #256
+102378ce: 622a         	str	r2, [r5, #32]
+102378d0: 6030         	str	r0, [r6]
+102378d2: 4620         	mov	r0, r4
+102378d4: f011 f939    	bl	0x10248b4a <rba_BswSrv_MemSet8> @ imm = #70258
+102378d8: 69e8         	ldr	r0, [r5, #28]
+102378da: e008         	b	0x102378ee <FlashPort_WriteDo+0xca> @ imm = #16
+102378dc: 6a29         	ldr	r1, [r5, #32]
+102378de: 1d30         	adds	r0, r6, #4
+102378e0: 6032         	str	r2, [r6]
+102378e2: f011 f815    	bl	0x10248910 <rba_BswSrv_MemCopy8> @ imm = #69674
+102378e6: 6830         	ldr	r0, [r6]
+102378e8: 69e9         	ldr	r1, [r5, #28]
+102378ea: 1a08         	subs	r0, r1, r0
+102378ec: 61e8         	str	r0, [r5, #28]
+102378ee: b100         	cbz	r0, 0x102378f2 <FlashPort_WriteDo+0xce> @ imm = #0
+102378f0: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+102378f2: 88a8         	ldrh	r0, [r5, #4]
+102378f4: 2800         	cmp	r0, #0
+102378f6: bf18         	it	ne
+102378f8: 2001         	movne	r0, #1
+102378fa: 2100         	movs	r1, #0
+102378fc: 0040         	lsls	r0, r0, #1
+102378fe: 7529         	strb	r1, [r5, #20]
+10237900: 7568         	strb	r0, [r5, #21]
+10237902: e8bd 40f8    	pop.w	{r3, r4, r5, r6, r7, lr}
+10237906: f011 bb15    	b.w	0x10248f34 <ImageM_ClearActivationCondition_ImageM_BgTask> @ imm = #71210
+1023790a: bf00         	nop
+
+1023c29c <FlashPort_EraseDo>:
+1023c29c: b5b0         	push	{r4, r5, r7, lr}
+1023c29e: 4c1f         	ldr	r4, [pc, #124]          @ 0x1023c31c <$d.3>
+1023c2a0: 69e0         	ldr	r0, [r4, #28]
+1023c2a2: 7d61         	ldrb	r1, [r4, #21]
+1023c2a4: b130         	cbz	r0, 0x1023c2b4 <FlashPort_EraseDo+0x18> @ imm = #12
+1023c2a6: 2902         	cmp	r1, #2
+1023c2a8: d004         	beq	0x1023c2b4 <FlashPort_EraseDo+0x18> @ imm = #8
+1023c2aa: 0740         	lsls	r0, r0, #29
+1023c2ac: d011         	beq	0x1023c2d2 <FlashPort_EraseDo+0x36> @ imm = #34
+1023c2ae: 2002         	movs	r0, #2
+1023c2b0: 7560         	strb	r0, [r4, #21]
+1023c2b2: bdb0         	pop	{r4, r5, r7, pc}
+1023c2b4: 2901         	cmp	r1, #1
+1023c2b6: d101         	bne	0x1023c2bc <FlashPort_EraseDo+0x20> @ imm = #2
+1023c2b8: 2000         	movs	r0, #0
+1023c2ba: 7560         	strb	r0, [r4, #21]
+1023c2bc: 20ff         	movs	r0, #255
+1023c2be: 2100         	movs	r1, #0
+1023c2c0: 75a0         	strb	r0, [r4, #22]
+1023c2c2: e9c4 1106    	strd	r1, r1, [r4, #24]
+1023c2c6: 6221         	str	r1, [r4, #32]
+1023c2c8: 7521         	strb	r1, [r4, #20]
+1023c2ca: e8bd 40b0    	pop.w	{r4, r5, r7, lr}
+1023c2ce: f00c be31    	b.w	0x10248f34 <ImageM_ClearActivationCondition_ImageM_BgTask> @ imm = #52322
+1023c2d2: 7820         	ldrb	r0, [r4]
+1023c2d4: 2801         	cmp	r0, #1
+1023c2d6: d108         	bne	0x1023c2ea <FlashPort_EraseDo+0x4e> @ imm = #16
+1023c2d8: 2000         	movs	r0, #0
+1023c2da: 7020         	strb	r0, [r4]
+1023c2dc: f00b fe90    	bl	0x10248000 <ImageM_ImageStatus_ReadApplicationValidFlag> @ imm = #48416
+1023c2e0: 2801         	cmp	r0, #1
+1023c2e2: d102         	bne	0x1023c2ea <FlashPort_EraseDo+0x4e> @ imm = #4
+1023c2e4: 2000         	movs	r0, #0
+1023c2e6: f008 f9dd    	bl	0x102446a4 <ImageM_ImageStatus_WriteApplicationValidFlag> @ imm = #33722
+1023c2ea: e9d4 1506    	ldrd	r1, r5, [r4, #24]
+1023c2ee: f5b5 3f80    	cmp.w	r5, #65536
+1023c2f2: bf28         	it	hs
+1023c2f4: f44f 3580    	movhs.w	r5, #65536
+1023c2f8: 1d20         	adds	r0, r4, #4
+1023c2fa: e9c4 1502    	strd	r1, r5, [r4, #8]
+1023c2fe: f007 fb41    	bl	0x10243984 <FlashHandler_Erase> @ imm = #30338
+1023c302: e9d4 0106    	ldrd	r0, r1, [r4, #24]
+1023c306: 2302         	movs	r3, #2
+1023c308: 88a2         	ldrh	r2, [r4, #4]
+1023c30a: 1b49         	subs	r1, r1, r5
+1023c30c: 4428         	add	r0, r5
+1023c30e: 2a00         	cmp	r2, #0
+1023c310: 61a0         	str	r0, [r4, #24]
+1023c312: bf08         	it	eq
+1023c314: 2301         	moveq	r3, #1
+1023c316: 61e1         	str	r1, [r4, #28]
+1023c318: 7563         	strb	r3, [r4, #21]
+1023c31a: bdb0         	pop	{r4, r5, r7, pc}
+
+1023eb80 <SWDL_StartCheckRoutine_0x0212>:
+1023eb80: b570         	push	{r4, r5, r6, lr}
+1023eb82: 9e04         	ldr	r6, [sp, #16]
+1023eb84: 461c         	mov	r4, r3
+1023eb86: 2310         	movs	r3, #16
+1023eb88: 2902         	cmp	r1, #2
+1023eb8a: 7013         	strb	r3, [r2]
+1023eb8c: d010         	beq	0x1023ebb0 <SWDL_StartCheckRoutine_0x0212+0x30> @ imm = #32
+1023eb8e: b9c1         	cbnz	r1, 0x1023ebc2 <SWDL_StartCheckRoutine_0x0212+0x42> @ imm = #48
+1023eb90: 4d14         	ldr	r5, [pc, #80]           @ 0x1023ebe4 <$d.1>
+1023eb92: 7829         	ldrb	r1, [r5]
+1023eb94: 2907         	cmp	r1, #7
+1023eb96: d81e         	bhi	0x1023ebd6 <SWDL_StartCheckRoutine_0x0212+0x56> @ imm = #60
+1023eb98: 4629         	mov	r1, r5
+1023eb9a: f841 0f04    	str	r0, [r1, #4]!
+1023eb9e: 4608         	mov	r0, r1
+1023eba0: 4621         	mov	r1, r4
+1023eba2: f007 fe7d    	bl	0x102468a0 <ImageM_VerifyDownloadLogBlock_Start> @ imm = #31994
+1023eba6: 7828         	ldrb	r0, [r5]
+1023eba8: 1c41         	adds	r1, r0, #1
+1023ebaa: 200a         	movs	r0, #10
+1023ebac: 7029         	strb	r1, [r5]
+1023ebae: bd70         	pop	{r4, r5, r6, pc}
+1023ebb0: 4615         	mov	r5, r2
+1023ebb2: f008 fda1    	bl	0x102476f8 <ImageM_PortClose> @ imm = #35650
+1023ebb6: 7828         	ldrb	r0, [r5]
+1023ebb8: 2109         	movs	r1, #9
+1023ebba: f040 0001    	orr	r0, r0, #1
+1023ebbe: 7028         	strb	r0, [r5]
+1023ebc0: e00a         	b	0x1023ebd8 <SWDL_StartCheckRoutine_0x0212+0x58> @ imm = #20
+1023ebc2: f00a f9db    	bl	0x10248f7c <ImageM_VerifyGetJobStatus> @ imm = #41910
+1023ebc6: 2801         	cmp	r0, #1
+1023ebc8: d109         	bne	0x1023ebde <SWDL_StartCheckRoutine_0x0212+0x5e> @ imm = #18
+1023ebca: 7821         	ldrb	r1, [r4]
+1023ebcc: 2900         	cmp	r1, #0
+1023ebce: bf18         	it	ne
+1023ebd0: 2101         	movne	r1, #1
+1023ebd2: 2000         	movs	r0, #0
+1023ebd4: e001         	b	0x1023ebda <SWDL_StartCheckRoutine_0x0212+0x5a> @ imm = #2
+1023ebd6: 2109         	movs	r1, #9
+1023ebd8: 2001         	movs	r0, #1
+1023ebda: 7031         	strb	r1, [r6]
+1023ebdc: bd70         	pop	{r4, r5, r6, pc}
+1023ebde: 200a         	movs	r0, #10
+1023ebe0: bd70         	pop	{r4, r5, r6, pc}
+1023ebe2: bf00         	nop
+
+10240358 <FlashPort_WriteExit>:
+10240358: b5f8         	push	{r3, r4, r5, r6, r7, lr}
+1024035a: 4e13         	ldr	r6, [pc, #76]           @ 0x102403a8 <$d.21>
+1024035c: 2400         	movs	r4, #0
+1024035e: 6831         	ldr	r1, [r6]
+10240360: b1f9         	cbz	r1, 0x102403a2 <FlashPort_WriteExit+0x4a> @ imm = #62
+10240362: 1d35         	adds	r5, r6, #4
+10240364: 1868         	adds	r0, r5, r1
+10240366: f5c1 7180    	rsb.w	r1, r1, #256
+1024036a: f008 fbee    	bl	0x10248b4a <rba_BswSrv_MemSet8> @ imm = #34780
+1024036e: 4f0f         	ldr	r7, [pc, #60]           @ 0x102403ac <$d.21+0x4>
+10240370: f44f 7280    	mov.w	r2, #256
+10240374: f107 0308    	add.w	r3, r7, #8
+10240378: 69b9         	ldr	r1, [r7, #24]
+1024037a: 1d38         	adds	r0, r7, #4
+1024037c: c326         	stm	r3!, {r1, r2, r5}
+1024037e: f7ff fd71    	bl	0x1023fe64 <FlashHandler_Write> @ imm = #-1310
+10240382: 20ff         	movs	r0, #255
+10240384: f44f 7180    	mov.w	r1, #256
+10240388: e9c7 4406    	strd	r4, r4, [r7, #24]
+1024038c: 623c         	str	r4, [r7, #32]
+1024038e: 75b8         	strb	r0, [r7, #22]
+10240390: 4628         	mov	r0, r5
+10240392: 82bc         	strh	r4, [r7, #20]
+10240394: 6034         	str	r4, [r6]
+10240396: f008 fbd8    	bl	0x10248b4a <rba_BswSrv_MemSet8> @ imm = #34736
+1024039a: 88bc         	ldrh	r4, [r7, #4]
+1024039c: 2c00         	cmp	r4, #0
+1024039e: bf18         	it	ne
+102403a0: 2401         	movne	r4, #1
+102403a2: 4620         	mov	r0, r4
+102403a4: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+102403a6: bf00         	nop
+
+10240720 <DcmAppl_Dcm_ProcessRequestDownload>:
+10240720: b5f8         	push	{r3, r4, r5, r6, r7, lr}
+10240722: 2072         	movs	r0, #114
+10240724: 9f07         	ldr	r7, [sp, #28]
+10240726: 461d         	mov	r5, r3
+10240728: 4616         	mov	r6, r2
+1024072a: 2300         	movs	r3, #0
+1024072c: 4a10         	ldr	r2, [pc, #64]           @ 0x10240770 <$d.1+0x4>
+1024072e: 7038         	strb	r0, [r7]
+10240730: f001 0001    	and	r0, r1, #1
+10240734: 490d         	ldr	r1, [pc, #52]           @ 0x1024076c <$d.1>
+10240736: 7013         	strb	r3, [r2]
+10240738: 7008         	strb	r0, [r1]
+1024073a: 4630         	mov	r0, r6
+1024073c: 4629         	mov	r1, r5
+1024073e: f000 f897    	bl	0x10240870 <ImageM_PortOpen> @ imm = #302
+10240742: b940         	cbnz	r0, 0x10240756 <DcmAppl_Dcm_ProcessRequestDownload+0x36> @ imm = #16
+10240744: 4630         	mov	r0, r6
+10240746: 4629         	mov	r1, r5
+10240748: f000 fda2    	bl	0x10241290 <ImageM_GetRequestDownloadCondition> @ imm = #2884
+1024074c: b918         	cbnz	r0, 0x10240756 <DcmAppl_Dcm_ProcessRequestDownload+0x36> @ imm = #6
+1024074e: 9806         	ldr	r0, [sp, #24]
+10240750: f007 feab    	bl	0x102484aa <ImageM_PortGetMaxNOBL> @ imm = #32086
+10240754: b120         	cbz	r0, 0x10240760 <DcmAppl_Dcm_ProcessRequestDownload+0x40> @ imm = #8
+10240756: 4604         	mov	r4, r0
+10240758: 2031         	movs	r0, #49
+1024075a: 7038         	strb	r0, [r7]
+1024075c: 4620         	mov	r0, r4
+1024075e: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+10240760: 2400         	movs	r4, #0
+10240762: 703c         	strb	r4, [r7]
+10240764: f007 fc2e    	bl	0x10247fc4 <FlasPort_ClearPreviousJob> @ imm = #30812
+10240768: e7f8         	b	0x1024075c <DcmAppl_Dcm_ProcessRequestDownload+0x3c> @ imm = #-16
+1024076a: bf00         	nop
+
+10240870 <ImageM_PortOpen>:
+10240870: b5f0         	push	{r4, r5, r6, r7, lr}
+10240872: 4a12         	ldr	r2, [pc, #72]           @ 0x102408bc <$d.4>
+10240874: 7b13         	ldrb	r3, [r2, #12]
+10240876: 2b01         	cmp	r3, #1
+10240878: d105         	bne	0x10240886 <ImageM_PortOpen+0x16> @ imm = #10
+1024087a: 2300         	movs	r3, #0
+1024087c: 24ff         	movs	r4, #255
+1024087e: 6053         	str	r3, [r2, #4]
+10240880: 6093         	str	r3, [r2, #8]
+10240882: 7014         	strb	r4, [r2]
+10240884: 8193         	strh	r3, [r2, #12]
+10240886: 4c0e         	ldr	r4, [pc, #56]           @ 0x102408c0 <$d.4+0x4>
+10240888: 2300         	movs	r3, #0
+1024088a: 180d         	adds	r5, r1, r0
+1024088c: 7393         	strb	r3, [r2, #14]
+1024088e: 2b09         	cmp	r3, #9
+10240890: d00b         	beq	0x102408aa <ImageM_PortOpen+0x3a> @ imm = #22
+10240892: f854 6033    	ldr.w	r6, [r4, r3, lsl #3]
+10240896: 4286         	cmp	r6, r0
+10240898: d805         	bhi	0x102408a6 <ImageM_PortOpen+0x36> @ imm = #10
+1024089a: eb04 07c3    	add.w	r7, r4, r3, lsl #3
+1024089e: 687f         	ldr	r7, [r7, #4]
+102408a0: 443e         	add	r6, r7
+102408a2: 42b5         	cmp	r5, r6
+102408a4: d903         	bls	0x102408ae <ImageM_PortOpen+0x3e> @ imm = #6
+102408a6: 3301         	adds	r3, #1
+102408a8: e7f1         	b	0x1024088e <ImageM_PortOpen+0x1e> @ imm = #-30
+102408aa: 2001         	movs	r0, #1
+102408ac: bdf0         	pop	{r4, r5, r6, r7, pc}
+102408ae: 7013         	strb	r3, [r2]
+102408b0: 2301         	movs	r3, #1
+102408b2: 6050         	str	r0, [r2, #4]
+102408b4: 2000         	movs	r0, #0
+102408b6: 6091         	str	r1, [r2, #8]
+102408b8: 7313         	strb	r3, [r2, #12]
+102408ba: bdf0         	pop	{r4, r5, r6, r7, pc}
+
+10241290 <ImageM_GetRequestDownloadCondition>:
+10241290: b5b0         	push	{r4, r5, r7, lr}
+10241292: 4a10         	ldr	r2, [pc, #64]           @ 0x102412d4 <$d.13>
+10241294: 180b         	adds	r3, r1, r0
+10241296: 2100         	movs	r1, #0
+10241298: 2909         	cmp	r1, #9
+1024129a: d00b         	beq	0x102412b4 <ImageM_GetRequestDownloadCondition+0x24> @ imm = #22
+1024129c: f852 4031    	ldr.w	r4, [r2, r1, lsl #3]
+102412a0: 4284         	cmp	r4, r0
+102412a2: d805         	bhi	0x102412b0 <ImageM_GetRequestDownloadCondition+0x20> @ imm = #10
+102412a4: eb02 05c1    	add.w	r5, r2, r1, lsl #3
+102412a8: 686d         	ldr	r5, [r5, #4]
+102412aa: 442c         	add	r4, r5
+102412ac: 42a3         	cmp	r3, r4
+102412ae: d903         	bls	0x102412b8 <ImageM_GetRequestDownloadCondition+0x28> @ imm = #6
+102412b0: 3101         	adds	r1, #1
+102412b2: e7f1         	b	0x10241298 <ImageM_GetRequestDownloadCondition+0x8> @ imm = #-30
+102412b4: 2000         	movs	r0, #0
+102412b6: bdb0         	pop	{r4, r5, r7, pc}
+102412b8: 4807         	ldr	r0, [pc, #28]           @ 0x102412d8 <$d.13+0x4>
+102412ba: b2c9         	uxtb	r1, r1
+102412bc: 7b02         	ldrb	r2, [r0, #12]
+102412be: 7800         	ldrb	r0, [r0]
+102412c0: 3a01         	subs	r2, #1
+102412c2: 1a40         	subs	r0, r0, r1
+102412c4: fab2 f282    	clz	r2, r2
+102412c8: bf18         	it	ne
+102412ca: 2001         	movne	r0, #1
+102412cc: 0951         	lsrs	r1, r2, #5
+102412ce: 4008         	ands	r0, r1
+102412d0: bdb0         	pop	{r4, r5, r7, pc}
+102412d2: bf00         	nop
+
+102414f0 <WriteFunc_0xFC01>:
+102414f0: b570         	push	{r4, r5, r6, lr}
+102414f2: 4605         	mov	r5, r0
+102414f4: 2000         	movs	r0, #0
+102414f6: 7008         	strb	r0, [r1]
+102414f8: b1dd         	cbz	r5, 0x10241532 <WriteFunc_0xFC01+0x42> @ imm = #54
+102414fa: 4e0f         	ldr	r6, [pc, #60]           @ 0x10241538 <$d.1>
+102414fc: f44f 5180    	mov.w	r1, #4096
+10241500: 4630         	mov	r0, r6
+10241502: f7fb f9d7    	bl	0x1023c8b4 <Fls_Erase>  @ imm = #-19538
+10241506: 4604         	mov	r4, r0
+10241508: f000 fa18    	bl	0x1024193c <Fls_MainFunction> @ imm = #1072
+1024150c: f007 fcfa    	bl	0x10248f04 <Fls_GetStatus> @ imm = #31220
+10241510: 2801         	cmp	r0, #1
+10241512: d1f9         	bne	0x10241508 <WriteFunc_0xFC01+0x18> @ imm = #-14
+10241514: b974         	cbnz	r4, 0x10241534 <WriteFunc_0xFC01+0x44> @ imm = #28
+10241516: 4630         	mov	r0, r6
+10241518: 4629         	mov	r1, r5
+1024151a: f44f 7280    	mov.w	r2, #256
+1024151e: f7f9 fe19    	bl	0x1023b154 <Fls_Write>  @ imm = #-25550
+10241522: 4604         	mov	r4, r0
+10241524: f000 fa0a    	bl	0x1024193c <Fls_MainFunction> @ imm = #1044
+10241528: f007 fcec    	bl	0x10248f04 <Fls_GetStatus> @ imm = #31192
+1024152c: 2801         	cmp	r0, #1
+1024152e: d1f9         	bne	0x10241524 <WriteFunc_0xFC01+0x34> @ imm = #-14
+10241530: e000         	b	0x10241534 <WriteFunc_0xFC01+0x44> @ imm = #0
+10241532: 2401         	movs	r4, #1
+10241534: 4620         	mov	r0, r4
+10241536: bd70         	pop	{r4, r5, r6, pc}
+
+10243672 <NvM_Integration_WriteAll>:
+10243672: b5bc         	push	{r2, r3, r4, r5, r7, lr}
+10243674: 2000         	movs	r0, #0
+10243676: f88d 0007    	strb.w	r0, [sp, #7]
+1024367a: f000 fc75    	bl	0x10243f68 <NvM_WriteAll> @ imm = #2282
+1024367e: f10d 0407    	add.w	r4, sp, #7
+10243682: f004 f85d    	bl	0x10247740 <NvM_MainFunction> @ imm = #16570
+10243686: f000 fbb9    	bl	0x10243dfc <MemIf_Rb_MainFunction> @ imm = #1906
+1024368a: 4620         	mov	r0, r4
+1024368c: f000 fc52    	bl	0x10243f34 <NvM_Rb_GetStatus> @ imm = #2212
+10243690: f004 ff14    	bl	0x102484bc <MemIf_Rb_GetStatus> @ imm = #20008
+10243694: 4605         	mov	r5, r0
+10243696: f005 ff34    	bl	0x10249502 <Fbl_WdgM_TriggerWdg> @ imm = #24168
+1024369a: f89d 0007    	ldrb.w	r0, [sp, #7]
+1024369e: 2802         	cmp	r0, #2
+102436a0: d0ef         	beq	0x10243682 <NvM_Integration_WriteAll+0x10> @ imm = #-34
+102436a2: 2d02         	cmp	r5, #2
+102436a4: d0ed         	beq	0x10243682 <NvM_Integration_WriteAll+0x10> @ imm = #-38
+102436a6: bdbc         	pop	{r2, r3, r4, r5, r7, pc}
+
+10244674 <ImageM_CheckWritePermission>:
+10244674: b510         	push	{r4, lr}
+10244676: 4a09         	ldr	r2, [pc, #36]           @ 0x1024469c <$d.25>
+10244678: 4c09         	ldr	r4, [pc, #36]           @ 0x102446a0 <$d.25+0x4>
+1024467a: 7813         	ldrb	r3, [r2]
+1024467c: f854 2033    	ldr.w	r2, [r4, r3, lsl #3]
+10244680: 4282         	cmp	r2, r0
+10244682: d806         	bhi	0x10244692 <ImageM_CheckWritePermission+0x1e> @ imm = #12
+10244684: eb04 03c3    	add.w	r3, r4, r3, lsl #3
+10244688: 4408         	add	r0, r1
+1024468a: 685b         	ldr	r3, [r3, #4]
+1024468c: 1899         	adds	r1, r3, r2
+1024468e: 4288         	cmp	r0, r1
+10244690: d901         	bls	0x10244696 <ImageM_CheckWritePermission+0x22> @ imm = #2
+10244692: 2001         	movs	r0, #1
+10244694: bd10         	pop	{r4, pc}
+10244696: 2000         	movs	r0, #0
+10244698: bd10         	pop	{r4, pc}
+1024469a: bf00         	nop
+
+102446a4 <ImageM_ImageStatus_WriteApplicationValidFlag>:
+102446a4: b580         	push	{r7, lr}
+102446a6: 4909         	ldr	r1, [pc, #36]           @ 0x102446cc <$d.3>
+102446a8: 7809         	ldrb	r1, [r1]
+102446aa: 2903         	cmp	r1, #3
+102446ac: d10c         	bne	0x102446c8 <ImageM_ImageStatus_WriteApplicationValidFlag+0x24> @ imm = #24
+102446ae: 2155         	movs	r1, #85
+102446b0: 2801         	cmp	r0, #1
+102446b2: bf08         	it	eq
+102446b4: f06f 0155    	mvneq	r1, #85
+102446b8: 4805         	ldr	r0, [pc, #20]           @ 0x102446d0 <$d.3+0x4>
+102446ba: 7001         	strb	r1, [r0]
+102446bc: 2002         	movs	r0, #2
+102446be: 2101         	movs	r1, #1
+102446c0: f7fb f9ca    	bl	0x1023fa58 <NvM_SetRamBlockStatus> @ imm = #-19564
+102446c4: f7fe ffd5    	bl	0x10243672 <NvM_Integration_WriteAll> @ imm = #-4182
+102446c8: 2000         	movs	r0, #0
+102446ca: bd80         	pop	{r7, pc}
+
+10245804 <ImageM_PortErase>:
+10245804: b5b0         	push	{r4, r5, r7, lr}
+10245806: 4c08         	ldr	r4, [pc, #32]           @ 0x10245828 <$d.8>
+10245808: 6865         	ldr	r5, [r4, #4]
+1024580a: 4285         	cmp	r5, r0
+1024580c: d10a         	bne	0x10245824 <ImageM_PortErase+0x20> @ imm = #20
+1024580e: 4603         	mov	r3, r0
+10245810: 68a0         	ldr	r0, [r4, #8]
+10245812: 460a         	mov	r2, r1
+10245814: 4288         	cmp	r0, r1
+10245816: d105         	bne	0x10245824 <ImageM_PortErase+0x20> @ imm = #10
+10245818: 7820         	ldrb	r0, [r4]
+1024581a: 4619         	mov	r1, r3
+1024581c: e8bd 40b0    	pop.w	{r4, r5, r7, lr}
+10245820: f7fe bef8    	b.w	0x10244614 <FlashPort_Erase> @ imm = #-4624
+10245824: 2001         	movs	r0, #1
+10245826: bdb0         	pop	{r4, r5, r7, pc}
+
+102460ec <ImageM_CompleteCompatibleCheck>:
+102460ec: b5e0         	push	{r5, r6, r7, lr}
+102460ee: 2000         	movs	r0, #0
+102460f0: 9001         	str	r0, [sp, #4]
+102460f2: a801         	add	r0, sp, #4
+102460f4: f001 faf4    	bl	0x102476e0 <ImageM_CheckAppValid> @ imm = #5608
+102460f8: 9901         	ldr	r1, [sp, #4]
+102460fa: 0600         	lsls	r0, r0, #24
+102460fc: bf18         	it	ne
+102460fe: f041 0105    	orrne	r1, r1, #5
+10246102: 2202         	movs	r2, #2
+10246104: 4608         	mov	r0, r1
+10246106: 4901         	ldr	r1, [pc, #4]            @ 0x1024610c <$d.7>
+10246108: 700a         	strb	r2, [r1]
+1024610a: bd8c         	pop	{r2, r3, r7, pc}
+
+102465f2 <Os_Entry_OsTask_FBL_1ms>:
+102465f2: b580         	push	{r7, lr}
+102465f4: f7fe fc8e    	bl	0x10244f14 <ImageM_ActivateTask_ImageM_BgTask> @ imm = #-5860
+102465f8: f7f7 faa0    	bl	0x1023db3c <Can_MainFunction_Write> @ imm = #-35520
+102465fc: f7f2 febc    	bl	0x10239378 <Dcm_MainFunction> @ imm = #-53896
+10246600: f7fd f888    	bl	0x10243714 <Can_MainFunction_Read> @ imm = #-12016
+10246604: f7fa fb2c    	bl	0x10240c60 <Can_MainFunction_BusOff> @ imm = #-22952
+10246608: f7fc faec    	bl	0x10242be4 <FBl_SeedAndKey_AttemptDelayMonitor> @ imm = #-14888
+1024660c: e8bd 4080    	pop.w	{r7, lr}
+10246610: f7f9 be1e    	b.w	0x10240250 <CanTp_MainFunction> @ imm = #-25540
+
+10246c54 <Os_Entry_OsTask_FBL_10ms>:
+10246c54: b580         	push	{r7, lr}
+10246c56: f7f3 fc37    	bl	0x1023a4c8 <BootM_MainFunction> @ imm = #-51090
+10246c5a: f7ec f975    	bl	0x10232f48 <CanSM_MainFunction> @ imm = #-81174
+10246c5e: f002 fbb3    	bl	0x102493c8 <ComM_MainFunction_Can_Network_Channel_Can_Network> @ imm = #10086
+10246c62: f7f1 f82f    	bl	0x10237cc4 <EcuM_MainFunction> @ imm = #-61346
+10246c66: f001 fb21    	bl	0x102482ac <rbSecFls_MainFunction> @ imm = #5698
+10246c6a: e8bd 4080    	pop.w	{r7, lr}
+10246c6e: f000 bd67    	b.w	0x10247740 <NvM_MainFunction> @ imm = #2766
+
+1024927a <main>:
+1024927a: b580         	push	{r7, lr}
+1024927c: f7f4 f84c    	bl	0x1023d318 <EcuM_Init>  @ imm = #-49000
+10249280: 2000         	movs	r0, #0
+10249282: bd80         	pop	{r7, pc}
+
+102495b6 <Os_Entry_OsTask_FBL_BgTask>:
+102495b6: f7fe bb31    	b.w	0x10247c1c <ImageM_MainFunction> @ imm = #-6558

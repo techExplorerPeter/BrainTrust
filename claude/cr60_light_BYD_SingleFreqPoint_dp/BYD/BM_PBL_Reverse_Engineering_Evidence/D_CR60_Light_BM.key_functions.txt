@@ -1,0 +1,542 @@
+﻿
+D_CR60_Light_BM.elf:	file format elf32-littlearm
+
+Disassembly of section .text:
+
+10204960 <Boot_Logic>:
+10204960: e92d 41f0    	push.w	{r4, r5, r6, r7, r8, lr}
+10204964: 4604         	mov	r4, r0
+10204966: 200f         	movs	r0, #15
+10204968: f00c f906    	bl	0x10210b78 <SOC_rcmStartMemInitDSSL3> @ imm = #49676
+1020496c: 200f         	movs	r0, #15
+1020496e: f004 fc6b    	bl	0x10209248 <SOC_rcmWaitMemInitDSSL3> @ imm = #18646
+10204972: f8df 8138    	ldr.w	r8, [pc, #312]          @ 0x10204aac <$d.39>
+10204976: 2001         	movs	r0, #1
+10204978: f8c8 0014    	str.w	r0, [r8, #20]
+1020497c: f898 1000    	ldrb.w	r1, [r8]
+10204980: 2901         	cmp	r1, #1
+10204982: d004         	beq	0x1020498e <Boot_Logic+0x2e> @ imm = #8
+10204984: 2902         	cmp	r1, #2
+10204986: d105         	bne	0x10204994 <Boot_Logic+0x34> @ imm = #10
+10204988: f44f 3000    	mov.w	r0, #131072
+1020498c: e03a         	b	0x10204a04 <Boot_Logic+0xa4> @ imm = #116
+1020498e: f44f 20a0    	mov.w	r0, #327680
+10204992: e037         	b	0x10204a04 <Boot_Logic+0xa4> @ imm = #110
+10204994: 4846         	ldr	r0, [pc, #280]          @ 0x10204ab0 <$d.39+0x4>
+10204996: 4947         	ldr	r1, [pc, #284]          @ 0x10204ab4 <$d.39+0x8>
+10204998: 6800         	ldr	r0, [r0]
+1020499a: 4288         	cmp	r0, r1
+1020499c: d008         	beq	0x102049b0 <Boot_Logic+0x50> @ imm = #16
+1020499e: 4946         	ldr	r1, [pc, #280]          @ 0x10204ab8 <$d.39+0xc>
+102049a0: 4288         	cmp	r0, r1
+102049a2: d011         	beq	0x102049c8 <Boot_Logic+0x68> @ imm = #34
+102049a4: 4945         	ldr	r1, [pc, #276]          @ 0x10204abc <$d.39+0x10>
+102049a6: 4288         	cmp	r0, r1
+102049a8: d00e         	beq	0x102049c8 <Boot_Logic+0x68> @ imm = #28
+102049aa: 4945         	ldr	r1, [pc, #276]          @ 0x10204ac0 <$d.39+0x14>
+102049ac: 4288         	cmp	r0, r1
+102049ae: d135         	bne	0x10204a1c <Boot_Logic+0xbc> @ imm = #106
+102049b0: 4846         	ldr	r0, [pc, #280]          @ 0x10204acc <$d.39+0x20>
+102049b2: 6800         	ldr	r0, [r0]
+102049b4: f1b0 3faa    	cmp.w	r0, #2863311530
+102049b8: d11d         	bne	0x102049f6 <Boot_Logic+0x96> @ imm = #58
+102049ba: 2001         	movs	r0, #1
+102049bc: f108 0108    	add.w	r1, r8, #8
+102049c0: 7020         	strb	r0, [r4]
+102049c2: f44f 20a0    	mov.w	r0, #327680
+102049c6: e00a         	b	0x102049de <Boot_Logic+0x7e> @ imm = #20
+102049c8: 483e         	ldr	r0, [pc, #248]          @ 0x10204ac4 <$d.39+0x18>
+102049ca: 6800         	ldr	r0, [r0]
+102049cc: f1b0 3faa    	cmp.w	r0, #2863311530
+102049d0: d111         	bne	0x102049f6 <Boot_Logic+0x96> @ imm = #34
+102049d2: 2002         	movs	r0, #2
+102049d4: f108 0108    	add.w	r1, r8, #8
+102049d8: 7020         	strb	r0, [r4]
+102049da: f44f 3000    	mov.w	r0, #131072
+102049de: f004 fc81    	bl	0x102092e4 <SecBoot_Check_Process> @ imm = #18690
+102049e2: 7821         	ldrb	r1, [r4]
+102049e4: 4605         	mov	r5, r0
+102049e6: f008 fea7    	bl	0x1020d738 <secBoot_Record> @ imm = #36174
+102049ea: b1a5         	cbz	r5, 0x10204a16 <Boot_Logic+0xb6> @ imm = #40
+102049ec: 4836         	ldr	r0, [pc, #216]          @ 0x10204ac8 <$d.39+0x1c>
+102049ee: 7800         	ldrb	r0, [r0]
+102049f0: 2855         	cmp	r0, #85
+102049f2: d104         	bne	0x102049fe <Boot_Logic+0x9e> @ imm = #8
+102049f4: e00f         	b	0x10204a16 <Boot_Logic+0xb6> @ imm = #30
+102049f6: 4834         	ldr	r0, [pc, #208]          @ 0x10204ac8 <$d.39+0x1c>
+102049f8: 7800         	ldrb	r0, [r0]
+102049fa: 2855         	cmp	r0, #85
+102049fc: d00c         	beq	0x10204a18 <Boot_Logic+0xb8> @ imm = #24
+102049fe: f44f 2010    	mov.w	r0, #589824
+10204a02: 2100         	movs	r1, #0
+10204a04: 7021         	strb	r1, [r4]
+10204a06: f108 0108    	add.w	r1, r8, #8
+10204a0a: f004 fc6b    	bl	0x102092e4 <SecBoot_Check_Process> @ imm = #18646
+10204a0e: 7821         	ldrb	r1, [r4]
+10204a10: 4605         	mov	r5, r0
+10204a12: f008 fe91    	bl	0x1020d738 <secBoot_Record> @ imm = #36130
+10204a16: b31d         	cbz	r5, 0x10204a60 <Boot_Logic+0x100> @ imm = #70
+10204a18: 2001         	movs	r0, #1
+10204a1a: e022         	b	0x10204a62 <Boot_Logic+0x102> @ imm = #68
+10204a1c: f8d8 0004    	ldr.w	r0, [r8, #4]
+10204a20: f5b0 1fc8    	cmp.w	r0, #1638400
+10204a24: d103         	bne	0x10204a2e <Boot_Logic+0xce> @ imm = #6
+10204a26: f44f 10c8    	mov.w	r0, #1638400
+10204a2a: f8c8 0020    	str.w	r0, [r8, #32]
+10204a2e: 7827         	ldrb	r7, [r4]
+10204a30: f108 0508    	add.w	r5, r8, #8
+10204a34: b2fe         	uxtb	r6, r7
+10204a36: 2e02         	cmp	r6, #2
+10204a38: d8ee         	bhi	0x10204a18 <Boot_Logic+0xb8> @ imm = #-36
+10204a3a: 4630         	mov	r0, r6
+10204a3c: f008 ff86    	bl	0x1020d94c <Is_FLAG_Valid> @ imm = #36620
+10204a40: b158         	cbz	r0, 0x10204a5a <Boot_Logic+0xfa> @ imm = #22
+10204a42: eb08 0086    	add.w	r0, r8, r6, lsl #2
+10204a46: 4629         	mov	r1, r5
+10204a48: 6a00         	ldr	r0, [r0, #32]
+10204a4a: f004 fc4b    	bl	0x102092e4 <SecBoot_Check_Process> @ imm = #18582
+10204a4e: 7821         	ldrb	r1, [r4]
+10204a50: 4606         	mov	r6, r0
+10204a52: f008 fe71    	bl	0x1020d738 <secBoot_Record> @ imm = #36066
+10204a56: b11e         	cbz	r6, 0x10204a60 <Boot_Logic+0x100> @ imm = #6
+10204a58: 7827         	ldrb	r7, [r4]
+10204a5a: 3701         	adds	r7, #1
+10204a5c: 7027         	strb	r7, [r4]
+10204a5e: e7e9         	b	0x10204a34 <Boot_Logic+0xd4> @ imm = #-46
+10204a60: 2000         	movs	r0, #0
+10204a62: f898 1000    	ldrb.w	r1, [r8]
+10204a66: 3901         	subs	r1, #1
+10204a68: 2902         	cmp	r1, #2
+10204a6a: d20f         	bhs	0x10204a8c <Boot_Logic+0x12c> @ imm = #30
+10204a6c: 4918         	ldr	r1, [pc, #96]           @ 0x10204ad0 <$d.39+0x24>
+10204a6e: 680a         	ldr	r2, [r1]
+10204a70: f042 427f    	orr	r2, r2, #4278190080
+10204a74: 600a         	str	r2, [r1]
+10204a76: 4914         	ldr	r1, [pc, #80]           @ 0x10204ac8 <$d.39+0x1c>
+10204a78: 7809         	ldrb	r1, [r1]
+10204a7a: 2955         	cmp	r1, #85
+10204a7c: d004         	beq	0x10204a88 <Boot_Logic+0x128> @ imm = #8
+10204a7e: 4914         	ldr	r1, [pc, #80]           @ 0x10204ad0 <$d.39+0x24>
+10204a80: 680a         	ldr	r2, [r1]
+10204a82: f042 0204    	orr	r2, r2, #4
+10204a86: 600a         	str	r2, [r1]
+10204a88: e8bd 81f0    	pop.w	{r4, r5, r6, r7, r8, pc}
+10204a8c: 4908         	ldr	r1, [pc, #32]           @ 0x10204ab0 <$d.39+0x4>
+10204a8e: 4a09         	ldr	r2, [pc, #36]           @ 0x10204ab4 <$d.39+0x8>
+10204a90: 6809         	ldr	r1, [r1]
+10204a92: 4291         	cmp	r1, r2
+10204a94: d0ea         	beq	0x10204a6c <Boot_Logic+0x10c> @ imm = #-44
+10204a96: 4a08         	ldr	r2, [pc, #32]           @ 0x10204ab8 <$d.39+0xc>
+10204a98: 4291         	cmp	r1, r2
+10204a9a: d0e7         	beq	0x10204a6c <Boot_Logic+0x10c> @ imm = #-50
+10204a9c: 4a07         	ldr	r2, [pc, #28]           @ 0x10204abc <$d.39+0x10>
+10204a9e: 4291         	cmp	r1, r2
+10204aa0: d0e4         	beq	0x10204a6c <Boot_Logic+0x10c> @ imm = #-56
+10204aa2: 4a07         	ldr	r2, [pc, #28]           @ 0x10204ac0 <$d.39+0x14>
+10204aa4: 4291         	cmp	r1, r2
+10204aa6: d0e1         	beq	0x10204a6c <Boot_Logic+0x10c> @ imm = #-62
+10204aa8: e7e5         	b	0x10204a76 <Boot_Logic+0x116> @ imm = #-54
+10204aaa: bf00         	nop
+
+1020712c <NvM_Integration_ReadAll>:
+1020712c: b51c         	push	{r2, r3, r4, lr}
+1020712e: f04f 30ff    	mov.w	r0, #4294967295
+10207132: 2204         	movs	r2, #4
+10207134: 9001         	str	r0, [sp, #4]
+10207136: a901         	add	r1, sp, #4
+10207138: 482c         	ldr	r0, [pc, #176]          @ 0x102071ec <$d.1>
+1020713a: f008 fe3d    	bl	0x1020fdb8 <Fls_Read>   @ imm = #35962
+1020713e: f007 faf9    	bl	0x1020e734 <Fls_MainFunction> @ imm = #30194
+10207142: f00b f88d    	bl	0x10212260 <Fls_GetStatus> @ imm = #45338
+10207146: 2801         	cmp	r0, #1
+10207148: d1f9         	bne	0x1020713e <NvM_Integration_ReadAll+0x12> @ imm = #-14
+1020714a: 9801         	ldr	r0, [sp, #4]
+1020714c: 4928         	ldr	r1, [pc, #160]          @ 0x102071f0 <$d.1+0x4>
+1020714e: 4288         	cmp	r0, r1
+10207150: d009         	beq	0x10207166 <NvM_Integration_ReadAll+0x3a> @ imm = #18
+10207152: 4928         	ldr	r1, [pc, #160]          @ 0x102071f4 <$d.1+0x8>
+10207154: 4288         	cmp	r0, r1
+10207156: d111         	bne	0x1020717c <NvM_Integration_ReadAll+0x50> @ imm = #34
+10207158: 2100         	movs	r1, #0
+1020715a: 23aa         	movs	r3, #170
+1020715c: 4826         	ldr	r0, [pc, #152]          @ 0x102071f8 <$d.1+0xc>
+1020715e: 4a27         	ldr	r2, [pc, #156]          @ 0x102071fc <$d.1+0x10>
+10207160: 6001         	str	r1, [r0]
+10207162: 7013         	strb	r3, [r2]
+10207164: e028         	b	0x102071b8 <NvM_Integration_ReadAll+0x8c> @ imm = #80
+10207166: 2100         	movs	r1, #0
+10207168: 4823         	ldr	r0, [pc, #140]          @ 0x102071f8 <$d.1+0xc>
+1020716a: 4a25         	ldr	r2, [pc, #148]          @ 0x10207200 <$d.1+0x14>
+1020716c: f44f 13c8    	mov.w	r3, #1638400
+10207170: 6001         	str	r1, [r0]
+10207172: 21aa         	movs	r1, #170
+10207174: 4821         	ldr	r0, [pc, #132]          @ 0x102071fc <$d.1+0x10>
+10207176: 6013         	str	r3, [r2]
+10207178: 7001         	strb	r1, [r0]
+1020717a: e01d         	b	0x102071b8 <NvM_Integration_ReadAll+0x8c> @ imm = #58
+1020717c: 2000         	movs	r0, #0
+1020717e: f00b f9ca    	bl	0x10212516 <Fee_Init>   @ imm = #45972
+10207182: 4c20         	ldr	r4, [pc, #128]          @ 0x10207204 <$d.1+0x18>
+10207184: 2000         	movs	r0, #0
+10207186: 4a1c         	ldr	r2, [pc, #112]          @ 0x102071f8 <$d.1+0xc>
+10207188: 2100         	movs	r1, #0
+1020718a: 88a3         	ldrh	r3, [r4, #4]
+1020718c: f00a fc56    	bl	0x10211a3c <Fee_Read>   @ imm = #43180
+10207190: f008 faa2    	bl	0x1020f6d8 <MemIf_Rb_MainFunction> @ imm = #34116
+10207194: f00a fe1d    	bl	0x10211dd2 <MemIf_Rb_GetStatus> @ imm = #44090
+10207198: 2801         	cmp	r0, #1
+1020719a: d1f9         	bne	0x10207190 <NvM_Integration_ReadAll+0x64> @ imm = #-14
+1020719c: 8963         	ldrh	r3, [r4, #10]
+1020719e: 2001         	movs	r0, #1
+102071a0: 4a16         	ldr	r2, [pc, #88]           @ 0x102071fc <$d.1+0x10>
+102071a2: 2100         	movs	r1, #0
+102071a4: f00a fc4a    	bl	0x10211a3c <Fee_Read>   @ imm = #43156
+102071a8: f008 fa96    	bl	0x1020f6d8 <MemIf_Rb_MainFunction> @ imm = #34092
+102071ac: f00a fe11    	bl	0x10211dd2 <MemIf_Rb_GetStatus> @ imm = #44066
+102071b0: 2801         	cmp	r0, #1
+102071b2: d1f9         	bne	0x102071a8 <NvM_Integration_ReadAll+0x7c> @ imm = #-14
+102071b4: f00b fa15    	bl	0x102125e2 <Fee_Rb_EndInit> @ imm = #46122
+102071b8: 4913         	ldr	r1, [pc, #76]           @ 0x10207208 <$d.1+0x1c>
+102071ba: 2204         	movs	r2, #4
+102071bc: f44f 200f    	mov.w	r0, #585728
+102071c0: f008 fdfa    	bl	0x1020fdb8 <Fls_Read>   @ imm = #35828
+102071c4: f007 fab6    	bl	0x1020e734 <Fls_MainFunction> @ imm = #30060
+102071c8: f00b f84a    	bl	0x10212260 <Fls_GetStatus> @ imm = #45204
+102071cc: 2801         	cmp	r0, #1
+102071ce: d1f9         	bne	0x102071c4 <NvM_Integration_ReadAll+0x98> @ imm = #-14
+102071d0: 490e         	ldr	r1, [pc, #56]           @ 0x1020720c <$d.1+0x20>
+102071d2: 2204         	movs	r2, #4
+102071d4: f44f 209e    	mov.w	r0, #323584
+102071d8: f008 fdee    	bl	0x1020fdb8 <Fls_Read>   @ imm = #35804
+102071dc: f007 faaa    	bl	0x1020e734 <Fls_MainFunction> @ imm = #30036
+102071e0: f00b f83e    	bl	0x10212260 <Fls_GetStatus> @ imm = #45180
+102071e4: 2801         	cmp	r0, #1
+102071e6: d1f9         	bne	0x102071dc <NvM_Integration_ReadAll+0xb0> @ imm = #-14
+102071e8: bd1c         	pop	{r2, r3, r4, pc}
+102071ea: bf00         	nop
+
+10208670 <ImageM_LoadCpu>:
+10208670: b570         	push	{r4, r5, r6, lr}
+10208672: f000 fc59    	bl	0x10208f28 <Bootloader_socConfigurePll> @ imm = #2226
+10208676: 4e27         	ldr	r6, [pc, #156]          @ 0x10208714 <$d.28>
+10208678: 4c27         	ldr	r4, [pc, #156]          @ 0x10208718 <$d.28+0x4>
+1020867a: 4635         	mov	r5, r6
+1020867c: f855 0f2c    	ldr	r0, [r5, #44]!
+10208680: f855 1c24    	ldr	r1, [r5, #-36]
+10208684: e9c0 1100    	strd	r1, r1, [r0]
+10208688: 4628         	mov	r0, r5
+1020868a: 4621         	mov	r1, r4
+1020868c: f001 f9f6    	bl	0x10209a7c <Bootloader_parseMultiCoreAppImage> @ imm = #5100
+10208690: 68e9         	ldr	r1, [r5, #12]
+10208692: 4605         	mov	r5, r0
+10208694: 0708         	lsls	r0, r1, #28
+10208696: d507         	bpl	0x102086a8 <ImageM_LoadCpu+0x38> @ imm = #14
+10208698: f106 002c    	add.w	r0, r6, #44
+1020869c: f104 0130    	add.w	r1, r4, #48
+102086a0: f005 ffc6    	bl	0x1020e630 <Bootloader_loadCpu> @ imm = #24460
+102086a4: 6bb1         	ldr	r1, [r6, #56]
+102086a6: 4605         	mov	r5, r0
+102086a8: 0748         	lsls	r0, r1, #29
+102086aa: d506         	bpl	0x102086ba <ImageM_LoadCpu+0x4a> @ imm = #12
+102086ac: f106 002c    	add.w	r0, r6, #44
+102086b0: f104 0120    	add.w	r1, r4, #32
+102086b4: f005 ffbc    	bl	0x1020e630 <Bootloader_loadCpu> @ imm = #24440
+102086b8: 4605         	mov	r5, r0
+102086ba: b9a5         	cbnz	r5, 0x102086e6 <ImageM_LoadCpu+0x76> @ imm = #40
+102086bc: 6bb0         	ldr	r0, [r6, #56]
+102086be: 0701         	lsls	r1, r0, #28
+102086c0: d506         	bpl	0x102086d0 <ImageM_LoadCpu+0x60> @ imm = #12
+102086c2: f104 0130    	add.w	r1, r4, #48
+102086c6: f009 f986    	bl	0x102119d6 <Bootloader_runCpu> @ imm = #37644
+102086ca: f001 fbfd    	bl	0x10209ec8 <Bootloader_socConfigurePllPostApllSwitch> @ imm = #6138
+102086ce: 6bb0         	ldr	r0, [r6, #56]
+102086d0: 0741         	lsls	r1, r0, #29
+102086d2: d504         	bpl	0x102086de <ImageM_LoadCpu+0x6e> @ imm = #8
+102086d4: f104 0120    	add.w	r1, r4, #32
+102086d8: f009 f97d    	bl	0x102119d6 <Bootloader_runCpu> @ imm = #37626
+102086dc: 6bb0         	ldr	r0, [r6, #56]
+102086de: 0700         	lsls	r0, r0, #28
+102086e0: bf48         	it	mi
+102086e2: f008 fce7    	blmi	0x102110b4 <SOC_rcmWaitBSSBootComplete> @ imm = #35278
+102086e6: f896 0038    	ldrb.w	r0, [r6, #56]
+102086ea: 07c0         	lsls	r0, r0, #31
+102086ec: d009         	beq	0x10208702 <ImageM_LoadCpu+0x92> @ imm = #18
+102086ee: 68a0         	ldr	r0, [r4, #8]
+102086f0: 490a         	ldr	r1, [pc, #40]           @ 0x1020871c <$d.28+0x8>
+102086f2: 4288         	cmp	r0, r1
+102086f4: d005         	beq	0x10208702 <ImageM_LoadCpu+0x92> @ imm = #10
+102086f6: 4908         	ldr	r1, [pc, #32]           @ 0x10208718 <$d.28+0x4>
+102086f8: f106 002c    	add.w	r0, r6, #44
+102086fc: f002 fdd0    	bl	0x1020b2a0 <ImageM_rprcImageLoad> @ imm = #11168
+10208700: 4605         	mov	r5, r0
+10208702: 2001         	movs	r0, #1
+10208704: f008 fa38    	bl	0x10210b78 <SOC_rcmStartMemInitDSSL3> @ imm = #33904
+10208708: 2001         	movs	r0, #1
+1020870a: f000 fd9d    	bl	0x10209248 <SOC_rcmWaitMemInitDSSL3> @ imm = #2874
+1020870e: 4628         	mov	r0, r5
+10208710: bd70         	pop	{r4, r5, r6, pc}
+10208712: bf00         	nop
+
+102092e4 <SecBoot_Check_Process>:
+102092e4: b5f8         	push	{r3, r4, r5, r6, r7, lr}
+102092e6: 460c         	mov	r4, r1
+102092e8: 4605         	mov	r5, r0
+102092ea: f000 fa5d    	bl	0x102097a8 <SecBoot_Init> @ imm = #1210
+102092ee: b120         	cbz	r0, 0x102092fa <SecBoot_Check_Process+0x16> @ imm = #8
+102092f0: 4920         	ldr	r1, [pc, #128]          @ 0x10209374 <$d.25>
+102092f2: 2201         	movs	r2, #1
+102092f4: 20f4         	movs	r0, #244
+102092f6: 700a         	strb	r2, [r1]
+102092f8: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+102092fa: f008 fa0d    	bl	0x10211718 <rb_IsDeviceTypeHSSE_u8> @ imm = #33818
+102092fe: b128         	cbz	r0, 0x1020930c <SecBoot_Check_Process+0x28> @ imm = #10
+10209300: 4628         	mov	r0, r5
+10209302: f003 fed5    	bl	0x1020d0b0 <SecBoot_LoadAppImage> @ imm = #15786
+10209306: b148         	cbz	r0, 0x1020931c <SecBoot_Check_Process+0x38> @ imm = #18
+10209308: 20f0         	movs	r0, #240
+1020930a: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+1020930c: b114         	cbz	r4, 0x10209314 <SecBoot_Check_Process+0x30> @ imm = #4
+1020930e: 481a         	ldr	r0, [pc, #104]          @ 0x10209378 <$d.25+0x4>
+10209310: 6980         	ldr	r0, [r0, #24]
+10209312: 6020         	str	r0, [r4]
+10209314: 4917         	ldr	r1, [pc, #92]           @ 0x10209374 <$d.25>
+10209316: 2201         	movs	r2, #1
+10209318: 2000         	movs	r0, #0
+1020931a: e7ec         	b	0x102092f6 <SecBoot_Check_Process+0x12> @ imm = #-40
+1020931c: 2701         	movs	r7, #1
+1020931e: 4e16         	ldr	r6, [pc, #88]           @ 0x10209378 <$d.25+0x4>
+10209320: 7037         	strb	r7, [r6]
+10209322: f007 f9d9    	bl	0x102106d8 <SecBoot_SecCtrl_SecureBoot> @ imm = #29618
+10209326: b128         	cbz	r0, 0x10209334 <SecBoot_Check_Process+0x50> @ imm = #10
+10209328: 4628         	mov	r0, r5
+1020932a: f7fe f9a3    	bl	0x10207674 <SecBoot_Calc_Hash> @ imm = #-7354
+1020932e: b1b8         	cbz	r0, 0x10209360 <SecBoot_Check_Process+0x7c> @ imm = #46
+10209330: 20f1         	movs	r0, #241
+10209332: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+10209334: 480f         	ldr	r0, [pc, #60]           @ 0x10209374 <$d.25>
+10209336: 7007         	strb	r7, [r0]
+10209338: f007 f9bc    	bl	0x102106b4 <SecBoot_SecCtrl_BlkEnc> @ imm = #29560
+1020933c: b128         	cbz	r0, 0x1020934a <SecBoot_Check_Process+0x66> @ imm = #10
+1020933e: 4628         	mov	r0, r5
+10209340: f7fc fa56    	bl	0x102057f0 <SecBoot_DecryptData> @ imm = #-15188
+10209344: b108         	cbz	r0, 0x1020934a <SecBoot_Check_Process+0x66> @ imm = #2
+10209346: 20f3         	movs	r0, #243
+10209348: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+1020934a: b184         	cbz	r4, 0x1020936e <SecBoot_Check_Process+0x8a> @ imm = #32
+1020934c: 69b1         	ldr	r1, [r6, #24]
+1020934e: e9d6 0202    	ldrd	r0, r2, [r6, #8]
+10209352: 4408         	add	r0, r1
+10209354: 4909         	ldr	r1, [pc, #36]           @ 0x1020937c <$d.25+0x8>
+10209356: 1a80         	subs	r0, r0, r2
+10209358: 4401         	add	r1, r0
+1020935a: 2000         	movs	r0, #0
+1020935c: 6021         	str	r1, [r4]
+1020935e: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+10209360: 4628         	mov	r0, r5
+10209362: f7ff fb3c    	bl	0x102089de <SecBoot_VerifyImageSign> @ imm = #-2440
+10209366: 2800         	cmp	r0, #0
+10209368: d0e6         	beq	0x10209338 <SecBoot_Check_Process+0x54> @ imm = #-52
+1020936a: 20f2         	movs	r0, #242
+1020936c: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+1020936e: 2001         	movs	r0, #1
+10209370: bdf8         	pop	{r3, r4, r5, r6, r7, pc}
+10209372: bf00         	nop
+
+1020941c <BootM_BootTargetSoftware>:
+1020941c: b5bc         	push	{r2, r3, r4, r5, r7, lr}
+1020941e: 2000         	movs	r0, #0
+10209420: f88d 0007    	strb.w	r0, [sp, #7]
+10209424: f003 fd1c    	bl	0x1020ce60 <rbSec_Basic_init> @ imm = #14904
+10209428: b168         	cbz	r0, 0x10209446 <BootM_BootTargetSoftware+0x2a> @ imm = #26
+1020942a: 4c1d         	ldr	r4, [pc, #116]          @ 0x102094a0 <$d.5>
+1020942c: 4620         	mov	r0, r4
+1020942e: f005 fe51    	bl	0x1020f0d4 <LoopFor_SafeFrame> @ imm = #23714
+10209432: f004 f8b5    	bl	0x1020d5a0 <rbSecBM_CheckLCValid> @ imm = #16746
+10209436: b938         	cbnz	r0, 0x10209448 <BootM_BootTargetSoftware+0x2c> @ imm = #14
+10209438: 481a         	ldr	r0, [pc, #104]          @ 0x102094a4 <$d.5+0x4>
+1020943a: 7800         	ldrb	r0, [r0]
+1020943c: 3803         	subs	r0, #3
+1020943e: f110 0f03    	cmn.w	r0, #3
+10209442: d801         	bhi	0x10209448 <BootM_BootTargetSoftware+0x2c> @ imm = #2
+10209444: e7fe         	b	0x10209444 <BootM_BootTargetSoftware+0x28> @ imm = #-4
+10209446: e7fe         	b	0x10209446 <BootM_BootTargetSoftware+0x2a> @ imm = #-4
+10209448: f10d 0007    	add.w	r0, sp, #7
+1020944c: f7fb fa88    	bl	0x10204960 <Boot_Logic> @ imm = #-19184
+10209450: b120         	cbz	r0, 0x1020945c <BootM_BootTargetSoftware+0x40> @ imm = #8
+10209452: f008 fd77    	bl	0x10211f44 <MailboxIpc_DeInit> @ imm = #35566
+10209456: f006 fc37    	bl	0x1020fcc8 <Cdd_Dma_DeInit> @ imm = #26734
+1020945a: e019         	b	0x10209490 <BootM_BootTargetSoftware+0x74> @ imm = #50
+1020945c: f10d 0007    	add.w	r0, sp, #7
+10209460: f7ff f906    	bl	0x10208670 <ImageM_LoadCpu> @ imm = #-3572
+10209464: 4605         	mov	r5, r0
+10209466: f008 fd6d    	bl	0x10211f44 <MailboxIpc_DeInit> @ imm = #35546
+1020946a: f006 fc2d    	bl	0x1020fcc8 <Cdd_Dma_DeInit> @ imm = #26714
+1020946e: b97d         	cbnz	r5, 0x10209490 <BootM_BootTargetSoftware+0x74> @ imm = #30
+10209470: f89d 0007    	ldrb.w	r0, [sp, #7]
+10209474: 3801         	subs	r0, #1
+10209476: 2801         	cmp	r0, #1
+10209478: d806         	bhi	0x10209488 <BootM_BootTargetSoftware+0x6c> @ imm = #12
+1020947a: 480c         	ldr	r0, [pc, #48]           @ 0x102094ac <$d.5+0xc>
+1020947c: 2100         	movs	r1, #0
+1020947e: 2500         	movs	r5, #0
+10209480: f008 f9c2    	bl	0x10211808 <BootM_RelocateVectortable> @ imm = #33668
+10209484: 47a8         	blx	r5
+10209486: e003         	b	0x10209490 <BootM_BootTargetSoftware+0x74> @ imm = #6
+10209488: 4807         	ldr	r0, [pc, #28]           @ 0x102094a8 <$d.5+0x8>
+1020948a: 68c0         	ldr	r0, [r0, #12]
+1020948c: b100         	cbz	r0, 0x10209490 <BootM_BootTargetSoftware+0x74> @ imm = #0
+1020948e: 4780         	blx	r0
+10209490: 4807         	ldr	r0, [pc, #28]           @ 0x102094b0 <$d.5+0x10>
+10209492: 7800         	ldrb	r0, [r0]
+10209494: 2830         	cmp	r0, #48
+10209496: d102         	bne	0x1020949e <BootM_BootTargetSoftware+0x82> @ imm = #4
+10209498: 6820         	ldr	r0, [r4]
+1020949a: 3001         	adds	r0, #1
+1020949c: 6020         	str	r0, [r4]
+1020949e: bdbc         	pop	{r2, r3, r4, r5, r7, pc}
+
+1020a8ac <BootM_Init>:
+1020a8ac: b580         	push	{r7, lr}
+1020a8ae: ee11 0f50    	mrc	p15, #0, r0, c1, c0, #2
+1020a8b2: f44f 0370    	mov.w	r3, #15728640
+1020a8b6: ea40 0003    	orr.w	r0, r0, r3
+1020a8ba: ee01 0f50    	mcr	p15, #0, r0, c1, c0, #2
+1020a8be: f04f 4080    	mov.w	r0, #1073741824
+1020a8c2: eee8 0a10    	vmsr	fpexc, r0
+1020a8c6: 4811         	ldr	r0, [pc, #68]           @ 0x1020a90c <$d.1>
+1020a8c8: f006 fba0    	bl	0x1021100c <Mcu_Init>   @ imm = #26432
+1020a8cc: 2000         	movs	r0, #0
+1020a8ce: f003 fa53    	bl	0x1020dd78 <Cdd_Dma_Init> @ imm = #13478
+1020a8d2: 480f         	ldr	r0, [pc, #60]           @ 0x1020a910 <$d.1+0x4>
+1020a8d4: f003 ff14    	bl	0x1020e700 <Fls_Init>   @ imm = #15912
+1020a8d8: 480e         	ldr	r0, [pc, #56]           @ 0x1020a914 <$d.1+0x8>
+1020a8da: 6800         	ldr	r0, [r0]
+1020a8dc: f7fc ff38    	bl	0x10207750 <Port_Init>  @ imm = #-12688
+1020a8e0: f006 fdee    	bl	0x102114c0 <MailboxIpc_Init> @ imm = #27612
+1020a8e4: 480c         	ldr	r0, [pc, #48]           @ 0x1020a918 <$d.1+0xc>
+1020a8e6: f7fb fa67    	bl	0x10205db8 <Can_Init>   @ imm = #-19250
+1020a8ea: 480c         	ldr	r0, [pc, #48]           @ 0x1020a91c <$d.1+0x10>
+1020a8ec: f003 fabc    	bl	0x1020de68 <Spi_Init>   @ imm = #13688
+1020a8f0: f007 fe7a    	bl	0x102125e8 <TCAN1043_Init> @ imm = #31988
+1020a8f4: f7f8 fe3a    	bl	0x1020356c <LP87745_SBC_Init> @ imm = #-29580
+1020a8f8: 2000         	movs	r0, #0
+1020a8fa: 2101         	movs	r1, #1
+1020a8fc: f003 fa1e    	bl	0x1020dd3c <Can_SetControllerMode> @ imm = #13372
+1020a900: f7fc fc14    	bl	0x1020712c <NvM_Integration_ReadAll> @ imm = #-14296
+1020a904: e8bd 4080    	pop.w	{r7, lr}
+1020a908: f003 bb62    	b.w	0x1020dfd0 <rbSecFls_Init_MainFunction_BM> @ imm = #14020
+
+1020cfd8 <CanIf_RxIndication>:
+1020cfd8: b510         	push	{r4, lr}
+1020cfda: b188         	cbz	r0, 0x1020d000 <CanIf_RxIndication+0x28> @ imm = #34
+1020cfdc: b181         	cbz	r1, 0x1020d000 <CanIf_RxIndication+0x28> @ imm = #32
+1020cfde: 6800         	ldr	r0, [r0]
+1020cfe0: 4a0b         	ldr	r2, [pc, #44]           @ 0x1020d010 <$d.1>
+1020cfe2: f020 4060    	bic	r0, r0, #3758096384
+1020cfe6: 4290         	cmp	r0, r2
+1020cfe8: d10a         	bne	0x1020d000 <CanIf_RxIndication+0x28> @ imm = #20
+1020cfea: 680c         	ldr	r4, [r1]
+1020cfec: 4909         	ldr	r1, [pc, #36]           @ 0x1020d014 <$d.1+0x4>
+1020cfee: 4620         	mov	r0, r4
+1020cff0: f004 fb7a    	bl	0x102116e8 <memcmp>     @ imm = #18164
+1020cff4: b128         	cbz	r0, 0x1020d002 <CanIf_RxIndication+0x2a> @ imm = #10
+1020cff6: 4908         	ldr	r1, [pc, #32]           @ 0x1020d018 <$d.1+0x8>
+1020cff8: 4620         	mov	r0, r4
+1020cffa: f004 fb75    	bl	0x102116e8 <memcmp>     @ imm = #18154
+1020cffe: b110         	cbz	r0, 0x1020d006 <CanIf_RxIndication+0x2e> @ imm = #4
+1020d000: bd10         	pop	{r4, pc}
+1020d002: 2001         	movs	r0, #1
+1020d004: e000         	b	0x1020d008 <CanIf_RxIndication+0x30> @ imm = #0
+1020d006: 2002         	movs	r0, #2
+1020d008: 4904         	ldr	r1, [pc, #16]           @ 0x1020d01c <$d.1+0xc>
+1020d00a: 7008         	strb	r0, [r1]
+1020d00c: bd10         	pop	{r4, pc}
+1020d00e: bf00         	nop
+
+1020d0b0 <SecBoot_LoadAppImage>:
+1020d0b0: e92d 41f0    	push.w	{r4, r5, r6, r7, r8, lr}
+1020d0b4: 490f         	ldr	r1, [pc, #60]           @ 0x1020d0f4 <$d.1>
+1020d0b6: f500 682e    	add.w	r8, r0, #2784
+1020d0ba: 2700         	movs	r7, #0
+1020d0bc: 2600         	movs	r6, #0
+1020d0be: 688a         	ldr	r2, [r1, #8]
+1020d0c0: 6909         	ldr	r1, [r1, #16]
+1020d0c2: 4411         	add	r1, r2
+1020d0c4: f101 0540    	add.w	r5, r1, #64
+1020d0c8: b185         	cbz	r5, 0x1020d0ec <SecBoot_LoadAppImage+0x3c> @ imm = #32
+1020d0ca: 462c         	mov	r4, r5
+1020d0cc: f5b5 4f80    	cmp.w	r5, #16384
+1020d0d0: bf28         	it	hs
+1020d0d2: f44f 4480    	movhs.w	r4, #16384
+1020d0d6: eb08 0007    	add.w	r0, r8, r7
+1020d0da: f107 4108    	add.w	r1, r7, #2281701376
+1020d0de: 4622         	mov	r2, r4
+1020d0e0: f002 f840    	bl	0x1020f164 <SecBoot_FlsRead_sync> @ imm = #8320
+1020d0e4: 4306         	orrs	r6, r0
+1020d0e6: 1b2d         	subs	r5, r5, r4
+1020d0e8: 4427         	add	r7, r4
+1020d0ea: e7ed         	b	0x1020d0c8 <SecBoot_LoadAppImage+0x18> @ imm = #-38
+1020d0ec: b2f0         	uxtb	r0, r6
+1020d0ee: e8bd 81f0    	pop.w	{r4, r5, r6, r7, r8, pc}
+1020d0f2: bf00         	nop
+
+1020d94c <Is_FLAG_Valid>:
+1020d94c: 2801         	cmp	r0, #1
+1020d94e: d006         	beq	0x1020d95e <Is_FLAG_Valid+0x12> @ imm = #12
+1020d950: b950         	cbnz	r0, 0x1020d968 <Is_FLAG_Valid+0x1c> @ imm = #20
+1020d952: 480c         	ldr	r0, [pc, #48]           @ 0x1020d984 <$d.41+0x4>
+1020d954: 7800         	ldrb	r0, [r0]
+1020d956: 3855         	subs	r0, #85
+1020d958: bf18         	it	ne
+1020d95a: 2001         	movne	r0, #1
+1020d95c: 4770         	bx	lr
+1020d95e: 4808         	ldr	r0, [pc, #32]           @ 0x1020d980 <$d.41>
+1020d960: 6800         	ldr	r0, [r0]
+1020d962: f1a0 30aa    	sub.w	r0, r0, #2863311530
+1020d966: e006         	b	0x1020d976 <Is_FLAG_Valid+0x2a> @ imm = #12
+1020d968: 4907         	ldr	r1, [pc, #28]           @ 0x1020d988 <$d.41+0x8>
+1020d96a: f080 0002    	eor	r0, r0, #2
+1020d96e: 6809         	ldr	r1, [r1]
+1020d970: f081 31aa    	eor	r1, r1, #2863311530
+1020d974: 4308         	orrs	r0, r1
+1020d976: fab0 f080    	clz	r0, r0
+1020d97a: 0940         	lsrs	r0, r0, #5
+1020d97c: 4770         	bx	lr
+1020d97e: bf00         	nop
+
+1020f0d4 <LoopFor_SafeFrame>:
+1020f0d4: b570         	push	{r4, r5, r6, lr}
+1020f0d6: 4604         	mov	r4, r0
+1020f0d8: f002 fb1e    	bl	0x10211718 <rb_IsDeviceTypeHSSE_u8> @ imm = #9788
+1020f0dc: 254f         	movs	r5, #79
+1020f0de: 4e08         	ldr	r6, [pc, #32]           @ 0x1020f100 <$d.3>
+1020f0e0: 2800         	cmp	r0, #0
+1020f0e2: bf08         	it	eq
+1020f0e4: 258f         	moveq	r5, #143
+1020f0e6: f003 f891    	bl	0x1021220c <Can_MainFunction_Read> @ imm = #12578
+1020f0ea: 7830         	ldrb	r0, [r6]
+1020f0ec: 3801         	subs	r0, #1
+1020f0ee: 2802         	cmp	r0, #2
+1020f0f0: d304         	blo	0x1020f0fc <LoopFor_SafeFrame+0x28> @ imm = #8
+1020f0f2: 6820         	ldr	r0, [r4]
+1020f0f4: 3001         	adds	r0, #1
+1020f0f6: 6020         	str	r0, [r4]
+1020f0f8: 42a8         	cmp	r0, r5
+1020f0fa: d3f4         	blo	0x1020f0e6 <LoopFor_SafeFrame+0x12> @ imm = #-24
+1020f0fc: bd70         	pop	{r4, r5, r6, pc}
+1020f0fe: bf00         	nop
+
+10211808 <BootM_RelocateVectortable>:
+10211808: 2200         	movs	r2, #0
+1021180a: f5b2 7f80    	cmp.w	r2, #256
+1021180e: bf08         	it	eq
+10211810: 4770         	bxeq	lr
+10211812: f850 3022    	ldr.w	r3, [r0, r2, lsl #2]
+10211816: f841 3022    	str.w	r3, [r1, r2, lsl #2]
+1021181a: 3201         	adds	r2, #1
+1021181c: e7f5         	b	0x1021180a <BootM_RelocateVectortable+0x2> @ imm = #-22
+
+102124e6 <main>:
+102124e6: f7f8 f9e1    	bl	0x1020a8ac <BootM_Init> @ imm = #-31806
+102124ea: f7f6 ff97    	bl	0x1020941c <BootM_BootTargetSoftware> @ imm = #-37074
+102124ee: e7fe         	b	0x102124ee <main+0x8>   @ imm = #-4

@@ -22,6 +22,8 @@
 
 分析依据包括 ELF header、program/section header、`.symtab`、`.debug_info`、`.debug_line`、`.rodata` 常量、TI ARM objdump 反汇编结果。由于没有源代码和原始设计文档，本文将“反汇编直接确认的事实”和“根据函数名/流程推断的设计含义”分开表述。
 
+配套静态证据已保存到 `BM_PBL_Reverse_Engineering_Evidence/`。其中 `*.key_functions.txt` 适合查看关键流程，`*.disassembly.txt` 是全量指令反汇编，`*.dwarf_info.txt` 用于核对结构体和变量信息；证据文件用途和引用规则见该目录的 `README.md`。
+
 地址说明：符号表中的 Thumb 函数地址最低位会置 1，例如 `Boot_Logic` 在符号表显示为 `0x10204961`，实际指令起始地址为 `0x10204960`。本文统一使用去掉 Thumb bit 后的指令地址。
 
 本文件不能替代缺失的源代码、链接脚本、芯片 Flash 数据手册、密钥配置、ODX/PDX 和升级包格式定义。供应商不得把 `[TBC]` 项自行解释为接口；这些项目必须在详细设计评审前形成双方签字的《接口冻结清单》。
