@@ -1,5 +1,11 @@
 # CR60 Light BYD Bootloader 详细设计文档与技术要求
 
+> 文档用途：供应商 BM/PBL 等效重实现、接口冻结、代码评审及验收测试。
+>
+> 文档版本：V2.0（基于无源码 ELF 静态逆向补全）<br>
+> 结论等级：`[C]` 反汇编/DWARF/常量表直接确认；`[I]` 由调用关系和命名推断；`[TBC]` 必须通过升级包、诊断规范或 HIL 冻结。<br>
+> 规范用语：“必须/不得”是供应商验收要求；“当前实现”是二进制基线行为；“建议”不是兼容性强制项。
+
 本文基于当前目录下两个 ELF 文件的静态逆向分析编写：
 
 | 镜像 | 角色 | ELF 入口 | 架构 | 主要职责 |
@@ -7,9 +13,18 @@
 | `D_CR60_Light_BM.elf` | Boot Manager, BM | `0x00020000` | ARM32 little-endian, EABI5 | 上电初始化、读取启动状态、选择 App/FBL/PBL、执行安全启动检查和跳转 |
 | `D_CR60_Light_PBL.elf` | Primary/Platform Bootloader, PBL | `0x00020000` | ARM32 little-endian, EABI5 | UDS/OTA 下载、Flash 擦写、完整性/Hash/签名校验、更新 App valid flag |
 
+二进制基线：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `D_CR60_Light_BM.elf` | `CB02B2FCD702BE6A2F6999F56202E0B58EC15BC2689EF3AE3FE497054624E5C3` |
+| `D_CR60_Light_PBL.elf` | `BB8FDA704106300380FC4916807B089E21AFD1CFF97A817629F745B3B69DE300` |
+
 分析依据包括 ELF header、program/section header、`.symtab`、`.debug_info`、`.debug_line`、`.rodata` 常量、TI ARM objdump 反汇编结果。由于没有源代码和原始设计文档，本文将“反汇编直接确认的事实”和“根据函数名/流程推断的设计含义”分开表述。
 
 地址说明：符号表中的 Thumb 函数地址最低位会置 1，例如 `Boot_Logic` 在符号表显示为 `0x10204961`，实际指令起始地址为 `0x10204960`。本文统一使用去掉 Thumb bit 后的指令地址。
+
+本文件不能替代缺失的源代码、链接脚本、芯片 Flash 数据手册、密钥配置、ODX/PDX 和升级包格式定义。供应商不得把 `[TBC]` 项自行解释为接口；这些项目必须在详细设计评审前形成双方签字的《接口冻结清单》。
 
 ## 1. 总体架构
 
@@ -39,10 +54,33 @@ BM 与 PBL 的关键接口不是普通函数调用，而是：
 
 | 接口 | 说明 |
 | --- | --- |
-| 固定镜像地址 | BM 按 `0x20000/0x50000/0x90000` 选择 PBL/FBL/App |
+| 固定镜像地址 | BM 按 `0x20000/0x50000/0x90000/0x190000` 选择 PBL/FBL/CustApp/ProductionApp |
 | NvM / 安全 Flash 状态 | 保存 App/FBL/PBL valid flag、重编程请求和安全生命周期信息 |
 | Application valid flag | PBL 在刷写前置 invalid，校验通过后置 valid；BM 上电读取后决定是否启动 App |
 | CAN 强制跳转帧 | BM 早期监听扩展 CANFD 帧，可强制优先进入 FBL 或 PBL |
+
+### 1.1 软件分层与责任边界
+
+```text
+BM
+  启动入口/SoC 初始化
+  BootM 启动策略
+  NvM/rbSecFls 状态读取
+  SecBoot 镜像认证与可选解密
+  ImageM 多核 appimage/RPRC 加载
+  CAN 早期强制跳转接收
+
+PBL
+  EcuM/OS 调度
+  CAN Driver -> CanIf -> CanTp -> PduR -> DCM
+  SWDL UDS 回调
+  ImageM 下载上下文、范围检查、校验状态机
+  FlashPort 异步页缓存 -> FlashHandler -> Fls
+  NvM/rbSecFls 状态持久化
+  CycurSoc/HSM Hash、签名及安全 Flash 服务
+```
+
+BM 负责“选择并可信启动”，不得实现通用诊断下载；PBL 负责“授权、擦写、校验及提交有效状态”，不得在未完成认证时提交 App valid。两者通过镜像地址、有效标志、重编程请求以及快速 App 选择字形成跨镜像接口。
 
 ## 2. ELF 与内存布局
 
@@ -81,6 +119,37 @@ PBL 同样是 ELF32 ARM 可执行文件，入口 `0x20000`。关键段如下：
 | `.debug_info/.debug_line` | file only | present | - | 保留 DWARF 调试信息 |
 
 PBL 的复位向量 `reset_addr` 指向 `0x10236afc`。
+
+### 2.3 处理器、ABI 与编译约束
+
+`[C]` 两个 ELF 均为 ARMv7-R/Cortex-R5 目标，支持 ARM 与 Thumb-2 指令，使用 VFPv3-D16 和 hard-float ABI；编译器标识为 TI Clang 15.0.7，并采用面向代码尺寸的优化。供应商可更换编译器，但必须保持：
+
+1. 复位向量、异常向量、启动栈和目标 CPU 运行模式与 SoC 启动约定一致。
+2. 跨模块或 ROM API 的 AAPCS、参数宽度、结构体对齐和 hard-float ABI 兼容。
+3. BM/PBL 映像仍能被当前量产烧录工具、打包工具和安全签名工具处理。
+4. 通过 map 文件证明代码、数据、栈、共享 RAM 和安全错误区没有重叠。
+
+### 2.4 外部 Flash 分区与保护边界
+
+下表使用半开区间 `[start,end)`；“可下载”表示当前 PBL `LogBlocks` 白名单允许 `ImageM_PortOpen`。地址和块号为 `[C]`。
+
+| imageId | 分区 | 地址区间 | 长度 | 普通 UDS 擦写 |
+| ---: | --- | --- | ---: | --- |
+| 0 | BM | `[0x000000,0x020000)` | `0x020000` | 允许 |
+| 2 | PlatformBoot/PBL | `[0x020000,0x050000)` | `0x030000` | 允许 |
+| 1 | CustBoot/FBL | `[0x050000,0x090000)` | `0x040000` | 允许 |
+| 3 | CustApp | `[0x090000,0x190000)` | `0x100000` | 允许 |
+| 4 | ProductionApp | `[0x190000,0x290000)` | `0x100000` | 允许 |
+| - | 保留区 | `[0x290000,0x2D0000)` | `0x040000` | 禁止 |
+| 7 | HSM | `[0x2D0000,0x310000)` | `0x040000` | 允许 |
+| 8 | WeifuData | `[0x310000,0x320000)` | `0x010000` | 允许 |
+| 5 | CustData | `[0x320000,0x330000)` | `0x010000` | 允许 |
+| 6 | ClibData | `[0x330000,0x340000)` | `0x010000` | 允许 |
+| - | **App NVM** | **`[0x340000,0x370000)`** | **`0x030000`** | **禁止** |
+| - | 未定义/保留 | `[0x370000,0x3E3000)` | `0x073000` | 禁止 |
+| - | 快速 App 选择扇区 | `[0x3E3000,0x3E4000)` | `0x001000` | 仅 DID `FC01` 专用路径 |
+
+关键非易失地址：FBL valid word 位于 `0x08F000`，PBL valid word 位于 `0x04F000`；BM 直接各读取 4 字节。供应商必须结合实际 Flash 扇区几何验证任何擦除单元均不跨越 `0x340000` 或 `0x370000`，且不得使用“向外对齐擦除”的方式触及 App NVM。
 
 ## 3. BM 详细设计
 
@@ -154,13 +223,14 @@ BM 使用固定地址选择目标镜像：
 | 0 | App / CustApp | `0x00090000` | 普通应用，默认优先启动 |
 | 1 | FBL | `0x00050000` | 客户/功能 Bootloader |
 | 2 | PBL | `0x00020000` | 平台 Bootloader / 刷写恢复入口 |
+| 0（动态） | ProductionApp | `0x00190000` | 快速 App 选择字为 `PDAP` 时替代 CustApp |
 
 `Boot_Logic` 中直接出现：
 
 ```text
 StayInBootFlag == 2 -> 0x20000
 StayInBootFlag == 1 -> 0x50000
-App path            -> 0x90000
+App path            -> APP_IMAGE_Addr（0x90000 或 0x190000）
 ```
 
 ### 3.4 BM 启动状态变量
@@ -190,6 +260,25 @@ App path            -> 0x90000
 | 2 | PBL | `Pbl_Valid_Flag == 0xAAAAAAAA` | 等于 magic 才 valid |
 
 App 的规则非常重要：BM 不是判断 App flag 必须等于 `0xAA`，而是判断它不等于 `0x55`。PBL 写 App valid 时使用 `0xAA` 表示有效、`0x55` 表示无效。设计实现时要保持这两个模块的差异，否则 erased/default 状态下的行为可能改变。
+
+#### 3.5.1 快速 App 选择与 NvM 旁路
+
+`[C]` `NvM_Integration_ReadAll` 首先同步读取外部 Flash `0x003E3000` 的 4 字节选择字：
+
+| 32-bit 值 | Flash 字节/ASCII | BM 动作 |
+| ---: | --- | --- |
+| `0x50415543` | `43 55 41 50` / `CUAP` | `Reprogramming_Request_Flag=0`，`Application_Valid_Flag=0xAA`，选择 CustApp `0x90000` |
+| `0x50414450` | `50 44 41 50` / `PDAP` | `Reprogramming_Request_Flag=0`，`Application_Valid_Flag=0xAA`，选择 ProductionApp `0x190000` |
+| 其他值 | - | 初始化 Fee/NvM，并从 NvM 读取重编程请求和 App valid |
+
+随后 BM 不经 NvM，直接从 `0x08F000` 和 `0x04F000` 读取 FBL/PBL valid word。该快速路径会把 RAM 中的 App valid 强制为 `0xAA`，因此它能够覆盖 NvM 中已持久化的 `0x55`。这不是推测，而是当前二进制行为。
+
+供应商实现必须满足：
+
+1. 保持两个 magic、字节序、目标地址和清除重编程请求的行为。
+2. DID `FC01` 更新选择字时必须采用掉电可恢复的提交协议；若要求与当前二进制逐字节等效，则必须至少通过掉电注入证明不会形成误识别的完整 magic。
+3. 评审时必须明确选择字与 App invalid 的优先级。若保留当前行为，安全分析必须接受“合法 `CUAP/PDAP` 可覆盖 NvM invalid”；若修正为 invalid 优先，则属于经客户批准的行为变更，不能宣称二进制等效。
+4. `0x3E3000` 扇区不得与 App NVM 或其他持久化数据共享物理擦除单元。
 
 ### 3.6 普通启动优先级
 
@@ -235,9 +324,9 @@ secBoot_Record
 | `0x10021002` | FBL | `0x50000` | 请求进入 FBL |
 | `0x10061006` | PBL | `0x20000` | 请求进入 PBL |
 | `0x10861086` | PBL | `0x20000` | 请求进入 PBL |
-| `0x10821082` | PBL | `0x20000` | 请求进入 PBL |
+| `0x10821082` | FBL | `0x50000` | 请求进入 FBL |
 
-重编程请求路径仍会检查目标 valid flag，并调用 `SecBoot_Check_Process`。如果目标检查失败，BM 会回退到普通优先级路径，继续尝试 App/FBL/PBL。
+`[C]` 重编程请求路径直接选定 FBL/PBL，**不调用对应目标的 `Is_FLAG_Valid`**，但仍调用 `SecBoot_Check_Process` 和结果记录。目标安全检查失败后，当前实现只尝试 App 作为兜底：App flag 为 `0x55` 或 App 安全检查失败时返回失败并停留 BM；不会重新执行 App -> FBL -> PBL 的完整普通链。
 
 ### 3.8 上电 CAN 强制跳转帧
 
@@ -277,10 +366,67 @@ ASCII 字段 `46 4F 52 43 45 4A 55 4D 50` 是 `FORCEJUMP`。
 
 1. 强制跳转帧只应在 BM 早期窗口内生效。
 2. 匹配必须同时满足 CAN ID 和完整 payload。
-3. 强制跳转只是改变优先级，不能绕过 valid flag 和 secure boot 检查。
+3. `[C]` 强制跳转会绕过 FBL/PBL valid flag 检查，但不得绕过 `SecBoot_Check_Process`。
 4. 对外测试时必须分别覆盖 `02 10 82 ...` 和 `02 10 60 ...` 两种路径。
+5. 当前 `CanIf_RxIndication` 使用固定 16 字节比较，未看到 DLC 先验检查。新实现必须要求 DLC 至少为 16，再精确比较前 16 字节，避免短帧越界读取；合法帧行为保持不变。
+6. `0x4F/0x8F` 是循环计数而非已确认的毫秒值，真实接收窗口必须通过目标硬件计时冻结。
 
-### 3.9 BM 加载和跳转方式
+#### 3.8.1 强制/重编程启动决策伪代码
+
+```c
+if (StayInBootFlag == 1) {
+    target = FBL;                         // 不检查 FBL valid
+} else if (StayInBootFlag == 2) {
+    target = PBL;                         // 不检查 PBL valid
+} else if (isFblRequest(reprogramFlag)) {
+    target = FBL;                         // 0x10021002 / 0x10821082
+} else if (isPblRequest(reprogramFlag)) {
+    target = PBL;                         // 0x10061006 / 0x10861086
+} else {
+    return tryNormalOrder(APP, FBL, PBL); // 每个候选先检查 valid
+}
+
+if (SecBoot_Check_Process(target.address, secInfo) == 0) {
+    return boot(target);
+}
+if (Application_Valid_Flag != 0x55 &&
+    SecBoot_Check_Process(APP_IMAGE_Addr, secInfo) == 0) {
+    return boot(APP);
+}
+return BOOT_FAILED;
+```
+
+### 3.9 安全启动详细流程
+
+`[C]` `SecBoot_Check_Process` 返回码：
+
+| 返回码 | 阶段 |
+| ---: | --- |
+| `0x00` | 允许启动 |
+| `0xF0` | HSSE 镜像加载失败 |
+| `0xF1` | Hash 失败 |
+| `0xF2` | 签名失败 |
+| `0xF3` | 解密失败 |
+| `0xF4` | 安全模块初始化失败 |
+
+安全信息结构 `g_SecBoot_SecInfo` 为 16 字节：`SecBoot_Enc`、`SecBoot_Boot`、`SecBoot_Fls` 各 1 字节，后跟 13 字节保留区。HSSE 路径主要流程为：
+
+```text
+读取镜像安全头
+  -> 镜像地址 + 0xB00 读取 16 字节头
+  -> 从头字段提取描述符数量并按 16 字节扫描 magic
+SecBoot_LoadAppImage
+  -> 从镜像地址 + 0xAE0 开始读
+  -> 分块最大 0x4000，装载到 0x88000000
+Hash（算法枚举 5，64 字节摘要）
+Signature verify
+按策略执行 authenticated decrypt
+记录结果并允许/拒绝启动
+```
+
+`[C]` 当 `rb_IsDeviceTypeHSSE_u8()==0` 时，函数调用仍存在，但当前路径不强制执行上述密码学认证并可返回成功。因此规范应写成“所有目标都经过统一安全决策入口；密码学强制策略由设备类型、生命周期和安全配置决定”，不能错误要求所有开发样件与 HSSE 量产件表现完全相同。`rbSec_Basic_init` 失败或非法生命周期可导致 BM 停留/死循环，供应商必须保留 fail-closed 行为并提供可诊断错误记录。
+
+### 3.10 BM 加载和跳转方式
 
 `BootM_BootTargetSoftware()` 中对目标类型有两类处理。
 
@@ -311,6 +457,8 @@ ImageM_LoadCpu
 2. App 可能是多核 appimage/RPRC 格式，需要解析镜像并加载多个 CPU。
 3. App 路径涉及 PLL 配置、CPU load/run、BSS boot complete 等 SoC 级流程。
 
+`[C]` 当前解析结果支持 4 个 `ImageM_CpuInfo` 项，每项 16 字节：`cpuId`、`clkHz`、`rprcOffset`、`entryPoint`，总计 64 字节。appimage/RPRC 的全部字段、签名范围及多核释放顺序无法仅由 ELF 唯一恢复，必须把现有量产升级包和烧录包作为 golden vectors，冻结字节级解析结果。
+
 ## 4. PBL 详细设计
 
 ### 4.1 PBL 模块职责
@@ -328,6 +476,20 @@ PBL 是实际 OTA / UDS 刷写执行模块。它通过 DCM/CanTp 接收诊断请
 7. 对下载 log block、镜像数据、Hash、签名做验证。
 8. 校验通过后把 App valid flag 写为 `0xAA`。
 9. 擦写开始前把 App valid flag 写为 `0x55`，防止断电后启动半写镜像。
+
+#### 4.1.1 PBL 分层模块合同
+
+| 层 | 当前模块/符号 | 供应商责任 |
+| --- | --- | --- |
+| 系统与调度 | EcuM、OS task | 初始化顺序、1/10ms 周期、后台 job 调度 |
+| 通信 | Can、CanIf、CanTp、PduR、DCM、CanSM、ComM | CAN FD 收发、ISO-TP 分段、UDS 会话与 NRC |
+| 下载适配 | `DcmAppl_*`、`SWDL_*` | 把 UDS 参数转换为 ImageM 操作，不直接绕过权限检查 |
+| 镜像管理 | `ImageM_*` | 地址白名单、下载上下文、写权限、兼容性与认证状态机 |
+| Flash 适配 | `ImageM_FlashPort_*`、FlashPort、FlashHandler、Fls | 异步 job、页缓存、擦除分块、设备状态轮询 |
+| 持久化 | NvM、rbSecFls、BootM | App valid、重编程请求、写回与重启处理 |
+| 安全 | CycurSoc/HSM、`SecFlash_SecCtrl` | SecurityAccess、Hash、签名、生命周期和安全 Flash 访问 |
+
+当前 PBL 中存在 `Fbl_WdgM/Fbl_Port` 符号，但相关函数编译为约 4 字节空操作，不能据此声称当前基线启用了软件喂狗。供应商必须在接口冻结时确认硬件 watchdog 的上电默认状态、禁用方式、Flash 擦写最长阻塞时间和喂狗责任；若启用 watchdog，应补充任务超时与复位测试，但不得改变诊断可观察行为。
 
 ### 4.2 PBL 入口与 OS 任务
 
@@ -429,6 +591,68 @@ FlasPort_ClearPreviousJob
 3. 必须返回 maxNumberOfBlockLength。
 4. 条件不满足时返回 UDS NRC `0x31`。
 5. 成功后清理上一轮 FlashPort job 状态。
+
+`[C]` `ImageM_PortGetMaxNOBL` 返回 `0x0FFF`，即 RequestDownload 正响应中的最大块长度基线为 4095 字节。DCM 层存在较宽的通用地址配置，但最终授权必须由 ImageM 的九块白名单执行，不能用 DCM 通用上限替代。
+
+#### 4.4.1 下载窗口与地址检查
+
+`[C]` `ImageM_PortOpen(address,size)` 遍历 2.4 节九个 `LogBlocks`，仅当以下条件同时成立时建立上下文：
+
+```text
+block.base <= address
+address + size <= block.base + block.length
+请求的起止地址位于同一个 LogBlock
+```
+
+当前二进制没有显式整数溢出保护。供应商必须实现等价正常行为并增加以下防御要求：
+
+1. `size` 必须大于 0。
+2. 使用减法形式或宽位运算检查范围，拒绝 `address + size` 溢出。
+3. 请求不得跨块，即使两个允许块地址连续也必须拒绝。
+4. `ImageM_GetRequestDownloadCondition` 必须再次校验地址、长度与已选上下文。
+5. `ImageM_CheckWritePermission` 必须保证每次 TransferData 写入都完全位于当前窗口。
+6. `ImageM_PortErase` 只接受与已打开上下文完全相同的地址和长度，不接受子集、超集或向扇区边界扩张后的范围。
+7. 底层若必须按物理扇区擦除，擦除前必须证明所有被影响字节均位于同一允许块；否则拒绝请求。
+
+#### 4.4.2 关键运行时数据结构
+
+以下布局由 DWARF `[C]`，供应商内部可重构，但接口语义和状态迁移必须保留：
+
+```c
+typedef struct {                 // sizeof = 16
+    uint8_t  imageId;            // +0
+    uint8_t  reserved0[3];
+    uint32_t blockAddress;       // +4
+    uint32_t blockLength;        // +8
+    bool     isInit;             // +12
+    bool     isValid;            // +13
+    bool     isFPBlock;          // +14
+    uint8_t  reserved1;
+} ImageContext;
+
+typedef struct {                 // sizeof = 16
+    uint8_t  jobId;              // 0 none, 1 erase, 2 write
+    uint8_t  jobStatus;          // 0 done, 1 pending, 2 failed
+    uint8_t  imageId;
+    uint8_t  reserved;
+    uint32_t address;
+    uint32_t length;
+    const uint8_t *srcData;
+} FlashPortJob;
+
+typedef struct {                 // sizeof = 260
+    uint32_t remainingLength;
+    uint8_t  tempData[256];
+} PreviousWriteJob;
+```
+
+写收尾 job 的状态值为 `0=no job`、`1=pending`、`2=done`。任一时刻最多允许一个 FlashPort job；新请求到来时若旧 job 为 pending，必须返回 busy/pending，不得覆盖上下文。
+
+#### 4.4.3 App NVM 保护结论
+
+`[C]` App NVM `[0x340000,0x370000)` 不属于任何 `LogBlocks`。正常 `0x34/0x36` 下载路径和 RID `0xFF00` 擦除路径会因 `ImageM_PortOpen` 失败而拒绝该范围；相邻的 ClibData 块在 `0x340000` 精确结束。因此，按当前 PBL 逻辑升级 App 不会主动擦除 App NVM。
+
+该结论有两个工程前提：底层 Flash 的物理擦除单元不得跨越分区边界，供应商实现不得把擦除范围向 `0x340000` 之外对齐。验收必须读取并比较 NVM 全区升级前后的 SHA-256，并对起点、终点、跨界和整数溢出请求做负向测试。
 
 ### 4.5 RoutineControl 擦除设计
 
@@ -613,9 +837,10 @@ memcmp(计算 hash, 期望 hash, 0x40)
 技术要求：
 
 1. Hash 输出长度为 `0x40` 字节。
-2. Flash 读取和 Hash 更新按 `0x100` 字节块推进。
-3. Hash engine job 需要通过 `CheckJobAcceptance` 确认。
-4. Hash 比对失败时不得置 App valid。
+2. `[C]` 算法枚举值 `5` 对应 SHA-512；供应商必须输出 64 字节 SHA-512 摘要。
+3. Flash 读取和 Hash 更新按 `0x100` 字节块推进。
+4. Hash engine job 需要通过 `CheckJobAcceptance` 确认。
+5. Hash 比对失败时不得置 App valid。
 
 ### 4.11 签名校验
 
@@ -627,6 +852,8 @@ memcmp(计算 hash, 期望 hash, 0x40)
 4. 调用 `cycursoc_JobConfigDefault` 创建安全 job 配置。
 5. 调用 `cycursoc_VerifySignature` 验证签名。
 6. 签名失败会更新结果状态，阻止 valid flag 写入。
+
+`[C]` 当前安全库的签名方案配置枚举值为 `2`，签名读取长度为 `0x200`。仅凭 ELF 不能可靠确定枚举 2 对应的公钥算法、曲线/模数、padding、摘要封装、key slot 和字节序；这些参数必须从当前 HSM 配置和至少一组成功/失败 golden image 冻结。供应商不得仅按“枚举值 2”猜测算法。
 
 反汇编中可见特定镜像类型长度常量：
 
@@ -668,6 +895,27 @@ PBL 中的 App valid 变量：
 3. 写 flag 后必须设置 NvM RAM block dirty/status，并执行 NvM 写回。
 4. 当前 ELF 只有 image context 为 `3` 时才写 App valid flag。若新设计支持多镜像，必须明确 image index 与 valid flag 的映射。
 5. BM 侧对 App 的 valid 判定是 `!= 0x55`，PBL 侧写入是 `0xAA/0x55`，两者必须保持兼容。
+
+特别注意：ProductionApp 的 imageId 为 4，而当前函数仅对 imageId 3 更新 App valid；ProductionApp 的启动允许主要由 `PDAP` 快速选择路径强制形成。供应商不得擅自让 imageId 4 复用 CustApp 的 block 2 提交流程，除非 TBC-10/TBC-12 明确批准。
+
+NvM 接口块合同：App valid 使用 block 2；重编程请求使用 block 3。`BootM_ClearReprogrammingRequestFlag` 把请求清零并把 block 3 标记 dirty，后续 `BootM_MainFunction` 推进 block 2、block 3 及 WriteAll。供应商必须保证复位前写回完成，或在未完成时维持可恢复状态。
+
+### 4.13 DID FC01 快速 App 选择写入
+
+`[C]` `WriteFunc_0xFC01` 是普通 ImageM 白名单之外的专用写入口：
+
+```text
+擦除 0x003E3000，长度 0x1000
+  -> 轮询 Fls 直到结束
+从 FC01 请求数据写入 0x003E3000，长度 0x100
+  -> 轮询 Fls 直到结束
+```
+
+它用于写入 BM 3.5.1 节读取的 `CUAP/PDAP` 快速选择字，不经过九个 `LogBlocks`，也不触及 `[0x340000,0x370000)` App NVM。供应商必须保持地址、擦除长度和 256 字节写长度，并按诊断规范严格校验 FC01 请求长度、会话和安全级别。当前函数本身未确认存在允许值白名单；是否仅允许 `CUAP/PDAP` 和清除值属于 TBC-04/TBC-10。新实现不得把该 DID 扩展为可指定任意地址的 Flash 写接口。
+
+### 4.14 校验请求与兼容性例程
+
+`[C]` RID `0x0212` 触发下载校验，当前实现对同一流程最多接受 8 次请求计数（0 到 7）；超限路径返回值 `0x09`，其对外 NRC 映射需由诊断规范 `[TBC]`。RID `0x0205` 执行完整兼容性检查，并在 App invalid 时把结果按位合入 `0x05`。供应商必须保持例程的异步/pending 语义、结果记录格式以及 App invalid 对兼容性结果的影响。
 
 ## 5. 断电与异常恢复设计
 
@@ -724,6 +972,15 @@ Application_Valid_Flag = 0xAA
 
 下次上电 BM 普通启动路径会优先尝试 App `0x90000`，并继续执行 `SecBoot_Check_Process`。只有安全启动也通过时才真正启动 App。
 
+### 5.5 快速选择字对掉电恢复的影响
+
+上述“invalid 后 BM 不启动 App”的结论仅在 `0x3E3000` 不是合法 `CUAP/PDAP` 时成立。若快速选择字仍有效，BM 当前实现会强制 RAM 中 `Application_Valid_Flag=0xAA`，从而覆盖 NvM 的 `0x55`。这是现有设计的安全缺口/产品策略耦合点，供应商不得在文档中忽略。
+
+量产方案必须在以下两种策略中冻结一种：
+
+1. **完全兼容策略**：保留覆盖行为，但升级事务在置 App invalid 前先原子清除快速选择字，并证明清除持久化先于 App 擦除。
+2. **安全增强策略**：BM 即使识别 `CUAP/PDAP` 也仍以持久化 invalid 为最高优先级。该策略更稳健，但属于行为变更，必须由客户批准并回归所有量产升级包。
+
 ## 6. 安全设计要求
 
 ### 6.1 安全启动要求
@@ -733,6 +990,9 @@ Application_Valid_Flag = 0xAA
 3. `secBoot_Record` 必须记录每次安全启动结果。
 4. 安全启动错误码应写入共享错误区，例如 `u32_secboot_err`。
 5. 强制跳转 CAN 帧和重编程请求不得绕过安全启动。
+6. 强制跳转和重编程请求允许绕过对应 FBL/PBL valid flag，这是当前兼容行为；安全认证失败必须 fail closed。
+7. 非 HSSE 设备的密码学旁路只能由受控设备类型/生命周期配置触发，不得由诊断报文或普通 NvM 数据开启。
+8. 安全初始化失败、生命周期非法、Hash/签名/解密失败均不得跳入未经认证的目标。
 
 ### 6.2 刷写安全要求
 
@@ -753,6 +1013,54 @@ Application_Valid_Flag = 0xAA
 5. 校验通过后的 valid 写入必须晚于 CRC/Hash/签名全部成功。
 
 ## 7. 诊断与 UDS 行为要求
+
+### 7.1 服务、子功能和标识符基线
+
+`[C]` `Dcm_Cfg_DsdServiceTable0_acst` 含 11 个服务：
+
+| SID | 服务 | 当前支持项 |
+| ---: | --- | --- |
+| `0x10` | DiagnosticSessionControl | 子功能 `0x01/0x02/0x03/0x06` |
+| `0x11` | ECUReset | 子功能 `0x01/0x03` |
+| `0x22` | ReadDataByIdentifier | DID `AFF5/F109/F10A/FC00/FC01/FD15` |
+| `0x27` | SecurityAccess | `0x61` 获取 challenge，`0x62` 提交 response |
+| `0x2E` | WriteDataByIdentifier | 包含 FC01 专用写入口 |
+| `0x31` | RoutineControl | RID `0x0205/0x0212/0xFF00` |
+| `0x34` | RequestDownload | 最大块长度 `0x0FFF` |
+| `0x35` | RequestUpload | 已配置，精确权限/范围 `[TBC]` |
+| `0x36` | TransferData | ISO-TP/CAN FD 分块传输 |
+| `0x37` | RequestTransferExit | 异步最后页收尾 |
+| `0x3E` | TesterPresent | 子功能 `0x00` |
+
+DID 的精确长度、缩放、编码、读写权限与会话矩阵应以项目现有 BYD 诊断表为规范源；本表只证明当前 ELF 存在相应配置。供应商应提交由诊断表自动生成或逐项追溯的 DCM 配置，不得只凭符号名补字段定义。
+
+### 7.2 CAN/CanTp 通信基线
+
+`[C]` PBL CAN 接口：
+
+| 方向 | CAN ID | 帧型 | 用途 |
+| --- | ---: | --- | --- |
+| Rx | `0x7DF` | 11-bit standard | 功能寻址 |
+| Rx | `0x74C` | 11-bit standard | 物理寻址 |
+| Tx | `0x7CC` | 11-bit standard, DLC 上限 64 | 诊断响应 |
+| Rx | `0x190C8532` | 29-bit extended | 硬件接收过滤项/项目专用帧 |
+
+CAN FD 支持两个时序配置，具体运行时选择条件 `[TBC]`：
+
+| 配置 | 仲裁相位 | 数据相位 | BRS |
+| --- | --- | --- | ---: |
+| A | 1000 kbit/s；Prop=8, P1=6, P2=5, SJW=1, BRP=4 | 5000 kbit/s；Prop=2, P1=2, P2=3, SJW=2, BRP=2, TDC=100 | 1 |
+| B | 500 kbit/s；Prop=32, P1=31, P2=16, SJW=1, BRP=2 | 2000 kbit/s；Prop=8, P1=7, P2=4, SJW=4, BRP=2, TDC=180 | 1 |
+
+CanTp 的 TX data length 为 64，主函数周期为 1ms。配置表中两组超时 tick 为：组 0 `As/Ar=1000, Bs/Br=250, Cs/Cr=3`；组 1 `As/Ar=1000, Bs/Br=100, Cs/Cr=250`。tick 到实际毫秒的映射及两组的 PDU 归属必须在 HIL 中冻结。
+
+### 7.3 SecurityAccess 基线
+
+`[C]` 安全访问采用 Bosch/CycurSoc challenge-response 接口：`rbDiaSecurityAccess_GetChallenge` 与 `VerifyResponse`，级别子功能为 `0x61/0x62`。`FBl_SeedAndKey_GetAttemptCounter_L1` 和 `SetAttemptCounter` 在当前 ELF 中是返回成功的桩函数，未看到持久化尝试计数；仅确认 `FBl_SeedAndKey_AttemptDelayMonitor` 每 1ms 调用。
+
+供应商不得未经确认新增或删除对外可观察的锁定策略。密钥材料、challenge 长度、response 长度、算法、失败延时、复位后延时是否保留均为安全接口冻结项；量产密钥不得出现在源代码、普通 Flash、测试日志或交付文档中。
+
+### 7.4 NRC 与异步行为
 
 PBL 中可确认的 UDS 相关函数和 NRC：
 
@@ -788,8 +1096,14 @@ PBL 中可确认的 UDS 相关函数和 NRC：
 | BM-06 | CAN ID `0x190C8532` + `02 10 82 FORCEJUMP A5B6C7D8` | 设置 `StayInBootFlag = 1` |
 | BM-07 | CAN ID `0x190C8532` + `02 10 60 FORCEJUMP A5B6C7D8` | 设置 `StayInBootFlag = 2` |
 | BM-08 | 重编程请求 `0x10021002` | 优先尝试 FBL |
-| BM-09 | 重编程请求 `0x10061006/0x10861086/0x10821082` | 优先尝试 PBL |
-| BM-10 | 候选目标 secure boot 失败 | 回退尝试下一个目标或停留错误态 |
+| BM-09 | 重编程请求 `0x10061006/0x10861086` | 直接尝试 PBL，不检查 PBL valid，但执行安全检查 |
+| BM-10 | 强制/重编程目标安全检查失败 | 仅回退 App；App 不可用或失败则停留 BM，不重跑普通链 |
+| BM-11 | 重编程请求 `0x10821082` | 直接尝试 FBL `0x50000` |
+| BM-12 | `0x3E3000=CUAP` | 清重编程请求、App RAM flag=`0xAA`、选择 `0x90000` |
+| BM-13 | `0x3E3000=PDAP` | 清重编程请求、App RAM flag=`0xAA`、选择 `0x190000` |
+| BM-14 | `0x3E3000` 为其他值 | 从 NvM 读取 App valid 和重编程请求 |
+| BM-15 | 强制 CAN 帧 DLC `<16` | 忽略且无越界访问 |
+| BM-16 | HSSE Hash/签名/解密/加载/初始化分别失败 | 分别记录 `F1/F2/F3/F0/F4`，不得启动目标 |
 
 ### 8.2 PBL 刷写测试
 
@@ -805,6 +1119,17 @@ PBL 中可确认的 UDS 相关函数和 NRC：
 | PBL-08 | Hash 失败 | 不写 App valid，错误状态为 Hash 失败 |
 | PBL-09 | 签名失败 | 不写 App valid |
 | PBL-10 | CRC/Hash/签名全部通过 | 写 `Application_Valid_Flag = 0xAA` 并 NvM 写回 |
+| PBL-11 | RequestDownload 最大块长度查询 | 返回 `0x0FFF` |
+| PBL-12 | 请求恰好结束于任一 LogBlock 末端 | 接受；末端后 1 字节拒绝 |
+| PBL-13 | 请求跨两个相邻白名单块 | NRC `0x31`，不产生 Flash job |
+| PBL-14 | 地址加长度发生 32-bit 溢出或长度为 0 | 拒绝，不产生 Flash job |
+| PBL-15 | 擦除范围不是已打开上下文的精确范围 | 拒绝 |
+| PBL-16 | 对 `[0x340000,0x370000)` 任意擦除/下载 | 拒绝，App NVM 全区内容不变 |
+| PBL-17 | 从 ClibData 尾部跨入 `0x340000` | 拒绝，边界扇区和 NVM 内容不变 |
+| PBL-18 | DID FC01 合法写 | 仅擦 `0x3E3000+0x1000`，写 256 字节，BM 正确选择 App |
+| PBL-19 | DID FC01 长度/会话/安全级错误 | 拒绝且选择扇区不变 |
+| PBL-20 | Flash job pending 时插入新 job | 不覆盖原 job，上层收到 busy/pending |
+| PBL-21 | RID 0212 第 1 至第 8 次请求 | 按当前计数策略接受；第 9 次按冻结的 NRC 拒绝 |
 
 ### 8.3 断电恢复测试
 
@@ -817,6 +1142,9 @@ PBL 中可确认的 UDS 相关函数和 NRC：
 | POW-05 | TransferExit 后、校验前断电 | BM 不启动 App |
 | POW-06 | Hash/签名校验中断电 | BM 不启动 App |
 | POW-07 | 写 `0xAA` valid 后断电 | BM 下次优先尝试 App |
+| POW-08 | FC01 擦除后、写入前断电 | BM 不误识别 `CUAP/PDAP`，按 NvM 路径启动 |
+| POW-09 | FC01 写入 4 字节 magic 的每个字节边界断电 | 不形成错误目标选择；结果符合冻结的事务策略 |
+| POW-10 | 快速选择字有效、App invalid 后断电 | 验证 5.5 节选定策略，不允许文档与实车行为不一致 |
 
 ## 9. 反汇编证据摘要
 
@@ -835,6 +1163,9 @@ PBL 中可确认的 UDS 相关函数和 NRC：
 | 每个候选目标调用 `SecBoot_Check_Process` | `Boot_Logic` 多处 |
 | 向量表复制 `0x100` 个 word | `BootM_RelocateVectortable` `0x10211808` |
 | App 多核镜像加载 | `ImageM_LoadCpu` `0x10208670` |
+| 快速选择字 `CUAP/PDAP` 与 ProductionApp 地址 | `NvM_Integration_ReadAll` 调用链及常量交叉引用 |
+| 强制/重编程路径跳过 valid、失败只回退 App | `Boot_Logic` 分支级反汇编 |
+| 安全启动返回码 `F0` 至 `F4` | `SecBoot_Check_Process` |
 
 ### 9.2 PBL 证据
 
@@ -855,32 +1186,208 @@ PBL 中可确认的 UDS 相关函数和 NRC：
 | 签名校验 | `verifySecFlashSignature` `0x102368c0` |
 | 校验通过后写 App valid | `ImageM_VerifyDownloadLogBlock` `0x1022f110` 到 `0x1022f11a` |
 | App valid 写 `0xAA/0x55` 并 NvM 写回 | `ImageM_ImageStatus_WriteApplicationValidFlag` `0x102446a4` |
+| 九个下载白名单区间 | `LogBlocks` 配置表及 `ImageM_PortOpen` |
+| FC01 擦 `0x3E3000/0x1000` 并写 `0x100` | `WriteFunc_0xFC01` `0x102414f0` |
+| 最大下载块长度 `0x0FFF` | `ImageM_PortGetMaxNOBL` |
+| Hash 枚举 5、摘要 64 字节 | `VerifyHashData` DWARF 与反汇编 |
+| 诊断服务、DID、RID 和 CAN ID | DCM/CanIf/Can 配置常量表 |
 
 ## 10. 已知限制和待确认项
 
-1. 本文基于静态反汇编，没有运行时 trace，因此定时、OS 调度优先级和部分状态机时序需要实车或 HIL 验证。
-2. ELF 保留了 DWARF 文件路径和行号，但没有源文件内容，无法确认宏定义、配置生成来源和注释。
-3. FBL 镜像本身未在本次输入中作为单独 ELF 分析；BM 中的 FBL 只按地址和 flag 处理。
-4. 签名校验中的镜像类型常量和地址表来自反汇编，应结合升级包格式进一步确认字段含义。
-5. CANFD OTA 的完整诊断 ID 配置不完全来自这两个 ELF，需要结合诊断描述表、ODX/PDX、xFlash 配置或实车抓包确认。
+以下项目不能由两个 ELF 唯一恢复，必须在供应商编码前关闭：
+
+| TBC ID | 待冻结项 | 所需输入/验证 |
+| --- | --- | --- |
+| TBC-01 | SoC 型号、启动 ROM 合同、核启动顺序、时钟和 MPU/cache 属性 | 芯片手册、现有硬件初始化记录、JTAG trace |
+| TBC-02 | appimage/RPRC、下载 log、镜像头、Hash/签名字段的字节级格式 | 当前量产升级包、打包/签名工具、golden image |
+| TBC-03 | 签名 scheme=2 的算法、参数、key slot、证书/公钥轮换 | HSM/CycurSoc 配置及安全团队规范 |
+| TBC-04 | 全部 DID 的长度/编码/权限、RID 结果格式和 NRC 映射 | BYD 诊断表、ODX/PDX、实车抓包 |
+| TBC-05 | CAN 两套波特率的选择条件、CanTp PDU 到超时组的映射 | 网络设计、HIL 总线测试 |
+| TBC-06 | 安全生命周期枚举及 HSSE/非 HSSE 的量产允许策略 | HSM 生命周期规范 |
+| TBC-07 | OS 任务优先级、栈水位、最坏执行时间、Flash 操作超时 | 目标板测量、静态栈分析 |
+| TBC-08 | watchdog 的启用状态、窗口、喂狗责任和复位原因持久化 | 硬件安全需求、目标板测试 |
+| TBC-09 | 外部 Flash 型号、页/扇区几何、写保护、耐久性和掉电行为 | Flash 数据手册和板级原理图 |
+| TBC-10 | 快速选择字与 NvM invalid 的最终优先级策略 | 客户安全评审决定 |
+| TBC-11 | FBL 自身的诊断/刷写能力和与 BM/PBL 的分工 | FBL ELF/源码或供应商接口文档 |
+| TBC-12 | ProductionApp/CustApp 切换、兼容性规则和回滚策略 | 产品升级策略与发布流程 |
+
+本文基于静态分析，没有运行时 trace；函数名和结构名来自保留符号/DWARF，但宏、生成器输入和源代码注释不可见。任何“与当前完全相同”的声明必须以第 15 节差分测试为准，而不是只比较本文件中的函数名。
 
 ## 11. 重新实现时的最低兼容要求
 
 如果需要从零实现一个兼容当前行为的 BM+PBL，至少必须满足：
 
-1. 保持 BM 目标地址：PBL `0x20000`、FBL `0x50000`、App `0x90000`。
+1. 保持 BM 目标地址：PBL `0x20000`、FBL `0x50000`、CustApp `0x90000`、ProductionApp `0x190000`。
 2. 保持 BM 普通优先级：App -> FBL -> PBL。
 3. 保持强制 CAN 帧：ID `0x190C8532`，payload 使用 `02 10 82/60 FORCEJUMP A5 B6 C7 D8`。
-4. 保持重编程请求 magic：`0x10021002`、`0x10061006`、`0x10861086`、`0x10821082`。
+4. 保持重编程请求映射：`0x10021002/0x10821082` -> FBL，`0x10061006/0x10861086` -> PBL。
 5. 保持 FBL/PBL valid magic：`0xAAAAAAAA`。
 6. 保持 App invalid 值：`0x55`。
 7. 保持 PBL 写 App valid 值：`0xAA`。
 8. 保持 BM 对 App 的判定：`Application_Valid_Flag != 0x55`。
-9. 保持所有启动目标都必须经过 `SecBoot_Check_Process` 等价安全检查。
+9. 保持所有启动目标都经过统一安全决策入口；强制/重编程目标跳过 valid 但不跳过安全决策。
 10. 保持 PBL 擦写前先 invalid App，校验通过后再 valid App。
 11. 保持 Flash 写入页大小 `0x100`，最后一页补 `0x00`。
 12. 保持 Flash 擦除最大块 `0x10000`。
 13. 保持 TransferData 异步写入和 TransferExit 异步收尾机制。
-14. 保持 CRC32 + Hash + 签名三层校验后才允许恢复 App valid。
+14. 保持 CRC32 + SHA-512 + 签名三层校验后才允许恢复 App valid。
 15. 保持 valid flag 写入后的 NvM dirty/status 设置和 WriteAll 持久化。
+16. 保持九个 LogBlock 的地址、imageId 和单块包含检查；App NVM `[0x340000,0x370000)` 永久拒绝普通擦写。
+17. 保持 `CUAP/PDAP`、FC01 专用扇区和 CustApp/ProductionApp 选择行为，除非 TBC-10 批准安全增强变更。
+18. 保持 UDS 服务、子功能、DID/RID、CAN ID、最大块长度及异步 NRC 的对外兼容性。
+19. 保持 HSSE 安全启动错误分类、共享错误记录和 fail-closed 处理。
+20. 保持 appimage/RPRC 对当前所有量产镜像的字节级兼容。
 
+## 12. 供应商系统需求
+
+### 12.1 BM 需求
+
+| ID | 强制需求 | 验证方法 |
+| --- | --- | --- |
+| BM-REQ-001 | BM 必须从 `0x20000` 启动并完成 SoC、Flash、NvM、安全模块和早期 CAN 初始化。 | map/反汇编/JTAG |
+| BM-REQ-002 | BM 必须按 3.5.1 节读取快速选择字，再按对应路径读取 NvM 或强制 App 选择。 | 单元/HIL |
+| BM-REQ-003 | BM 必须直接读取 `0x8F000/0x4F000` 的 FBL/PBL valid word，并按 `0xAAAAAAAA` 判断。 | 故障注入 |
+| BM-REQ-004 | 无强制和重编程请求时必须按 App、FBL、PBL 顺序逐一执行 valid 与安全检查。 | 决策矩阵 |
+| BM-REQ-005 | 强制/重编程路径必须绕过目标 valid、执行安全检查；失败后只尝试 App。 | 分支覆盖/HIL |
+| BM-REQ-006 | CAN 强制帧必须同时匹配 29-bit ID、DLC 和完整 16 字节 payload。 | 总线模糊测试 |
+| BM-REQ-007 | BM 必须区分并持久/共享记录安全初始化、加载、Hash、签名和解密失败。 | HSM 故障注入 |
+| BM-REQ-008 | FBL/PBL 启动必须复制 `0x400` 字节向量表到 `0x0`，完成必要反初始化后跳转。 | JTAG/内存检查 |
+| BM-REQ-009 | App 启动必须兼容当前多核 appimage/RPRC，支持最多 4 个 CPU 描述项。 | golden images |
+| BM-REQ-010 | 无可启动目标时必须留在 BM 安全错误态，不得执行未验证地址。 | 负向测试 |
+
+### 12.2 PBL 需求
+
+| ID | 强制需求 | 验证方法 |
+| --- | --- | --- |
+| PBL-REQ-001 | PBL 必须实现 4.1.1 的分层，并禁止 DCM/SWDL 绕过 ImageM 地址权限。 | 设计/代码评审 |
+| PBL-REQ-002 | PBL 必须运行 1ms、10ms 和后台状态机；长操作不得阻塞 DCM 的周期推进。 | 时序测量 |
+| PBL-REQ-003 | PBL 必须仅允许 2.4 节九个 LogBlock，且每个请求完整位于一个块内。 | 边界/模糊测试 |
+| PBL-REQ-004 | PBL 必须永久保护 `[0x340000,0x370000)`，包括底层扇区对齐后的实际擦除范围。 | 全区哈希/逻辑分析 |
+| PBL-REQ-005 | RequestDownload 必须返回 maxNumberOfBlockLength `0x0FFF` 并清理上一轮非 pending 状态。 | UDS 测试 |
+| PBL-REQ-006 | 擦除请求必须等于已打开窗口，分块最大 `0x10000`，失败必须关闭端口并保持 invalid。 | Flash fault injection |
+| PBL-REQ-007 | 写入必须按 `0x100` 页缓存，支持跨页，最后一页使用 `0x00` 补齐。 | 边界数据比对 |
+| PBL-REQ-008 | 任一时刻最多一个 Flash job，job/context 不得被新请求覆盖。 | 并发请求测试 |
+| PBL-REQ-009 | App 擦除前必须先将 block 2 的 valid 持久化为 `0x55`。 | 掉电注入 |
+| PBL-REQ-010 | 仅 CRC32、SHA-512、签名和兼容性全部通过后，imageId 3 才可写 `0xAA`。 | 篡改测试 |
+| PBL-REQ-011 | 重编程请求清除必须更新 NvM block 3，并在复位前完成或保证恢复。 | 复位注入 |
+| PBL-REQ-012 | FC01 必须只访问 `[0x3E3000,0x3E4000)`，不得复用为任意地址写接口。 | 安全测试 |
+| PBL-REQ-013 | PBL 必须实现第 7 节诊断和 CAN 基线，并由诊断表冻结权限矩阵。 | CANoe/诊断一致性 |
+| PBL-REQ-014 | SecurityAccess 和 HSM 服务必须 fail closed，密钥不得进入普通软件交付物。 | 安全评审 |
+| PBL-REQ-015 | 所有 Flash/HSM pending 状态必须可超时、可取消或可由复位安全恢复。 | 超时/复位测试 |
+
+### 12.3 质量与安全需求
+
+| ID | 强制需求 |
+| --- | --- |
+| QUA-REQ-001 | 供应商必须提供 MISRA/CERT-C 规则集、静态分析报告及全部 deviation 的理由和批准记录。 |
+| QUA-REQ-002 | 所有地址加法、长度换算、页/扇区对齐必须有溢出和越界检查。 |
+| QUA-REQ-003 | 所有外部输入长度必须先检查再访问，包括 CAN DLC、UDS payload、DID、签名和镜像头。 |
+| QUA-REQ-004 | 安全相关比较不得泄漏密钥材料；私钥不得进入 ECU，公钥/slot 更新必须受认证。 |
+| QUA-REQ-005 | 生产版本必须关闭未授权 debug、内存读回和任意地址上传/下载能力。 |
+| QUA-REQ-006 | 构建必须可复现，输出 ELF、HEX/BIN、map、符号、编译器版本、配置输入和 SHA-256 清单。 |
+| QUA-REQ-007 | 需求、设计、代码、单元测试、集成测试必须双向追溯，不允许孤立代码或未验证需求。 |
+| QUA-REQ-008 | 供应商必须提交 WCET、CPU 负载、最大栈水位、Flash 擦写超时和启动时间测量。 |
+
+## 13. 状态机详细设计
+
+### 13.1 BM 状态机
+
+| 状态 | 入口动作 | 退出条件 | 下一状态 |
+| --- | --- | --- | --- |
+| RESET | 复位向量和最小硬件初始化 | 入口完成/异常 | INIT/ERROR |
+| INIT | SoC、CAN、Flash、NvM、安全模块初始化 | 成功/失败 | EARLY_CAN/ERROR |
+| EARLY_CAN | 在计数窗口接收强制帧 | 匹配或超时 | SELECT |
+| SELECT | 评估 StayInBoot、重编程、快速选择、valid | 得到候选/无候选 | AUTH/ERROR |
+| AUTH | 对候选执行统一安全决策并记录结果 | 成功/失败 | LOAD/FALLBACK |
+| FALLBACK | 强制路径只评估 App；普通路径取下一候选 | 有候选/耗尽 | AUTH/ERROR |
+| LOAD | App 多核加载或 FBL/PBL 向量搬移 | 成功/失败 | HANDOVER/ERROR |
+| HANDOVER | 反初始化冲突外设、同步缓存并释放 CPU/跳转 | 不应返回 | 目标软件 |
+| ERROR | 保持安全状态和诊断信息 | 受控复位 | RESET |
+
+### 13.2 PBL 下载状态机
+
+| 状态 | 允许事件 | 必须动作 | 失败处理 |
+| --- | --- | --- | --- |
+| IDLE | 会话切换/SecurityAccess | 建立授权上下文 | NRC/延时 |
+| OPEN | RequestDownload/RID FF00 | 白名单和范围检查，创建 ImageContext | 关闭 context |
+| INVALIDATE | App 擦除前 | block 2=`0x55` 并确认持久化 | 不执行擦除 |
+| ERASE_PENDING | Flash erase job | 每次最大 `0x10000`，周期轮询 | job failed、保持 invalid |
+| RECEIVE | TransferData | 序号、地址、长度、窗口权限检查 | NRC、不得越界写 |
+| WRITE_PENDING | 页写 job | 256 字节提交、更新剩余地址/长度 | job failed、保持 invalid |
+| EXIT_PENDING | TransferExit | 末页补零并写入 | NRC `0x72`、保持 invalid |
+| VERIFY_PENDING | RID 0212/校验触发 | CRC32、SHA-512、签名、兼容性 | 记录具体失败 |
+| COMMIT | App imageId 3 全部通过 | block 2=`0xAA` 并 WriteAll | 保持 invalid |
+| COMPLETE | 响应完成/清重编程请求/复位 | 确认 block 2/3 持久化 | 延迟复位或报错 |
+
+取消、S3 超时、总线中断或 ECUReset 到来时，不得把 ERASE_PENDING 之后的状态直接提交为 valid。任何非法状态迁移均应清理 RAM job/context，保留持久化 invalid，并允许下次进入 PBL 恢复。
+
+### 13.3 Flash job 状态机
+
+```text
+NONE(0)
+  -> submit erase/write
+PENDING(1)
+  -> Fls_MainFunction + GetStatus
+  -> success: DONE(0)
+  -> driver/error/timeout: FAILED(2)
+DONE/FAILED
+  -> 上层读取结果并显式 clear
+  -> NONE
+```
+
+供应商内部枚举可以不同，但不得在结果被消费前重用 job 缓冲；源数据缓冲在 write job 完成前必须保持有效。
+
+## 14. 接口冻结与供应商交付物
+
+### 14.1 编码前必须冻结的接口
+
+1. 完整 4 MiB Flash 分区、物理扇区表、各分区所有者和写保护策略。
+2. BM/PBL/FBL/App 的镜像格式、链接地址、入口、头字段、Hash/签名覆盖范围和 padding。
+3. App 多核 CPU 表、加载地址、PLL/时钟、核释放顺序和超时。
+4. NvM block 2/3 的布局、默认值、冗余/CRC、写周期和掉电原子性。
+5. FBL/PBL valid word 的生产、更新、擦除和恢复流程。
+6. 全部 UDS 服务会话/安全矩阵、DID/RID 数据格式、NRC 和 P2/P2*/S3 时间。
+7. CAN 波特率选择、ID、CanTp 参数、网络唤醒/休眠和 BusOff 恢复。
+8. HSM 生命周期、key slot、签名算法、SecurityAccess 和安全错误处理。
+9. 快速选择字 TBC-10 策略、FC01 权限以及 Cust/Production App 发布流程。
+10. watchdog、复位原因、错误日志和现场恢复策略。
+
+### 14.2 供应商强制交付物
+
+1. 《Bootloader 软件架构设计》和与本文逐条差异说明。
+2. 《BM 详细设计》《PBL 详细设计》、状态机、时序图、接口数据字典和 Flash 分区图。
+3. 全部源码、生成配置、链接脚本、构建脚本、固定工具版本和可复现构建说明。
+4. 编译输出：ELF、HEX/BIN、map、符号文件、反汇编、SHA-256 和烧录包。
+5. 镜像打包/签名/验签工具及其版本化格式规范；密钥按安全流程另行管理。
+6. 单元、集成、HIL、诊断一致性、掉电注入、模糊测试和安全测试报告。
+7. 静态分析、MISRA deviation、代码覆盖率、栈/性能/WCET 和开源软件清单。
+8. 需求到测试的双向追溯矩阵，以及所有 TBC 的关闭证据。
+9. 量产烧录、升级、回滚、故障恢复、版本识别和售后诊断操作说明。
+10. 与当前 ELF 的差分测试报告，列出每一项有意行为变更及客户批准记录。
+
+## 15. 验收策略与通过准则
+
+### 15.1 差分基线
+
+在同一 ECU/HIL 上对“当前 ELF”和“供应商 ELF”施加相同输入，采集 CAN、复位原因、外部 Flash、NvM、共享错误区和启动目标。至少覆盖第 8 节全部用例、九个分区的边界值、所有 UDS 服务、所有安全失败类型及所有掉电点。
+
+通过条件：
+
+1. 除已批准变更外，UDS 正/负响应、NRC、pending 行为、CAN ID/DLC 和启动目标一致。
+2. 所有当前量产升级包均能完成下载、认证和启动；任何单字节篡改均不得提交 valid。
+3. App NVM `[0x340000,0x370000)` 在 CustApp、ProductionApp、BM、FBL、PBL、HSM 和数据块升级前后逐字节一致。
+4. 边界、跨区、溢出、短帧、乱序块、重复块和并发 job 不产生越界读写。
+5. 在擦除、每页写、TransferExit、验证和 valid/NvM 写回的每个关键点断电，系统都能进入已冻结的安全恢复路径。
+6. HSSE 量产生命周期下，未签名、错 key、错 Hash、错签名、截断和回滚镜像按安全策略拒绝。
+7. BM 无合法目标时保持安全状态；不得因无效指针、损坏头或超长字段跳转。
+8. 满足已冻结的启动时间、诊断响应时间、栈水位、CPU 负载和 Flash 操作超时指标。
+
+### 15.2 退出门槛
+
+以下条件全部满足后才可接受供应商版本：零个开放的安全高危/严重缺陷；零个未批准的二进制兼容差异；所有 TBC 已签字关闭；需求和分支覆盖达到双方约定；量产包回归、NVM 保持、掉电恢复和 HSM 安全测试全部通过；交付物可在客户环境中独立复现构建。
+
+## 16. 最终结论
+
+本文已能作为供应商重实现的架构和详细设计输入，但它不是源码的数学等价恢复。已确认的核心功能包括：BM 四目标选择、两类强制入口、普通与强制路径差异、快速 App 选择、HSSE 安全启动、PBL UDS/OS/ImageM/FlashPort 分层、九块下载白名单、App NVM 保护、页写/擦除、CRC32/SHA-512/签名、NvM valid 提交和掉电恢复。
+
+供应商实现“功能与现在相同”的最终判据不是代码结构相似，而是：冻结所有 TBC 后，通过当前 ELF 与新 ELF 的同输入差分测试，并满足第 12 节需求和第 15 节验收门槛。
