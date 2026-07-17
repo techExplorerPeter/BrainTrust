@@ -33,6 +33,8 @@
 | `*.dwarf_info.txt` | DWARF 类型、变量、函数和结构体信息 | 还原数据结构字段、大小和源模块名称 |
 | `SHA256SUMS.txt` | 两个 ELF 及本目录证据文件的 SHA-256 | 检查证据是否被修改 |
 
+`../BM/` 中的 24 张会议截图是独立的 `[S]` 辅助证据，未被混入 ELF `[C]` 结论。截图与当前 ELF 的逐项一致性见主文档 3.11 节。
+
 ## 引用规则
 
 1. 设计文档中的 `[C]` 结论应能在本目录的反汇编、DWARF、符号表或初始化数据中找到直接证据。
@@ -71,3 +73,9 @@ PBL 关键流程位于 `D_CR60_Light_PBL.key_functions.txt`：
 - `NvM_Integration_WriteAll`
 - `WriteFunc_0xFC01`
 
+部分后续补查函数未被最初的 `*.key_functions.txt` 摘录完整收录，应在全量文件中按函数名或地址检索：
+
+- BM lifecycle：在 `D_CR60_Light_BM.disassembly.txt`、`D_CR60_Light_BM.sections_symbols.txt` 检索 `rbSec_Basic_init`、`rbSecBM_CheckLCValid`、`rbSecBM_IsLifeCycleEnforced`、`rbSecFls_Read_MagicNum`
+- PBL Fee bank：在 `D_CR60_Light_PBL.initialized_data.txt` 检索 `1024bf10`，并在全量反汇编检索 `Fee_Prv_ConfigGetPhysStartAddress` / `Fee_Prv_ConfigGetPhysEndAddress`
+- PBL FC00：在 `D_CR60_Light_PBL.disassembly.txt` 检索 `102414a4`
+- PBL 安全地址表：在 DWARF/符号文件检索 `SecAddrInfoFri`、`SecAddrInfoSec`、`SecAddrInfoThi`
