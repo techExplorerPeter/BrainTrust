@@ -1,0 +1,49 @@
+' Shared WF diagram styling. This file is included by each editable .puml source.
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Microsoft YaHei
+skinparam defaultFontSize 17
+skinparam defaultFontColor #1F2937
+skinparam dpi 160
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam ArrowColor #1F4E79
+skinparam ArrowFontColor #1F2937
+skinparam ArrowFontSize 15
+skinparam ArrowThickness 2
+skinparam packageStyle rectangle
+skinparam packageBackgroundColor #FFFFFF
+skinparam packageBorderColor #7F8C8D
+skinparam packageFontColor #1F4E79
+skinparam packageFontSize 19
+skinparam packageFontStyle bold
+skinparam rectangleBackgroundColor #F5F7F9
+skinparam rectangleBorderColor #2F75B5
+skinparam rectangleFontColor #1F2937
+skinparam rectangleFontSize 16
+skinparam componentStyle rectangle
+skinparam componentBackgroundColor #F5F7F9
+skinparam componentBorderColor #2F75B5
+skinparam componentFontColor #1F2937
+skinparam componentFontSize 16
+skinparam activityBackgroundColor #EAF2F8
+skinparam activityBorderColor #2F75B5
+skinparam activityFontColor #1F2937
+skinparam activityDiamondBackgroundColor #FFF2CC
+skinparam activityDiamondBorderColor #BF9000
+skinparam activityStartColor #1F4E79
+skinparam activityEndColor #1F4E79
+skinparam noteBackgroundColor #F3F4F6
+skinparam noteBorderColor #7F8C8D
+skinparam noteFontColor #1F2937
+skinparam noteFontSize 15
+skinparam legendBackgroundColor #FFFFFF
+skinparam legendBorderColor #7F8C8D
+skinparam legendFontColor #1F2937
+skinparam titleFontName Microsoft YaHei
+skinparam titleFontColor #1F4E79
+skinparam titleFontSize 24
+skinparam titleFontStyle bold
+skinparam footerFontColor #7F8C8D
+skinparam footerFontSize 13
+skinparam wrapWidth 260
+hide stereotype

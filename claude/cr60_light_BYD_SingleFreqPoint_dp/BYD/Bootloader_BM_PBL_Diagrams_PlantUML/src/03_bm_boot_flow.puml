@@ -1,0 +1,42 @@
+@startuml
+!include _wf_style.iuml
+
+title BM 启动设计流程\n<size:14>当前 ELF 基线的路径优先级与失败边界</size>
+scale max 1500 width
+
+start
+#DDEBF7:上电 / 复位进入 BM;
+#EAF2F8:<b>BootM_Init</b>\nSoC、Flash、NvM、CAN、安全 Flash;
+#D9EAD3:安全基础初始化 + 早期 CAN 窗口\n接收 FORCEJUMP;
+
+note right
+OnBoard / Customizing：
+比较 0x3E2000 前 128 字节 magic。
+magic 失败时仅 FORCE 1/2 可旁路生命周期门。
+FORCE 不得旁路目标安全检查。
+end note
+
+if (生命周期门通过？) then (是)
+else (否)
+    if (StayInBootFlag = 1 / 2？) then (合法 FORCE)
+    else (无 FORCE)
+        #FDECEC:安全错误态\n停留 BM，不执行未验证目标;
+        stop
+    endif
+endif
+
+#DDEBF7:<b>Boot_Logic 启动选择优先级</b>\n\n1. FORCE：1 → FBL，2 → PBL\n   跳过 valid，但不跳过安全检查；失败无回退\n\n2. 重编程请求：FBL / PBL\n   检查 valid + 安全；失败固定尝试 CustApp\n\n3. 普通启动：App → FBL → PBL\n   每个候选均检查 valid + 安全;
+
+if (获得可启动目标？) then (是)
+    if (imageId = 0？) then (App)
+        #E2F0D9:<b>App 交接</b>\n解析 AppImage / RPRC\n加载多核镜像并跳转 entryPoint;
+    else (imageId 1 / 2)
+        #FCE4D6:<b>FBL / PBL 交接</b>\n安全装载后复制 0x400 字节向量\n0x1021E000 → 0x00000000\nBLX 0;
+    endif
+    #F2F2F2:目标软件运行\n异常返回视为启动失败;
+    stop
+else (否)
+    #FDECEC:无可启动目标\n记录错误并停留 BM;
+    stop
+endif
+@enduml

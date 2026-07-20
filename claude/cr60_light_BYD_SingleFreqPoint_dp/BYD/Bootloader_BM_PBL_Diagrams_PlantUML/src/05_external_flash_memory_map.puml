@@ -1,0 +1,65 @@
+@startuml
+!include _wf_style.iuml
+
+title 4 MiB 外部 Flash 内存布局\n<size:14>示意图不按长度比例绘制；地址边界和所有者以标注为准</size>
+top to bottom direction
+scale max 1800 width
+skinparam nodesep 25
+skinparam ranksep 2
+
+package "可执行镜像与数据区  [0x000000, 0x340000)" as ExecutableArea {
+    rectangle "<b>0x000000-0x020000</b>\nBM\nImageM 可下载" as EX01 #DDEBF7
+    rectangle "<b>0x020000-0x050000</b>\nPBL / PlatformBoot\nImageM 可下载" as EX02 #EAF2F8
+    rectangle "<b>0x050000-0x090000</b>\nFBL / CustBoot\nImageM 可下载" as EX03 #FCE4D6
+    rectangle "<b>0x090000-0x190000</b>\nCustApp\nImageM 可下载" as EX04 #E2F0D9
+    rectangle "<b>0x190000-0x290000</b>\nProductionApp\nImageM 可下载" as EX05 #E2F0D9
+    rectangle "<b>0x290000-0x2D0000</b>\nReserved\n禁止" as EX06 #F2F2F2
+    rectangle "<b>0x2D0000-0x310000</b>\nHSM Image\nImageM 可下载" as EX07 #FCE4D6
+    rectangle "<b>0x310000-0x320000</b>\nWeifuData\nImageM 可下载" as EX08 #D9EAD3
+    rectangle "<b>0x320000-0x330000</b>\nCustData\nImageM 可下载" as EX09 #D9EAD3
+    rectangle "<b>0x330000-0x340000</b>\nClibData\nImageM 可下载" as EX10 #D9EAD3
+
+    EX01 -[hidden]down-> EX02
+    EX02 -[hidden]down-> EX03
+    EX03 -[hidden]down-> EX04
+    EX04 -[hidden]down-> EX05
+    EX05 -[hidden]down-> EX06
+    EX06 -[hidden]down-> EX07
+    EX07 -[hidden]down-> EX08
+    EX08 -[hidden]down-> EX09
+    EX09 -[hidden]down-> EX10
+}
+
+package "NVM、安全与保留区  [0x340000, 0x400000)" as ProtectedArea {
+    rectangle "<b>0x340000-0x350000</b>\nProductionSW / App NVM\nImageM 禁止" as NV01 #FDECEC
+    rectangle "<b>0x350000-0x390000</b>\nCustomer App NVM / Fee Bank 0\nFee 管理" as NV02 #E2F0D9
+    rectangle "<b>0x390000-0x3D0000</b>\nCustomer App NVM / Fee Bank 1\nFee 管理" as NV03 #E2F0D9
+    rectangle "<b>0x3D0000-0x3E0000</b>\nReserved / Undefined\n禁止" as NV04 #F2F2F2
+    rectangle "<b>0x3E0000-0x3E1000</b>\nLifecycle / Security Data\n专用安全路径" as NV05 #FCE4D6
+    rectangle "<b>0x3E1000-0x3E2000</b>\nSecurity Key Data\n专用安全路径" as NV06 #FCE4D6
+    rectangle "<b>0x3E2000-0x3E3000</b>\nLifecycle Magic\nDID FC00 专用" as NV07 #EAF2F8
+    rectangle "<b>0x3E3000-0x3E4000</b>\nFast App Selection\nDID FC01 专用" as NV08 #EAF2F8
+    rectangle "<b>0x3E4000-0x3F0000</b>\nReserved\n当前无入口" as NV09 #F2F2F2
+    rectangle "<b>0x3F0000-0x400000</b>\nFuture Reserved\n当前无入口" as NV10 #F2F2F2
+
+    NV01 -[hidden]down-> NV02
+    NV02 -[hidden]down-> NV03
+    NV03 -[hidden]down-> NV04
+    NV04 -[hidden]down-> NV05
+    NV05 -[hidden]down-> NV06
+    NV06 -[hidden]down-> NV07
+    NV07 -[hidden]down-> NV08
+    NV08 -[hidden]down-> NV09
+    NV09 -[hidden]down-> NV10
+}
+
+EX01 -[hidden]right-> NV01
+ExecutableArea -[hidden]right-> ProtectedArea
+
+legend bottom
+|<#FDECEC><b>NVM 保护结论</b>|
+| 正常 CustApp / ProductionApp 镜像擦除不直接进入 0x340000-0x370000。 |
+| CustApp valid 更新会触发 Fee 事务，可能在 0x350000 起的物理 bank 内编程、回收或迁移。 |
+| 验收应检查逻辑 NvM 数据保持，而不是要求整区原始字节不变。 |
+endlegend
+@enduml

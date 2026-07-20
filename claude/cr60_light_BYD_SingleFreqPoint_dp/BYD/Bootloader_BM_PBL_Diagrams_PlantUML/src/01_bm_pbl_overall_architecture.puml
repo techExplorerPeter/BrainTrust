@@ -1,0 +1,23 @@
+@startuml
+!include _wf_style.iuml
+
+title BM + PBL 总体架构\n<size:14>启动控制链与升级执行链相互独立，通过固定分区和持久状态协同</size>
+left to right direction
+scale max 1800 width
+skinparam linetype ortho
+skinparam nodesep 35
+skinparam ranksep 55
+
+rectangle "整车 / 诊断仪\nOTA 平台" as Vehicle #EAF2F8
+
+rectangle "<b>Bootloader 控制域</b>\n\n<b>PBL</b>\n诊断通信与升级执行\nUDS / ImageM / FlashPort\n\n<b>BM</b>\n初始化 / 生命周期\n安全启动 / 目标选择 / 交接" as Bootloader #DDEBF7
+
+rectangle "<b>外部 Flash 镜像与数据</b>\n\nImageM 可下载镜像：\nPBL  0x020000\nFBL  0x050000\nCustApp  0x090000\nProductionApp  0x190000\n\nPBL：擦除 / 下载 / 校验\nBM：选择 / 加载 / 跳转\n\nHSM / 数据分区 / 安全数据：\n由白名单或专用接口维护" as ExternalFlash #F2F2F2
+
+rectangle "<b>共享平台与可信状态</b>\n\nSoC / Cortex-R5：向量、时钟、RAM、IPC\nFls / Flash Driver：外部 Flash 访问\nNvM / Fee：valid 与重编程状态\nHSM / Security：生命周期、Hash、签名\n共享 RAM：LC + CRC8 / 错误记录\n\nPBL：Flash job / NvM 提交\nBM：初始化 / 安全决策 / 可信状态" as SharedPlatform #E2F0D9
+
+Vehicle -right-> Bootloader : CAN FD / UDS
+Bootloader -right-> ExternalFlash
+Bootloader -right-> SharedPlatform
+ExternalFlash -[hidden]down-> SharedPlatform
+@enduml

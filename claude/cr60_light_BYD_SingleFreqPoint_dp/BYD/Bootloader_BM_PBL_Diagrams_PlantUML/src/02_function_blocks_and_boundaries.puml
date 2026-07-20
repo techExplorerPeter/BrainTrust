@@ -1,0 +1,75 @@
+@startuml
+!include _wf_style.iuml
+
+title 功能块与责任边界\n<size:14>供应商内部模块可重构，但对外接口、状态迁移和保护边界必须保持</size>
+top to bottom direction
+scale max 1800 width
+skinparam linetype ortho
+skinparam nodesep 25
+skinparam ranksep 20
+
+package "BM 启动域" as BMDomain {
+    rectangle "Reset / BootM_Init" as BM1 #EAF2F8
+    rectangle "Early CAN FORCEJUMP" as BM2 #EAF2F8
+    rectangle "Lifecycle + Magic Gate" as BM3 #DDEBF7
+    rectangle "Boot_Logic Target Selection" as BM4 #DDEBF7
+    rectangle "SecBoot + Error Record" as BM5 #FCE4D6
+    rectangle "AppImage / RPRC Loader" as BM6 #E2F0D9
+    rectangle "Vector Relocation / Handover" as BM7 #E2F0D9
+
+    BM1 -[hidden]down-> BM2
+    BM2 -[hidden]down-> BM3
+    BM3 -[hidden]down-> BM4
+    BM4 -[hidden]down-> BM5
+    BM5 -[hidden]down-> BM6
+    BM6 -[hidden]down-> BM7
+}
+
+package "PBL 升级域" as PBLDomain {
+    rectangle "EcuM / OS Scheduler" as PBL1 #DDEBF7
+    rectangle "CAN / CanTp / PduR / DCM" as PBL2 #DDEBF7
+    rectangle "SWDL Diagnostic Adapter" as PBL3 #EAF2F8
+    rectangle "ImageM Context + Whitelist" as PBL4 #EAF2F8
+    rectangle "FlashPort Async Jobs" as PBL5 #FCE4D6
+    rectangle "CRC / Hash / Signature Verify" as PBL6 #FCE4D6
+    rectangle "Valid / Reprogram Commit" as PBL7 #E2F0D9
+
+    PBL1 -[hidden]down-> PBL2
+    PBL2 -[hidden]down-> PBL3
+    PBL3 -[hidden]down-> PBL4
+    PBL4 -[hidden]down-> PBL5
+    PBL5 -[hidden]down-> PBL6
+    PBL6 -[hidden]down-> PBL7
+}
+
+package "共享基础软件 / 硬件域" as SharedDomain {
+    rectangle "Cortex-R5 / Clock / RAM / IPC" as SH1 #EAF2F8
+    rectangle "Fls + External Flash" as SH2 #DDEBF7
+    rectangle "NvM / Fee Physical Banks" as SH3 #E2F0D9
+    rectangle "HSM / Key Slots / Lifecycle" as SH4 #FCE4D6
+    rectangle "Shared LC + CRC8 / Error RAM" as SH5 #F2F2F2
+    rectangle "Watchdog / Reset / Diagnostics" as SH6 #FDECEC
+
+    SH1 -[hidden]down-> SH2
+    SH2 -[hidden]down-> SH3
+    SH3 -[hidden]down-> SH4
+    SH4 -[hidden]down-> SH5
+    SH5 -[hidden]down-> SH6
+}
+
+BM1 -[hidden]right-> PBL1
+PBL1 -[hidden]right-> SH1
+BMDomain -[hidden]right-> PBLDomain
+PBLDomain -[hidden]right-> SharedDomain
+
+BM5 --> SH4
+BM6 --> SH2
+PBL5 --> SH2
+PBL6 --> SH4
+PBL7 --> SH3
+
+note "<b>禁止绕过的边界</b>\nDCM/SWDL 不得直接任意写 Flash。\nBM 不得跳转未通过 valid/安全决策的目标。\nPBL 不得提交未完整验证的镜像。" as Boundary #FDECEC
+BM7 -[hidden]down-> Boundary
+PBL7 -[hidden]down-> Boundary
+SH6 -[hidden]down-> Boundary
+@enduml

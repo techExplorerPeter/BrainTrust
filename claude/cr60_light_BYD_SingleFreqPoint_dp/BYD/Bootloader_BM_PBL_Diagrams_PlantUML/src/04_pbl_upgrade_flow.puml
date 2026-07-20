@@ -1,0 +1,38 @@
+@startuml
+!include _wf_style.iuml
+
+title PBL 升级设计流程\n<size:14>典型 UDS 事务；Flash job、校验和 NvM 提交均按异步状态机推进</size>
+scale max 1550 width
+
+start
+#DDEBF7:进入 PBL\nEcuM / OS / CAN / DCM 初始化;
+#EAF2F8:UDS 会话与 SecurityAccess\n建立授权上下文;
+#FCE4D6:<b>RoutineControl 0xFF00 擦除</b>\n白名单 / 范围检查\nCustApp 擦除前先提交 invalid = 0x55;
+#D9EAD3:<b>RequestDownload</b>\n建立 ImageContext\n返回最大块长 0x0FFF;
+
+note right
+<b>全过程保护规则</b>
+• 仅允许九个 LogBlock
+• 请求不得跨分区
+• 任一时刻仅一个 Flash job
+• pending 不得覆盖 context / 缓冲区
+• 擦除、写入、校验或 NvM 失败均不得置 valid
+• 断电后必须保持可恢复状态
+end note
+
+#D9EAD3:<b>TransferData</b>\n按 0x100 页缓存并异步写 Flash;
+#D9EAD3:<b>RequestTransferExit</b>\n最后一页补 0x00 并完成异步写入;
+#EAF2F8:下载镜像校验\nCRC32 + 按安全策略启用的 SHA-512 / 签名;
+
+if (校验全部通过？) then (是)
+    #E2F0D9:<b>成功提交</b>\nCustApp valid = 0xAA → NvM/Fee 持久化\n→ 受控复位;
+    stop
+else (否)
+    #FDECEC:<b>失败</b>\n保持 / 写回 invalid\n返回明确错误，不启动半写镜像;
+    stop
+endif
+
+legend bottom
+完整服务顺序、会话权限、NRC 和时序以冻结后的 ODX/诊断矩阵为准。
+endlegend
+@enduml
